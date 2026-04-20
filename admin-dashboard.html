@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Surmedia GDP – Panel de administrador</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="dashboard-body">
+
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="logo">S</div>
+      Surmedia GDP
+    </div>
+    <div class="topbar-user">
+      <span>Sesión: <strong id="displayName"></strong></span>
+      <span class="badge badge-admin">Administrador</span>
+      <button class="btn-logout" id="logoutBtn">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main class="dashboard-content">
+    <div class="welcome-banner">
+      <h2>Bienvenido, <span id="welcomeName"></span></h2>
+      <p>Tienes acceso completo al sistema de gestión de personas y recursos humanos.</p>
+    </div>
+
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-icon">👥</div>
+        <h3>Empleados</h3>
+        <p>Gestiona el directorio completo de empleados.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📊</div>
+        <h3>Reportes</h3>
+        <p>Visualiza reportes de asistencia y desempeño.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">⚙️</div>
+        <h3>Configuración</h3>
+        <p>Administra roles, permisos y parámetros del sistema.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📋</div>
+        <h3>Solicitudes</h3>
+        <p>Revisa y aprueba solicitudes de los empleados.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">💼</div>
+        <h3>Nómina</h3>
+        <p>Gestiona el procesamiento de nómina y pagos.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🏢</div>
+        <h3>Organización</h3>
+        <p>Administra departamentos y estructura organizacional.</p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const session = JSON.parse(sessionStorage.getItem('gdp_user') || 'null');
+
+    if (!session || session.role !== 'admin') {
+      window.location.href = 'index.html';
+    } else {
+      document.getElementById('displayName').textContent = session.username;
+      document.getElementById('welcomeName').textContent = session.username;
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      sessionStorage.removeItem('gdp_user');
+      window.location.href = 'index.html';
+    });
+  </script>
+</body>
+</html>

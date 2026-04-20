@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Surmedia GDP – Panel de usuario</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="dashboard-body">
+
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="logo">S</div>
+      Surmedia GDP
+    </div>
+    <div class="topbar-user">
+      <span>Sesión: <strong id="displayName"></strong></span>
+      <span class="badge badge-user">Usuario</span>
+      <button class="btn-logout" id="logoutBtn">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main class="dashboard-content">
+    <div class="welcome-banner">
+      <h2>Bienvenido, <span id="welcomeName"></span></h2>
+      <p>Aquí puedes consultar la información de tu perfil y recursos disponibles.</p>
+    </div>
+
+    <div class="cards-grid">
+      <div class="card">
+        <div class="card-icon">👤</div>
+        <h3>Mi perfil</h3>
+        <p>Consulta y actualiza tu información personal.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📅</div>
+        <h3>Asistencia</h3>
+        <p>Revisa tus registros de asistencia y horarios.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📄</div>
+        <h3>Documentos</h3>
+        <p>Accede a tus documentos y contratos.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">💬</div>
+        <h3>Solicitudes</h3>
+        <p>Gestiona tus solicitudes de permisos y vacaciones.</p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const session = JSON.parse(sessionStorage.getItem('gdp_user') || 'null');
+
+    if (!session || session.role !== 'user') {
+      window.location.href = 'index.html';
+    } else {
+      document.getElementById('displayName').textContent = session.username;
+      document.getElementById('welcomeName').textContent = session.username;
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      sessionStorage.removeItem('gdp_user');
+      window.location.href = 'index.html';
+    });
+  </script>
+</body>
+</html>
