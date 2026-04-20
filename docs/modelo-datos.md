@@ -2,21 +2,82 @@
 
 Descripción de las entidades principales del sistema y sus relaciones.
 
-## Diagrama Entidad-Relación (Simplificado)
+## Diagrama Entidad-Relación
 
+```mermaid
+erDiagram
+    Department ||--o{ Position : "tiene"
+    Department ||--o{ Employee : "pertenece"
+    Position ||--o{ Employee : "ocupa"
+    Position ||--o| PositionDescription : "tiene"
+    Position }o--o{ Competency : "requiere"
+
+    Employee ||--o{ Contract : "tiene"
+    Employee ||--o{ Attendance : "registra"
+    Employee ||--o{ Leave : "solicita"
+    Employee ||--o{ Payroll : "recibe"
+    Employee ||--o{ PerformanceReview : "es evaluado"
+    Employee ||--o{ TrainingEnrollment : "inscrito"
+    Employee ||--o{ EmployeeBenefit : "posee"
+    Employee ||--o{ Recognition : "recibe"
+    Employee ||--o{ JobOffer : "referenciado"
+
+    Training ||--o{ TrainingEnrollment : "tiene"
+
+    PerformanceCycle ||--o{ PerformanceReview : "contiene"
+    PerformanceCycle ||--o{ SuccessionPlan : "genera"
+
+    JobPosting ||--o{ Candidate : "recibe"
+    Candidate ||--o{ Interview : "tiene"
+    Candidate ||--o| JobOffer : "recibe"
+
+    ClimateSurvey ||--o{ ClimateSurveyResult : "produce"
 ```
-Department ──< Position ──< Employee >── Contract
-               │                │
-        PositionDescription  ┌──┼──────────────────────┐
-               │             │  │                      │
-        Competency        Attendance  Leave          Payroll
-        (many-to-many)       │        │           HonoraryReceipt
-                        PerformanceReview
-                             │
-                    ┌────────┼────────┐
-                    │        │        │
-               Training  ClimateSurvey  Recognition
-           (TrainingEnrollment)
+
+## Diagrama de Módulos del Sistema
+
+```mermaid
+graph LR
+    subgraph BL["🧘 Bienestar Laboral"]
+        CS[ClimateSurvey]
+        PC[ParitaryCommittee]
+    end
+
+    subgraph GT["🎯 Gestión de Talento"]
+        JP[JobPosting]
+        CA[Candidate]
+        IV[Interview]
+        ON[Onboarding]
+        TR[Training]
+        IN[Internship]
+    end
+
+    subgraph GV["💡 Gestión de Valores"]
+        REC[Recognition]
+        CE[CulturalEvent]
+        IC[InternalComm]
+    end
+
+    subgraph GD["📊 Gestión del Desempeño"]
+        PR[PerformanceReview]
+        CO[Competency]
+        PD[PositionDescription]
+        SP[SuccessionPlan]
+    end
+
+    subgraph DOC["📁 Gestión Documental"]
+        PY[Payroll]
+        HR[HonoraryReceipt]
+        CT[Contract]
+        EB[EmployeeBenefit]
+        BU[Budget]
+    end
+
+    EMP[👤 Employee] --> BL
+    EMP --> GT
+    EMP --> GV
+    EMP --> GD
+    EMP --> DOC
 ```
 
 ## Organización por Macro-Módulo RRHH

@@ -2,12 +2,47 @@
 
 Plan de desarrollo del sistema GDP por fases, basado en los **5 macro-módulos del DPDO Surmedia** (fuente: Arquitectura.xlsx).
 
+## Línea de Tiempo por Fases
+
+```mermaid
+gantt
+    title Roadmap GDP Surmedia
+    dateFormat  YYYY-MM-DD
+    axisFormat  Sem %W
+
+    section Fase 0 — Fundamentos
+    Setup, Auth, CI/CD           :f0, 2026-04-21, 2w
+
+    section Fase 1 — Gestión Documental
+    Dotación, Contratos          :f1a, after f0, 2w
+    Liquidaciones + Previred     :f1b, after f1a, 2w
+    Honorarios, Beneficios, Ppto :f1c, after f1b, 1w
+
+    section Fase 2 — Gestión de Talento
+    Reclutamiento y Selección    :f2a, after f1c, 2w
+    Onboarding + Prácticas       :f2b, after f2a, 2w
+    Asistencia y Vacaciones      :f2c, after f2b, 1w
+
+    section Fase 3 — Gestión del Desempeño
+    Competencias + Descriptivos  :f3a, after f2c, 2w
+    Ciclo de Evaluaciones        :f3b, after f3a, 2w
+    Planes de Sucesión           :f3c, after f3b, 1w
+
+    section Fase 4 — Bienestar y Valores
+    Clima laboral + Comité       :f4a, after f3c, 2w
+    Capacitaciones (SENCE)       :f4b, after f4a, 1w
+    Comunicación + Reconocim.    :f4c, after f4b, 2w
+
+    section Fase 5 — Optimización
+    Integraciones avanzadas      :f5, after f4c, 4w
+```
+
 ## Mapa de Módulos vs. Fases
 
 | Macro-módulo | Áreas | Fase |
 |---|---|---|
-| Gestión Documental | Contratos, dotación, remuneraciones, honorarios, beneficios | Fase 1-2 |
-| Gestión de Talento | Onboarding, reclutamiento, selección, capacitaciones | Fase 2-3 |
+| Gestión Documental | Contratos, dotación, remuneraciones, honorarios, beneficios | Fase 1 |
+| Gestión de Talento | Onboarding, reclutamiento, selección, capacitaciones | Fase 2 |
 | Gestión del Desempeño | Evaluaciones, competencias, sucesión, descriptivos | Fase 3 |
 | Gestión de Bienestar | Clima laboral, CEAL-SUCESO, comité paritario | Fase 4 |
 | Gestión de Valores | Comunicación interna, reconocimientos, eventos | Fase 4 |

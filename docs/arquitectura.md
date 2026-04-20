@@ -6,41 +6,62 @@ GDP (Gestión de Personas) es una aplicación web fullstack que actúa como sist
 
 ## Diagrama de Arquitectura
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        USUARIOS                                  │
-│         RRHH │ Jefaturas │ Colaboradores │ Admin IT             │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ HTTPS
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    FRONTEND (React + TypeScript)                 │
-│   Portal RRHH │ Portal Colaborador │ Dashboard Jefatura         │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ REST API / GraphQL
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    BACKEND API (Node.js + TypeScript)            │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
-│  │   Módulos    │  │    Auth      │  │   Integration Layer   │  │
-│  │  de negocio  │  │  OAuth 2.0   │  │   (Adaptadores API)   │  │
-│  └──────────────┘  └──────────────┘  └──────────────────────┘  │
-└────────────┬────────────────────────────────┬───────────────────┘
-             │                                │
-             ▼                                ▼
-┌────────────────────┐          ┌─────────────────────────────────┐
-│   PostgreSQL DB    │          │      INTEGRACIONES EXTERNAS      │
-│   (datos propios)  │          │                                  │
-│                    │          │  BUK ←→ BUK Asistencia           │
-│  ┌──────────────┐  │          │  Previred                        │
-│  │ Redis Cache  │  │          │  Google Suite                    │
-│  └──────────────┘  │          │  Microsoft 365                   │
-└────────────────────┘          │  Trello                          │
-                                │  Zapier (webhooks)               │
-                                │  Smart CTO                       │
-                                │  DT Digital                      │
-                                └─────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph USUARIOS["👥 Usuarios"]
+        U1[RRHH / DPDO]
+        U2[Jefaturas]
+        U3[Colaboradores]
+        U4[Admin IT]
+    end
+
+    subgraph FRONTEND["🖥️ Frontend — React + TypeScript"]
+        FE1[Portal RRHH]
+        FE2[Portal Colaborador]
+        FE3[Dashboard Jefatura]
+        FE4[Panel Admin]
+    end
+
+    subgraph BACKEND["⚙️ Backend API — Node.js + TypeScript"]
+        API[REST API]
+        AUTH[Auth OAuth 2.0]
+        BIZ[Módulos de Negocio]
+        INT[Integration Layer]
+    end
+
+    subgraph DB["🗄️ Datos"]
+        PG[(PostgreSQL)]
+        RD[(Redis Cache)]
+    end
+
+    subgraph INTEGRACIONES["🔌 Integraciones Externas"]
+        BUK[BUK]
+        BUKA[BUK Asistencia]
+        PRE[Previred]
+        GGL[Google Suite]
+        MS[Microsoft 365]
+        TRL[Trello]
+        ZAP[Zapier]
+        SCTO[Smart CTO]
+    end
+
+    USUARIOS --> FRONTEND
+    FRONTEND -->|HTTPS / REST| API
+    API --> AUTH
+    API --> BIZ
+    API --> INT
+    BIZ --> PG
+    BIZ --> RD
+    INT -->|sync diario + webhooks| BUK
+    INT -->|sync diario| BUKA
+    INT -->|push mensual| PRE
+    INT -->|OAuth + Drive + Forms| GGL
+    INT -->|OAuth + Mail| MS
+    INT -->|via Zapier| TRL
+    BIZ -->|webhooks salida| ZAP
+    ZAP --> TRL
+    ZAP --> GGL
+    INT --- SCTO
 ```
 
 ## Capas de la Aplicación
@@ -154,10 +175,16 @@ interface IntegrationAdapter {
 
 ### CI/CD (GitHub Actions)
 
-```
-Push a feature/* → Tests → Lint → Build
-Merge a develop  → Tests → Build → Deploy staging
-Merge a main     → Tests → Build → Deploy producción
+```mermaid
+flowchart LR
+    A[Push feature/*] --> B[Lint + Tests]
+    B --> C[Build]
+    D[Merge a develop] --> E[Lint + Tests]
+    E --> F[Build]
+    F --> G[Deploy Staging]
+    H[Merge a main] --> I[Lint + Tests]
+    I --> J[Build]
+    J --> K[Deploy Producción]
 ```
 
 ### Monitoreo (a definir)
