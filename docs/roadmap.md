@@ -1,6 +1,16 @@
 # Roadmap de Desarrollo
 
-Plan de desarrollo del sistema GDP por fases, priorizando funcionalidades críticas para Surmedia.
+Plan de desarrollo del sistema GDP por fases, basado en los **5 macro-módulos del DPDO Surmedia** (fuente: Arquitectura.xlsx).
+
+## Mapa de Módulos vs. Fases
+
+| Macro-módulo | Áreas | Fase |
+|---|---|---|
+| Gestión Documental | Contratos, dotación, remuneraciones, honorarios, beneficios | Fase 1-2 |
+| Gestión de Talento | Onboarding, reclutamiento, selección, capacitaciones | Fase 2-3 |
+| Gestión del Desempeño | Evaluaciones, competencias, sucesión, descriptivos | Fase 3 |
+| Gestión de Bienestar | Clima laboral, CEAL-SUCESO, comité paritario | Fase 4 |
+| Gestión de Valores | Comunicación interna, reconocimientos, eventos | Fase 4 |
 
 ---
 
@@ -23,119 +33,152 @@ Plan de desarrollo del sistema GDP por fases, priorizando funcionalidades críti
 
 ---
 
-## Fase 1 — Core de Personas (Semanas 3-6)
+## Fase 1 — Gestión Documental Core (Semanas 3-7)
 
-**Objetivo:** CRUD completo de colaboradores y organigrama.
+**Objetivo:** Digitalizar los procesos más críticos y cotidianos del DPDO: dotación, contratos, remuneraciones y beneficios.
 
-### Módulos
+**Macro-módulo:** Gestión Documental (parcial)
 
-**Backend:**
+### Tareas Backend
 - [ ] Módulo `employee` (CRUD + validación RUT)
-- [ ] Módulo `department` (árbol de departamentos)
-- [ ] Módulo `position` (cargos por departamento)
-- [ ] Módulo `contract` (contratos laborales)
-- [ ] Módulo `document` (upload a Google Drive)
-- [ ] Sistema de roles y permisos (`ADMIN`, `RRHH_MANAGER`, `MANAGER`, `EMPLOYEE`)
+- [ ] Módulo `department` + `position` (organigrama)
+- [ ] Módulo `contract` (generación, vigencias, alertas de vencimiento)
+- [ ] Módulo `document` (upload/download Google Drive)
+- [ ] Módulo `payroll` (sync desde BUK, informe mensual remuneraciones)
+- [ ] Módulo `honorary-receipt` (boletas de honorarios + informe mensual)
+- [ ] Módulo `benefit` (Pluxee, seguro complementario, enrolamiento oficina)
+- [ ] Módulo `budget` (presupuesto DPDO por categoría)
+- [ ] Sistema de roles y permisos
 
-**Frontend:**
-- [ ] Portal RRHH: listado y ficha del colaborador
-- [ ] Formulario de alta de colaborador
-- [ ] Organigrama visual
-- [ ] Gestión de documentos
+### Tareas Frontend
+- [ ] Portal RRHH: ficha del colaborador y listado de dotación
+- [ ] Organigrama visual con filtro por área
+- [ ] Gestión de contratos y anexos
+- [ ] Módulo de liquidaciones (vista colaborador + RRHH)
+- [ ] Registro de boletas de honorarios
+- [ ] Registro de beneficios por colaborador
+- [ ] Dashboard de presupuesto DPDO
 
-**Integraciones:**
-- [ ] Sync inicial desde BUK (importar colaboradores existentes)
-- [ ] Webhook BUK → GDP (nuevos colaboradores)
+### Integraciones
+- [ ] Sync inicial desde BUK (importar dotación existente)
+- [ ] Webhook BUK → GDP (altas y cambios)
+- [ ] Google Drive: estructura de carpetas por colaborador
+- [ ] Previred: declaración mensual de cotizaciones
+- [ ] Zapier: notificación cuando contrato a plazo fijo vence en 30 días
 
-**Entregable:** Sistema reemplaza el Excel actual como fuente de verdad de colaboradores.
+**Entregable:** RRHH deja de usar Excel como sistema de dotación. Liquidaciones y honorarios con informe mensual automático.
 
 ---
 
-## Fase 2 — Asistencia y Vacaciones (Semanas 7-10)
+## Fase 2 — Gestión de Talento: Onboarding y Reclutamiento (Semanas 8-12)
 
-**Objetivo:** Control de asistencia y gestión de permisos.
+**Objetivo:** Digitalizar el flujo completo de ingreso de personas, desde la vacante hasta los 90 días del colaborador.
 
-### Módulos
+**Macro-módulo:** Gestión de Talento + Gestión Documental (asistencia/vacaciones)
 
-**Backend:**
-- [ ] Módulo `attendance` (sync desde BUK Asistencia)
+### Tareas Backend
+- [ ] Módulo `attendance` (sync BUK Asistencia)
 - [ ] Módulo `leave` (solicitudes, aprobaciones, saldos)
+- [ ] Módulo `recruitment` (JobPosting, Candidate, Interview, JobOffer)
+- [ ] Módulo `onboarding` (checklist dinámico: antecedentes, inducción, mentoría)
+- [ ] Módulo `internship` (prácticas + presupuesto)
 
-**Frontend:**
+### Tareas Frontend
 - [ ] Dashboard de asistencia para jefaturas
 - [ ] Portal del colaborador: solicitar vacaciones/permisos
-- [ ] Bandeja de aprobación para jefaturas
-- [ ] Calendario de ausencias del equipo
+- [ ] Bandeja de aprobación de permisos
+- [ ] Módulo de vacantes y pipeline de candidatos
+- [ ] Formulario de carta oferta
+- [ ] Checklist de onboarding interactivo (por colaborador)
+- [ ] Módulo de prácticas laborales con presupuesto
 
-**Integraciones:**
+### Integraciones
 - [ ] Sync diario BUK Asistencia → GDP
 - [ ] Zapier: vacación aprobada → evento en Google Calendar
+- [ ] Trello: nueva incorporación → tarjeta onboarding automática
+- [ ] Trello: término de contrato → tarjeta offboarding automática
+- [ ] Google Meet: link automático en entrevistas de selección
 
-**Entregable:** RRHH y jefaturas pueden monitorear asistencia. Colaboradores solicitan vacaciones en GDP.
-
----
-
-## Fase 3 — Liquidaciones y Previred (Semanas 11-14)
-
-**Objetivo:** Importar liquidaciones desde BUK y declarar cotizaciones en Previred.
-
-### Módulos
-
-**Backend:**
-- [ ] Módulo `payroll` (sync desde BUK)
-- [ ] Generador de archivo Previred
-- [ ] Flujo de aprobación de nómina
-
-**Frontend:**
-- [ ] Portal del colaborador: ver liquidaciones históricas
-- [ ] Panel RRHH: revisión y aprobación de nómina mensual
-- [ ] Dashboard de costos de nómina
-
-**Integraciones:**
-- [ ] Sync mensual BUK → GDP (liquidaciones)
-- [ ] GDP → Previred (declaración mensual)
-- [ ] Upload de liquidaciones a Google Drive
-
-**Entregable:** Proceso de declaración de cotizaciones automatizado y auditable.
+**Entregable:** Proceso de selección y onboarding completamente digitalizado en GDP. RRHH deja de usar Trello manualmente.
 
 ---
 
-## Fase 4 — Evaluaciones y Reportería (Semanas 15-18)
+## Fase 3 — Gestión del Desempeño (Semanas 13-17)
 
-**Objetivo:** Módulo de evaluaciones de desempeño y reportes gerenciales.
+**Objetivo:** Módulo de evaluaciones, competencias, descriptivos de cargo y planes de sucesión.
 
-### Módulos
+**Macro-módulo:** Gestión del Desempeño
 
-**Backend:**
-- [ ] Módulo `performance` (ciclos de evaluación, formularios, resultados)
-- [ ] Motor de reportes (headcount, rotación, ausentismo, costos)
+### Tareas Backend
+- [ ] Módulo `competency` (diccionario de competencias laborales)
+- [ ] Módulo `position-description` (descriptivos de cargo versionados)
+- [ ] Módulo `performance-cycle` (planificación anual de implementación)
+- [ ] Módulo `performance-review` (evaluación individual + autoevaluación)
+- [ ] Módulo `succession-plan` (planes de sucesión para cargos clave)
+- [ ] Motor de reportes (análisis de métricas de desempeño)
 
-**Frontend:**
-- [ ] Portal de evaluaciones (evaluador y evaluado)
-- [ ] Dashboard gerencial con métricas clave
-- [ ] Exportación de reportes (Excel, PDF)
+### Tareas Frontend
+- [ ] Gestión del diccionario de competencias
+- [ ] CRUD de descriptivos de cargo (con versiones)
+- [ ] Portal de evaluaciones: autoevaluación y evaluación de jefatura
+- [ ] Dashboard de métricas de desempeño por área/período
+- [ ] Módulo de planes de sucesión
+- [ ] Dashboard gerencial con exportación (Excel, PDF)
 
-**Integraciones:**
-- [ ] Trello: automatizar tarjetas de onboarding/offboarding
-- [ ] Zapier: notificaciones automáticas por eventos de RRHH
+### Integraciones
+- [ ] Zapier: inicio de ciclo → notificación masiva a evaluadores/evaluados
+- [ ] Google Calendar: agendar reuniones de evaluación
+- [ ] Sync con BUK (resultados de evaluación)
 
-**Entregable:** RRHH tiene visibilidad completa de métricas y puede generar reportes ejecutivos.
+**Entregable:** Ciclo de evaluación de desempeño 100% en GDP con trazabilidad y reportes.
 
 ---
 
-## Fase 5 — Optimización y Funciones Avanzadas (Semanas 19+)
+## Fase 4 — Bienestar y Valores (Semanas 18-22)
 
-**Objetivo:** Mejoras basadas en feedback del equipo y funciones avanzadas.
+**Objetivo:** Digitalizar la gestión de clima laboral, reconocimientos, comunicación interna y eventos culturales.
+
+**Macro-módulos:** Gestión de Bienestar Laboral + Gestión de Valores + Capacitaciones
+
+### Tareas Backend
+- [ ] Módulo `climate-survey` (CEAL-SUCESO, encuestas internas, comité paritario)
+- [ ] Módulo `recognition` (reconocimientos a colaboradores)
+- [ ] Módulo `cultural-event` (celebraciones, eventos, Año de la Excelencia)
+- [ ] Módulo `internal-communication` (La Alcuza, Círculos SM, canales internos)
+- [ ] Módulo `training` (capacitaciones internas y externas, SENCE, copagadas)
+- [ ] Módulo `training-enrollment` (inscripciones y certificados)
+
+### Tareas Frontend
+- [ ] Portal de encuestas de clima laboral
+- [ ] Registro y seguimiento de actas del comité paritario
+- [ ] Gestión de reconocimientos
+- [ ] Calendario de eventos culturales
+- [ ] Gestión de capacitaciones con seguimiento presupuestario (SENCE)
+- [ ] Portal del colaborador: mis capacitaciones y certificados
+- [ ] Módulo de comunicaciones internas (archivo de La Alcuza, etc.)
+- [ ] Automatización de cumpleaños → notificación interna
+
+### Integraciones
+- [ ] Google Forms: creación automática de encuestas de clima
+- [ ] Zapier: cumpleaños del mes → notificación al canal interno
+- [ ] SENCE: registro de cursos (según disponibilidad de API)
+
+**Entregable:** RRHH tiene trazabilidad de bienestar, cultura y capacitación en GDP.
+
+---
+
+## Fase 5 — Optimización y Funciones Avanzadas (Semanas 23+)
+
+**Objetivo:** Mejoras basadas en feedback real del equipo DPDO y funciones avanzadas.
 
 ### Funciones Planificadas
 
-- [ ] Módulo de selección y reclutamiento
-- [ ] Encuestas de clima laboral (integración con Google Forms)
-- [ ] Integración Smart CTO (datos del equipo tecnológico)
-- [ ] App móvil para marcaje de asistencia (si BUK Asistencia no cubre)
-- [ ] Notificaciones push (vencimiento de contratos, cumpleaños)
-- [ ] API pública para integraciones futuras
-- [ ] Análisis predictivo de rotación (ML básico)
+- [ ] Integración Smart CTO (datos específicos del equipo tecnológico)
+- [ ] Integración DT Digital (iniciativas de transformación)
+- [ ] Notificaciones push (app mobile)
+- [ ] API pública documentada (Swagger/OpenAPI)
+- [ ] Análisis predictivo de rotación
+- [ ] Reportes automáticos programados (headcount mensual, rotación, costos)
 
 ---
 

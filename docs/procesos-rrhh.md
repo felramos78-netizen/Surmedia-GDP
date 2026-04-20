@@ -1,10 +1,110 @@
 # Procesos de Recursos Humanos
 
-Descripción de los flujos de trabajo principales que GDP automatiza y soporta.
+Descripción de los flujos de trabajo principales que GDP automatiza y soporta, organizados según los **5 macro-módulos del DPDO Surmedia**.
 
 ---
 
-## 1. Proceso de Incorporación (Onboarding)
+# MACRO-MÓDULO 1: Gestión de Bienestar Laboral
+
+## 1.1 Encuesta de Clima Laboral (CEAL-SUCESO)
+
+El **CEAL-SUCESO** es el cuestionario oficial del Ministerio de Salud de Chile para medir riesgo psicosocial en el trabajo. Su aplicación es obligatoria cada dos años.
+
+### Flujo
+
+```
+[RRHH abre ciclo de encuesta en GDP]
+         │
+         ├─→ GDP genera link de Google Forms (o CEAL externo)
+         ├─→ Notificación masiva a todos los colaboradores
+         │
+[Período de respuesta (2-4 semanas)]
+         │
+         ▼
+[Cierre del período]
+         │
+         ├─→ GDP registra tasa de participación
+         ├─→ RRHH sube informe de resultados a Drive
+         ├─→ GDP almacena resultados agregados por área
+         └─→ RRHH genera plan de acción
+```
+
+### Tipos de Encuesta
+| Tipo | Obligatoriedad | Frecuencia |
+|---|---|---|
+| CEAL-SUCESO | Legal (MINSAL) | Cada 2 años |
+| Encuesta interna de clima | Voluntaria | Semestral o anual |
+
+## 1.2 Comité Paritario
+
+El comité paritario es un organismo de participación mixta (empresa-trabajadores) exigido por ley para empresas con 25+ trabajadores (Ley 16.744).
+
+### Gestión en GDP
+- Registro de miembros (representantes empresa y trabajadores)
+- Registro de actas de reuniones mensuales
+- Almacenamiento de actas en Google Drive
+- Seguimiento de acuerdos adoptados
+
+---
+
+# MACRO-MÓDULO 2: Gestión de Talento
+
+## 2.1 Reclutamiento y Selección
+
+### Flujo de Reclutamiento
+
+```
+[Jefatura genera requerimiento de vacante]
+         │
+         ▼
+[RRHH valida y crea JobPosting en GDP]
+         │
+         ├─→ Publicar en portales (LinkedIn, Get On Board, AIEP, etc.)
+         ├─→ Publicar oferta interna (si aplica)
+         └─→ Notificar a Trello (tablero Selección)
+```
+
+### Flujo de Selección
+
+```
+[Candidato aplica → GDP registra candidato]
+         │
+         ▼
+[Screening RRHH]
+         │
+    ┌────┴────┐
+  Rechaza   Avanza
+    │         │
+    ▼         ▼
+[Notificar] [Agendar entrevista en GDP]
+             │   (Google Meet automático)
+             ▼
+[Entrevistas por etapas]
+         │
+    ┌────┴────┐
+  Rechaza   Finalista
+             │
+             ▼
+[Generar Carta Oferta en GDP]
+         │
+    ┌────┴────┐
+  Rechaza   Acepta
+             │
+             ▼
+[Iniciar proceso de Onboarding]
+```
+
+### Portales de Publicación Utilizados
+- LinkedIn Jobs
+- Get On Board
+- Trabajando.com
+- Portales de universidades (para prácticas)
+- Página web de Surmedia (si aplica)
+- Comunicación interna (vacantes internas)
+
+---
+
+## 2.2 Proceso de Incorporación (Onboarding)
 
 ### Trigger
 Ingreso de un nuevo colaborador confirmado por RRHH en BUK.
@@ -25,32 +125,109 @@ Ingreso de un nuevo colaborador confirmado por RRHH en BUK.
          └─→ Registrar en GDP (sincronizar desde BUK)
 ```
 
-### Checklist de Onboarding en Trello
+### Etapas del Onboarding en GDP/Trello
 
-**Lista: "Por Hacer"**
-- [ ] Firmar contrato laboral
-- [ ] Entregar documentos requeridos (cédula, certificado AFP, etc.)
-- [ ] Crear cuenta de correo corporativo
-- [ ] Dar acceso a herramientas del equipo
-- [ ] Entregar equipamiento
-- [ ] Presentar al equipo
-- [ ] Enviar invitación a Google Workspace
-- [ ] Asignar perfil en BUK
+**Antecedentes del Ingresante**
+- [ ] Cédula de identidad (ambos lados)
+- [ ] Certificado de AFP vigente
+- [ ] Certificado de salud (Isapre o Fonasa)
+- [ ] Certificado de estudios (si el cargo lo requiere)
+- [ ] Certificado de antecedentes
 
-**Lista: "En Proceso"**
-- Items movidos a medida que se completan
+**Acreditaciones y Firma**
+- [ ] Firma de contrato laboral
+- [ ] Firma de reglamento interno
+- [ ] Firma de política de confidencialidad
 
-**Lista: "Completado"**
-- Items finalizados
+**Inducción Corporativa**
+- [ ] Presentación de Surmedia (historia, valores, áreas)
+- [ ] Presentación del Año de la Excelencia (iniciativa cultural vigente)
+- [ ] Recorrido por instalaciones / Puntos de encuentro
+- [ ] Presentación al equipo y jefatura directa
+
+**Inducción SSO (Seguridad y Salud Ocupacional)**
+- [ ] Reglamento de higiene y seguridad
+- [ ] Procedimientos de emergencia
+- [ ] Derecho a saber (riesgos del cargo)
+
+**Programa de Mentoría**
+- [ ] Asignación de mentor interno
+- [ ] Primera reunión con mentor agendada
+- [ ] Plan de mentoría definido (30/60/90 días)
+
+**Elementos de Ingreso**
+- [ ] Equipamiento entregado (notebook, accesorios)
+- [ ] Tarjeta Pluxee activada
+- [ ] Acceso a Google Workspace (@surmedia.cl)
+- [ ] Acceso a BUK (portal colaborador)
+- [ ] Acceso a herramientas del área
+
+**Feedback e Indefinido**
+- [ ] Reunión de seguimiento al mes 1
+- [ ] Reunión de seguimiento al mes 3
+- [ ] Evaluación período de prueba (mes 3 en contratos a plazo fijo)
+- [ ] Firma de anexo indefinido (si aplica al término del período de prueba)
 
 ### Documentos que GDP genera automáticamente
 - Carta de bienvenida (plantilla en Google Docs)
-- Checklist de documentos pendientes
+- Checklist de antecedentes pendientes
+- Correo de bienvenida con accesos y canales internos
 - Acceso al portal del colaborador
 
 ---
 
-## 2. Proceso de Desvinculación (Offboarding)
+## 2.3 Capacitaciones
+
+### Flujo de Capacitación Externa (SENCE / Copagada / Diplomado / Magíster)
+
+```
+[Colaborador o jefatura solicita capacitación]
+         │
+         ▼
+[RRHH evalúa: ¿hay presupuesto? ¿aplica SENCE?]
+         │
+    ┌────┴────┐
+  Sin ppto  Con ppto
+             │
+             ▼
+[RRHH crea Training en GDP]
+         │
+         ├─→ Inscribir colaborador (TrainingEnrollment)
+         ├─→ Registrar código SENCE si aplica
+         ├─→ Registrar copago del colaborador (si aplica)
+         ▼
+[Capacitación en curso]
+         │
+         ▼
+[Colaborador finaliza → RRHH actualiza estado]
+         │
+         ├─→ Subir certificado a Google Drive
+         ├─→ Cerrar TrainingEnrollment con calificación
+         └─→ Actualizar presupuesto ejecutado DPDO
+```
+
+### Tipos de Capacitación en GDP
+
+| Tipo | Descripción | SENCE |
+|---|---|---|
+| Diplomado | Postítulo, generalmente universidad | A veces |
+| Magíster | Posgrado académico | No |
+| Curso copagado | Empresa + trabajador comparten costo | A veces |
+| Curso SENCE | Financiado total o parcialmente por el Estado | Sí |
+| Taller interno | Impartido por personal interno | No |
+| Capacitación de Liderazgo | Programa para jefaturas | A veces |
+
+---
+
+## 2.4 Prácticas Laborales
+
+- RRHH registra cada práctica con presupuesto mensual asignado
+- GDP lleva el presupuesto anual de prácticas con ejecución real
+- Al término de la práctica, GDP genera el certificado de práctica
+
+---
+
+## 2.5 Proceso de Desvinculación (Offboarding)
 
 ### Trigger
 Registro de término de contrato en BUK o GDP.
@@ -86,7 +263,81 @@ Registro de término de contrato en BUK o GDP.
 
 ---
 
-## 3. Gestión de Vacaciones y Permisos
+---
+
+# MACRO-MÓDULO 3: Gestión de Valores
+
+## 3.1 Comunicación Interna
+
+GDP registra y organiza las comunicaciones internas de Surmedia:
+
+| Canal | Descripción | Frecuencia |
+|---|---|---|
+| **La Alcuza** | Newsletter interno de Surmedia | Mensual |
+| **Círculos SM** | Grupos temáticos de colaboradores | Variable |
+| **Canal general** | Comunicados institucionales de RRHH | Según necesidad |
+| **Cumpleaños** | Felicitaciones y recordatorio | Mensual |
+
+GDP automatiza: recordatorio de cumpleaños del mes → notificación al canal correspondiente vía Zapier.
+
+## 3.2 Reconocimientos
+
+- RRHH o jefaturas registran reconocimientos en GDP
+- GDP notifica al colaborador y lo comunica internamente (según configuración)
+- Los reconocimientos quedan en el expediente del colaborador
+
+## 3.3 Eventos Culturales (Celebraciones, Puntos de Encuentro)
+
+- Registro en GDP con presupuesto y organizador responsable
+- Incluye: Celebraciones anuales, "Año de la Excelencia", reuniones de equipos, actividades de integración
+- Documentación (fotos, presentaciones) vinculada a Drive
+
+---
+
+# MACRO-MÓDULO 4: Gestión del Desempeño
+
+## 4.1 Ciclo Anual de Evaluación de Desempeño
+
+### Planificación (inicio del año)
+- RRHH crea el `PerformanceCycle` en GDP con fechas y alcance
+- Se definen objetivos a nivel empresa, área y cargo
+- Se asignan evaluadores a cada colaborador
+
+### Ejecución (Q3-Q4)
+```
+[GDP activa ciclo → notifica a evaluadores y evaluados]
+         │
+         ▼
+[Colaborador completa autoevaluación en GDP]
+         │
+         ▼
+[Jefatura completa evaluación en GDP]
+         │
+         ▼
+[GDP agenda reunión 1:1 (Google Meet)]
+         │
+         ▼
+[Reunión: acuerdo de puntaje final y plan de desarrollo]
+         │
+         ▼
+[RRHH cierra ciclo → análisis de métricas]
+```
+
+### Planes de Sucesión
+Al cierre de cada ciclo, RRHH identifica colaboradores con potencial para cargos clave y registra `SuccessionPlan` en GDP.
+
+## 4.2 Descriptivos de Cargo y Diccionario de Competencias
+
+- Cada `Position` tiene un `PositionDescription` versionado en GDP
+- El diccionario de competencias define los comportamientos esperados por nivel
+- GDP vincula competencias requeridas a cada cargo
+- Documentos almacenados en Google Drive
+
+---
+
+# MACRO-MÓDULO 5: Gestión Documental
+
+## 5.1 Gestión de Vacaciones y Permisos
 
 ### Solicitud por Portal del Colaborador
 
@@ -125,7 +376,44 @@ Registro de término de contrato en BUK o GDP.
 
 ---
 
-## 4. Proceso de Liquidación de Sueldos
+## 5.2 Boletas de Honorarios
+
+Proceso mensual para prestadores externos que emiten boleta de honorarios:
+
+```
+[Prestador emite boleta (SII electrónico)]
+         │
+         ▼
+[RRHH registra en GDP: monto bruto, retención, neto]
+         │
+         ├─→ Subir PDF de boleta a Google Drive
+         └─→ GDP genera informe mensual consolidado de honorarios
+```
+
+- La retención legal es 10.75% del monto bruto
+- El informe mensual es insumo para el área de Finanzas/Contabilidad
+
+## 5.3 Dotación — Contratos y Administración Documental
+
+- GDP gestiona generación y archivo de contratos y anexos
+- Contratos generados en BUK → sincronizados a GDP → archivados en Drive
+- GDP alerta sobre contratos a plazo fijo próximos a vencer (30 días antes)
+
+## 5.4 Procesos de Soporte (Beneficios)
+
+| Beneficio | Proceso en GDP |
+|---|---|
+| **Seguro complementario** | Registro de póliza, vigencia, cobertura por colaborador |
+| **Tarjeta Pluxee** | Registro de tarjeta asignada, monto mensual, activación |
+| **Enrolamiento oficina** | Registro de accesos físicos y digitales asignados |
+
+## 5.5 Presupuesto DPDO
+
+- RRHH registra el presupuesto anual por categoría (Capacitación, Bienestar, Eventos, Beneficios, etc.)
+- GDP calcula automáticamente el monto ejecutado vs. presupuestado
+- Alertas cuando una categoría supera el 80% de ejecución
+
+## 5.6 Proceso de Liquidación de Sueldos
 
 ### Ciclo Mensual
 

@@ -4,7 +4,19 @@ Sistema integral de Recursos Humanos para Surmedia, diseñado para centralizar, 
 
 ## Descripción
 
-Este repositorio contiene el código fuente, documentación y configuraciones del sistema **GDP (Gestión de Personas)** de Surmedia. El sistema actúa como hub central que conecta e integra el ecosistema digital de la empresa para proveer una experiencia unificada de gestión de personas.
+Este repositorio contiene el código fuente, documentación y configuraciones del sistema **GDP (Gestión de Personas)** de Surmedia, desarrollado y mantenido por el **DPDO (Departamento de Personas y Desarrollo Organizacional)**. El sistema actúa como hub central que conecta e integra el ecosistema digital de la empresa.
+
+## Módulos del Sistema
+
+El sistema GDP está organizado en **5 macro-módulos** que reflejan la arquitectura de RRHH de Surmedia:
+
+| Módulo | Áreas principales |
+|---|---|
+| **Gestión de Bienestar Laboral** | Encuestas de clima (CEAL-SUCESO), Comité paritario |
+| **Gestión de Talento** | Reclutamiento, Selección, Onboarding, Capacitaciones (SENCE, Diplomados, Talleres), Prácticas |
+| **Gestión de Valores** | Comunicación interna (La Alcuza, Círculos SM), Reconocimientos, Eventos culturales |
+| **Gestión del Desempeño** | Evaluaciones, Diccionario de competencias, Descriptivos de cargo, Planes de sucesión |
+| **Gestión Documental** | Contratos, Liquidaciones, Boletas de honorarios, Beneficios (Pluxee, seguro), Presupuesto DPDO |
 
 ## Ecosistema Digital Integrado
 

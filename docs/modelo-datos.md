@@ -6,15 +6,20 @@ Descripción de las entidades principales del sistema y sus relaciones.
 
 ```
 Department ──< Position ──< Employee >── Contract
-                                │
-                    ┌───────────┼───────────┐
-                    │           │           │
-                 Attendance   Leave      Payroll
-                                │
-                          Performance
-                                │
-                           Document
+               │                │
+        PositionDescription  ┌──┼──────────────────────┐
+               │             │  │                      │
+        Competency        Attendance  Leave          Payroll
+        (many-to-many)       │        │           HonoraryReceipt
+                        PerformanceReview
+                             │
+                    ┌────────┼────────┐
+                    │        │        │
+               Training  ClimateSurvey  Recognition
+           (TrainingEnrollment)
 ```
+
+## Organización por Macro-Módulo RRHH
 
 ---
 
@@ -228,6 +233,341 @@ Sincronizado desde BUK.
 | `file_url` | TEXT | URL en Google Drive |
 | `drive_file_id` | VARCHAR(255) | ID del archivo en Google Drive |
 | `uploaded_by` | UUID | FK → `Employee` |
+| `created_at` | TIMESTAMPTZ | |
+
+---
+
+---
+
+## Módulo: Gestión de Bienestar Laboral
+
+### `ClimateSurvey` — Encuesta de Clima Laboral
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `name` | VARCHAR(200) | Nombre de la encuesta |
+| `type` | ENUM | `CEAL_SUCESO`, `INTERNAL`, `PARITARY_COMMITTEE`, `OTHER` |
+| `period_year` | INTEGER | Año de aplicación |
+| `period` | VARCHAR(50) | Ej: `2024-H1`, `2024-Q3` |
+| `status` | ENUM | `DRAFT`, `ACTIVE`, `CLOSED`, `REPORTED` |
+| `start_date` | DATE | Inicio del período de respuesta |
+| `end_date` | DATE | Cierre del período de respuesta |
+| `form_url` | TEXT | URL al formulario (Google Forms u otro) |
+| `results_url` | TEXT | URL al informe de resultados en Drive |
+| `created_by` | UUID | FK → `Employee` |
+| `created_at` | TIMESTAMPTZ | |
+
+**Nota:** Las respuestas individuales de CEAL-SUCESO son procesadas externamente por el MINSAL; GDP registra solo el resultado agregado y los metadatos del proceso.
+
+### `ClimateSurveyResult` — Resultado Agregado de Encuesta
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `survey_id` | UUID | FK → `ClimateSurvey` |
+| `participation_rate` | DECIMAL(5,2) | % de participación |
+| `overall_score` | DECIMAL(5,2) | Puntaje general |
+| `dimension_scores` | JSONB | Puntajes por dimensión |
+| `department_id` | UUID | FK → `Department` (null = resultado global) |
+| `created_at` | TIMESTAMPTZ | |
+
+### `ParitaryCommitteeMeeting` — Acta Comité Paritario
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `meeting_date` | DATE | Fecha de la reunión |
+| `attendees` | JSONB | Lista de asistentes |
+| `topics` | TEXT | Temas tratados |
+| `agreements` | TEXT | Acuerdos adoptados |
+| `document_url` | TEXT | URL al acta en Google Drive |
+| `created_at` | TIMESTAMPTZ | |
+
+---
+
+## Módulo: Gestión de Talento
+
+### `Training` — Capacitación
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `name` | VARCHAR(255) | Nombre de la capacitación |
+| `type` | ENUM | `EXTERNAL_DIPLOMADO`, `EXTERNAL_MAGISTER`, `EXTERNAL_COPAGADO`, `EXTERNAL_SENCE`, `INTERNAL_LEADERSHIP`, `INTERNAL_WORKSHOP` |
+| `modality` | ENUM | `IN_PERSON`, `ONLINE`, `HYBRID` |
+| `provider` | VARCHAR(200) | Institución o proveedor |
+| `duration_hours` | INTEGER | Duración en horas |
+| `start_date` | DATE | Inicio |
+| `end_date` | DATE | Término |
+| `total_cost` | INTEGER | Costo total en CLP |
+| `sence_code` | VARCHAR(50) | Código SENCE (si aplica) |
+| `sence_subsidy` | INTEGER | Monto subsidio SENCE en CLP |
+| `company_cost` | INTEGER | Costo neto empresa en CLP |
+| `status` | ENUM | `PLANNED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED` |
+| `document_url` | TEXT | Documentación en Drive |
+| `created_at` | TIMESTAMPTZ | |
+
+### `TrainingEnrollment` — Inscripción en Capacitación
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `training_id` | UUID | FK → `Training` |
+| `employee_id` | UUID | FK → `Employee` |
+| `status` | ENUM | `ENROLLED`, `COMPLETED`, `FAILED`, `DROPPED` |
+| `completion_date` | DATE | Fecha de finalización |
+| `certificate_url` | TEXT | URL al certificado en Drive |
+| `grade` | VARCHAR(20) | Nota o calificación (si aplica) |
+| `employee_copayment` | INTEGER | Copago del trabajador en CLP |
+| `created_at` | TIMESTAMPTZ | |
+
+### `Internship` — Práctica Laboral
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `employee_id` | UUID | FK → `Employee` (tipo `INTERNSHIP`) |
+| `university` | VARCHAR(200) | Universidad o institución |
+| `career` | VARCHAR(200) | Carrera que estudia |
+| `supervisor_id` | UUID | FK → `Employee` (tutor interno) |
+| `start_date` | DATE | Inicio de práctica |
+| `end_date` | DATE | Término de práctica |
+| `monthly_allowance` | INTEGER | Monto mensual en CLP |
+| `budget_year` | INTEGER | Año presupuestario |
+| `status` | ENUM | `ACTIVE`, `COMPLETED`, `CANCELLED` |
+| `created_at` | TIMESTAMPTZ | |
+
+### `JobPosting` — Vacante
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `position_id` | UUID | FK → `Position` |
+| `department_id` | UUID | FK → `Department` |
+| `title` | VARCHAR(200) | Título del aviso |
+| `description` | TEXT | Descripción del cargo |
+| `requirements` | TEXT | Requisitos |
+| `type` | ENUM | `INTERNAL`, `EXTERNAL`, `BOTH` |
+| `portals` | JSONB | Portales donde se publicó (LinkedIn, Get On Board, etc.) |
+| `status` | ENUM | `DRAFT`, `PUBLISHED`, `CLOSED`, `FILLED`, `CANCELLED` |
+| `published_at` | TIMESTAMPTZ | |
+| `closed_at` | TIMESTAMPTZ | |
+| `hiring_manager_id` | UUID | FK → `Employee` |
+| `created_at` | TIMESTAMPTZ | |
+
+### `Candidate` — Candidato
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `job_posting_id` | UUID | FK → `JobPosting` |
+| `full_name` | VARCHAR(200) | Nombre completo |
+| `email` | VARCHAR(255) | Correo electrónico |
+| `phone` | VARCHAR(20) | Teléfono |
+| `cv_url` | TEXT | URL al CV en Drive |
+| `source` | ENUM | `LINKEDIN`, `GET_ON_BOARD`, `REFERRAL`, `INTERNAL`, `UNIVERSITY`, `OTHER` |
+| `status` | ENUM | `APPLIED`, `SCREENING`, `INTERVIEW`, `TEST`, `OFFER`, `HIRED`, `REJECTED` |
+| `rejection_reason` | TEXT | Motivo de descarte |
+| `created_at` | TIMESTAMPTZ | |
+
+### `Interview` — Entrevista
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `candidate_id` | UUID | FK → `Candidate` |
+| `interviewer_id` | UUID | FK → `Employee` |
+| `type` | ENUM | `SCREENING`, `TECHNICAL`, `CULTURAL_FIT`, `PANEL`, `FINAL` |
+| `scheduled_at` | TIMESTAMPTZ | Fecha y hora programada |
+| `meet_link` | TEXT | Link de Google Meet |
+| `result` | ENUM | `PENDING`, `APPROVED`, `REJECTED` |
+| `notes` | TEXT | Comentarios del entrevistador |
+| `created_at` | TIMESTAMPTZ | |
+
+### `JobOffer` — Carta Oferta
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `candidate_id` | UUID | FK → `Candidate` |
+| `position_id` | UUID | FK → `Position` |
+| `offered_salary` | INTEGER | Remuneración ofrecida en CLP |
+| `start_date` | DATE | Fecha de ingreso propuesta |
+| `contract_type` | ENUM | FK a enum de `Contract.type` |
+| `status` | ENUM | `SENT`, `ACCEPTED`, `REJECTED`, `EXPIRED` |
+| `sent_at` | TIMESTAMPTZ | |
+| `responded_at` | TIMESTAMPTZ | |
+| `document_url` | TEXT | URL a la carta oferta en Drive |
+
+---
+
+## Módulo: Gestión de Valores
+
+### `Recognition` — Reconocimiento
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `employee_id` | UUID | FK → `Employee` (reconocido) |
+| `given_by_id` | UUID | FK → `Employee` (quién reconoce) |
+| `type` | VARCHAR(100) | Tipo de reconocimiento (ej: Excelencia, Innovación) |
+| `description` | TEXT | Descripción del reconocimiento |
+| `period` | VARCHAR(50) | Ej: `2024-Q2` |
+| `public` | BOOLEAN | Si se comunica internamente |
+| `created_at` | TIMESTAMPTZ | |
+
+### `CulturalEvent` — Evento Cultural / Celebración
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `name` | VARCHAR(200) | Nombre del evento |
+| `type` | ENUM | `BIRTHDAY`, `ANNIVERSARY`, `ANNUAL_CELEBRATION`, `MEETING_POINT`, `OTHER` |
+| `description` | TEXT | Descripción |
+| `event_date` | DATE | Fecha del evento |
+| `budget` | INTEGER | Presupuesto en CLP |
+| `responsible_id` | UUID | FK → `Employee` (organizador) |
+| `created_at` | TIMESTAMPTZ | |
+
+### `InternalCommunication` — Comunicación Interna
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `channel` | ENUM | `LA_ALCUZA`, `CIRCULOS_SM`, `INTERNAL_CHANNEL`, `OTHER` |
+| `title` | VARCHAR(255) | Título de la comunicación |
+| `content` | TEXT | Contenido o resumen |
+| `published_at` | TIMESTAMPTZ | Fecha de publicación |
+| `author_id` | UUID | FK → `Employee` |
+| `url` | TEXT | Link al contenido (Drive, plataforma interna) |
+| `created_at` | TIMESTAMPTZ | |
+
+---
+
+## Módulo: Gestión del Desempeño
+
+### `Competency` — Competencia Laboral (Diccionario)
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `name` | VARCHAR(150) | Nombre de la competencia |
+| `description` | TEXT | Descripción de la competencia |
+| `type` | ENUM | `CORE`, `LEADERSHIP`, `TECHNICAL`, `FUNCTIONAL` |
+| `levels` | JSONB | Definición de niveles (básico, intermedio, avanzado, experto) |
+| `is_active` | BOOLEAN | |
+| `created_at` | TIMESTAMPTZ | |
+
+### `PositionDescription` — Descriptivo de Cargo
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `position_id` | UUID | FK → `Position` |
+| `mission` | TEXT | Misión del cargo |
+| `responsibilities` | JSONB | Lista de responsabilidades |
+| `required_education` | TEXT | Formación requerida |
+| `required_experience` | TEXT | Experiencia requerida |
+| `competencies` | JSONB | Competencias requeridas con nivel mínimo |
+| `version` | INTEGER | Versión del descriptivo |
+| `approved_by` | UUID | FK → `Employee` |
+| `approved_at` | TIMESTAMPTZ | |
+| `document_url` | TEXT | URL al documento en Drive |
+| `created_at` | TIMESTAMPTZ | |
+
+### `PerformanceCycle` — Ciclo de Evaluación
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `name` | VARCHAR(200) | Ej: `Evaluación Anual 2024` |
+| `period` | VARCHAR(20) | Ej: `2024-ANNUAL`, `2024-H1` |
+| `start_date` | DATE | Inicio del ciclo |
+| `end_date` | DATE | Cierre del ciclo |
+| `status` | ENUM | `DRAFT`, `ACTIVE`, `CLOSED` |
+| `created_by` | UUID | FK → `Employee` |
+| `created_at` | TIMESTAMPTZ | |
+
+### `PerformanceReview` — Evaluación de Desempeño Individual
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `cycle_id` | UUID | FK → `PerformanceCycle` |
+| `employee_id` | UUID | FK → `Employee` (evaluado) |
+| `evaluator_id` | UUID | FK → `Employee` (evaluador) |
+| `self_score` | DECIMAL(4,2) | Autoevaluación |
+| `manager_score` | DECIMAL(4,2) | Evaluación del jefe |
+| `final_score` | DECIMAL(4,2) | Puntaje final consensuado |
+| `competency_scores` | JSONB | Puntaje por competencia |
+| `goals_achievement` | JSONB | Logro de objetivos |
+| `development_plan` | TEXT | Plan de desarrollo acordado |
+| `status` | ENUM | `PENDING`, `SELF_EVAL`, `MANAGER_EVAL`, `MEETING_SCHEDULED`, `COMPLETED` |
+| `completed_at` | TIMESTAMPTZ | |
+| `created_at` | TIMESTAMPTZ | |
+
+### `SuccessionPlan` — Plan de Sucesión
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `position_id` | UUID | FK → `Position` (cargo crítico) |
+| `current_holder_id` | UUID | FK → `Employee` (titular actual) |
+| `successor_id` | UUID | FK → `Employee` (sucesor identificado) |
+| `readiness` | ENUM | `READY_NOW`, `READY_1_2_YEARS`, `READY_3_5_YEARS` |
+| `development_actions` | TEXT | Acciones de desarrollo planificadas |
+| `cycle_id` | UUID | FK → `PerformanceCycle` |
+| `created_at` | TIMESTAMPTZ | |
+
+---
+
+## Módulo: Gestión Documental
+
+### `HonoraryReceipt` — Boleta de Honorarios
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `provider_rut` | VARCHAR(12) | RUT del prestador (cifrado) |
+| `provider_name` | VARCHAR(200) | Nombre del prestador |
+| `period_year` | INTEGER | Año del período |
+| `period_month` | INTEGER | Mes del período (1-12) |
+| `gross_amount` | INTEGER | Monto bruto en CLP |
+| `retention_amount` | INTEGER | Monto retención (10.75%) |
+| `net_amount` | INTEGER | Monto neto pagado en CLP |
+| `service_description` | TEXT | Descripción del servicio |
+| `document_number` | VARCHAR(50) | Número de boleta |
+| `document_url` | TEXT | URL al documento en Drive |
+| `created_at` | TIMESTAMPTZ | |
+
+### `EmployeeBenefit` — Beneficio Asignado
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `employee_id` | UUID | FK → `Employee` |
+| `type` | ENUM | `PLUXEE_CARD`, `COMPLEMENTARY_INSURANCE`, `OFFICE_ENROLLMENT`, `OTHER` |
+| `provider` | VARCHAR(100) | Proveedor del beneficio |
+| `policy_number` | VARCHAR(100) | N° póliza o número de contrato |
+| `start_date` | DATE | Inicio del beneficio |
+| `end_date` | DATE | Término (null si es permanente) |
+| `monthly_amount` | INTEGER | Monto mensual CLP (si aplica) |
+| `is_active` | BOOLEAN | |
+| `document_url` | TEXT | Documentación en Drive |
+| `created_at` | TIMESTAMPTZ | |
+
+### `DPDOBudget` — Presupuesto DPDO
+
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | UUID | |
+| `year` | INTEGER | Año presupuestario |
+| `category` | ENUM | `TRAINING`, `WELLBEING`, `EVENTS`, `BENEFITS`, `INTERNSHIPS`, `RECRUITMENT`, `OTHER` |
+| `planned_amount` | INTEGER | Monto presupuestado en CLP |
+| `executed_amount` | INTEGER | Monto ejecutado en CLP (calculado) |
+| `notes` | TEXT | Observaciones |
+| `document_url` | TEXT | URL al presupuesto en Drive |
 | `created_at` | TIMESTAMPTZ | |
 
 ---

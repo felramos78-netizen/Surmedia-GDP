@@ -65,20 +65,30 @@ GDP (Gestión de Personas) es una aplicación web fullstack que actúa como sist
 
 **Tecnologías:** Node.js + TypeScript + Fastify (o Express)
 
-**Módulos de Negocio:**
+**Módulos de Negocio** (alineados a los 5 macro-módulos de DPDO Surmedia):
 
-| Módulo | Responsabilidad |
-|---|---|
-| `employee` | CRUD colaboradores, perfiles, datos personales |
-| `contract` | Contratos laborales, historial, vigencias |
-| `attendance` | Asistencia, marcajes, turnos, horas extra |
-| `leave` | Vacaciones, permisos, licencias |
-| `payroll` | Liquidaciones, historial de remuneraciones |
-| `performance` | Evaluaciones de desempeño, metas |
-| `document` | Gestión documental del colaborador |
-| `org` | Organigrama, departamentos, cargos |
-| `auth` | Autenticación, autorización, roles |
-| `reports` | Reportería y exportaciones |
+| Módulo Backend | Macro-módulo RRHH | Responsabilidad |
+|---|---|---|
+| `wellbeing` | Gestión de Bienestar Laboral | Encuestas clima, CEAL-SUCESO, comité paritario |
+| `talent.training` | Gestión de Talento | Capacitaciones internas y externas, SENCE |
+| `talent.onboarding` | Gestión de Talento | Onboarding, inducción, mentoría, elementos de ingreso |
+| `talent.recruitment` | Gestión de Talento | Vacantes, portales de publicación, candidatos |
+| `talent.selection` | Gestión de Talento | Entrevistas, pruebas, carta oferta |
+| `talent.internship` | Gestión de Talento | Prácticas laborales y presupuesto |
+| `values.communication` | Gestión de Valores | La Alcuza, cumpleaños, comunicación interna |
+| `values.culture` | Gestión de Valores | Organigrama, eventos, reconocimientos |
+| `performance.review` | Gestión del Desempeño | Ciclos de evaluación, métricas, planes de sucesión |
+| `performance.competency` | Gestión del Desempeño | Diccionario de competencias, descriptivos de cargo |
+| `docmgmt.payroll` | Gestión Documental | Liquidaciones, informe mensual remuneraciones |
+| `docmgmt.contracts` | Gestión Documental | Contratos, anexos, dotación |
+| `docmgmt.honorary` | Gestión Documental | Boletas de honorarios mensuales |
+| `docmgmt.benefits` | Gestión Documental | Seguro complementario, Pluxee, enrolamiento |
+| `docmgmt.budget` | Gestión Documental | Presupuesto DPDO |
+| `employee` | Transversal | CRUD colaboradores, perfiles, datos personales |
+| `attendance` | Transversal | Asistencia sync desde BUK Asistencia |
+| `leave` | Transversal | Vacaciones, permisos, licencias |
+| `auth` | Transversal | Autenticación, autorización, roles |
+| `reports` | Transversal | Reportería y exportaciones |
 
 **Capa de Integración (`src/integrations/`):**
 Cada integración externa tiene su propio adaptador que abstrae la complejidad de la API de terceros.
