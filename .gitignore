@@ -30,6 +30,10 @@ pnpm-debug.log*
 
 # Prisma generated
 prisma/generated/
+backend/generated/
+
+# Backend .env (sensitive)
+backend/.env
 
 # OS
 .DS_Store
