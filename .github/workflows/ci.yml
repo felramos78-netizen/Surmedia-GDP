@@ -29,18 +29,21 @@ jobs:
   backend:
     name: Backend — type-check & build
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: backend/package-lock.json
 
-      - run: npm ci
-      - run: npm run generate
-      - run: npm run lint
+      - name: Install dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npm run generate
+
+      - name: Type check
+        working-directory: backend
+        run: npm run lint
