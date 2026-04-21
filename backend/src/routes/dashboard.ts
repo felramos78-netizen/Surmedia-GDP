@@ -1,5 +1,18 @@
 import type { FastifyPluginAsync } from 'fastify'
 
+interface BirthdayEmployee {
+  id: string
+  firstName: string
+  lastName: string
+  birthDate: Date | null
+  position: { title: string } | null
+}
+
+interface BirthdayEntry extends BirthdayEmployee {
+  daysUntil: number
+  nextBirthday: string
+}
+
 const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate)
 
@@ -35,12 +48,11 @@ const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
           birthDate: true,
           position: { select: { title: true } },
         },
-      }),
+      }) as Promise<BirthdayEmployee[]>,
     ])
 
     const today = new Date()
-    type BirthdayEntry = (typeof upcomingBirthdays)[number] & { daysUntil: number; nextBirthday: string }
-    const nextBirthdays = upcomingBirthdays
+    const nextBirthdays: BirthdayEntry[] = (upcomingBirthdays as BirthdayEmployee[])
       .map((e): BirthdayEntry | null => {
         if (!e.birthDate) return null
         const bd = new Date(e.birthDate)
@@ -52,7 +64,7 @@ const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
         return { ...e, daysUntil, nextBirthday: nextBd.toISOString() }
       })
       .filter((e): e is BirthdayEntry => e !== null)
-      .sort((a, b) => a.daysUntil - b.daysUntil)
+      .sort((a: BirthdayEntry, b: BirthdayEntry) => a.daysUntil - b.daysUntil)
       .slice(0, 5)
 
     return reply.send({
