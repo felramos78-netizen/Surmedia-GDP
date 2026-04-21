@@ -1,9 +1,8 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink } from 'react-router-dom'
 import {
   Users, FileText, UserPlus, Calendar, BarChart3,
-  LogOut, Settings, Building2, ChevronDown,
+  Settings, Building2,
 } from 'lucide-react'
-import { useAuthStore } from '@/store/auth'
 
 const navItems = [
   { to: '/dashboard', icon: BarChart3, label: 'Dashboard' },
@@ -15,14 +14,6 @@ const navItems = [
 ]
 
 export default function AppLayout() {
-  const { user, logout } = useAuthStore()
-  const navigate = useNavigate()
-
-  function handleLogout() {
-    logout()
-    navigate('/login')
-  }
-
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
@@ -52,32 +43,13 @@ export default function AppLayout() {
         </nav>
 
         <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold text-sm">
-              {user?.name?.charAt(0).toUpperCase()}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
-              <p className="text-xs text-gray-500 truncate">{user?.email}</p>
-            </div>
-            <ChevronDown size={14} className="text-gray-400" />
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => navigate('/settings')}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-            >
-              <Settings size={14} />
-              Config.
-            </button>
-            <button
-              onClick={handleLogout}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-md transition-colors"
-            >
-              <LogOut size={14} />
-              Salir
-            </button>
-          </div>
+          <button
+            onClick={() => {}}
+            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+          >
+            <Settings size={14} />
+            Configuración
+          </button>
         </div>
       </aside>
 
