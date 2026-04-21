@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify'
-import { getGoogleAuthUrl, handleGoogleCallback } from '../services/auth.service'
+import { getGoogleAuthUrl, handleGoogleCallback, AuthError } from '../services/auth.service'
 
 const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get('/google', async (_req, reply) => {
@@ -27,7 +27,8 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         reply.redirect(`${process.env.APP_URL}/auth/callback?token=${token}&user=${userEncoded}`)
       } catch (err) {
         fastify.log.error(err)
-        reply.redirect(`${process.env.APP_URL}/login?error=auth_failed`)
+        const errorCode = err instanceof AuthError ? err.code : 'auth_failed'
+        reply.redirect(`${process.env.APP_URL}/login?error=${errorCode}`)
       }
     },
   )

@@ -1,10 +1,24 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth'
+
+const ERROR_MESSAGES: Record<string, string> = {
+  oauth_denied: 'Cancelaste el acceso con Google.',
+  token_exchange_failed: 'No se pudo completar la autenticación con Google. Intenta de nuevo.',
+  token_verify_failed: 'El token de Google no es válido. Intenta de nuevo.',
+  wrong_domain: 'Solo cuentas @surmedia.cl pueden ingresar.',
+  db_error: 'Error de base de datos. Contacta al administrador.',
+  db_write_error: 'No se pudo guardar la sesión. Contacta al administrador.',
+  auth_failed: 'Error al iniciar sesión. Intenta de nuevo.',
+}
 
 export default function LoginPage() {
   const { isAuthenticated } = useAuthStore()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+
+  const errorCode = searchParams.get('error')
+  const errorMessage = errorCode ? (ERROR_MESSAGES[errorCode] ?? ERROR_MESSAGES.auth_failed) : null
 
   useEffect(() => {
     if (isAuthenticated) navigate('/dashboard')
@@ -28,6 +42,12 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold text-gray-900">GDP Surmedia</h1>
           <p className="text-gray-500 mt-2">Gestión de Personas y Desarrollo Organizacional</p>
         </div>
+
+        {errorMessage && (
+          <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            {errorMessage}
+          </div>
+        )}
 
         <div className="space-y-3">
           <button
