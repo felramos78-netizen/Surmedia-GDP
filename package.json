@@ -2,11 +2,20 @@
   "name": "gdp-surmedia",
   "version": "0.0.1",
   "private": true,
-  "workspaces": ["frontend", "backend"],
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "scripts": {
     "dev:frontend": "npm run dev --workspace=frontend",
     "dev:backend": "npm run dev --workspace=backend",
     "build": "npm run build --workspace=frontend && npm run build --workspace=backend",
     "lint": "npm run lint --workspace=frontend && npm run lint --workspace=backend"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.7.0"
+  },
+  "devDependencies": {
+    "prisma": "^7.7.0"
   }
 }
