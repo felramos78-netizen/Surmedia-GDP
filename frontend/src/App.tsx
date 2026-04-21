@@ -6,6 +6,8 @@ import LoginPage from '@/pages/auth/LoginPage'
 import AuthCallback from '@/pages/auth/AuthCallback'
 import DashboardPage from '@/pages/dashboard/DashboardPage'
 import EmployeesPage from '@/pages/employees/EmployeesPage'
+import ContractsPage from '@/pages/contracts/ContractsPage'
+import LeavePage from '@/pages/leave/LeavePage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,6 +27,8 @@ export default function App() {
             <Route element={<AppLayout />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/employees" element={<EmployeesPage />} />
+              <Route path="/contracts" element={<ContractsPage />} />
+              <Route path="/leave" element={<LeavePage />} />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Route>
           </Route>

@@ -6,6 +6,11 @@ import prismaPlugin from './plugins/prisma'
 import authenticatePlugin from './middleware/authenticate'
 import authRoutes from './routes/auth'
 import employeeRoutes from './routes/employees'
+import departmentRoutes from './routes/departments'
+import positionRoutes from './routes/positions'
+import contractRoutes from './routes/contracts'
+import leaveRoutes from './routes/leaves'
+import dashboardRoutes from './routes/dashboard'
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
 
@@ -26,6 +31,11 @@ async function bootstrap() {
 
   await app.register(authRoutes, { prefix: '/api/auth' })
   await app.register(employeeRoutes, { prefix: '/api/employees' })
+  await app.register(departmentRoutes, { prefix: '/api/departments' })
+  await app.register(positionRoutes, { prefix: '/api/positions' })
+  await app.register(contractRoutes, { prefix: '/api/contracts' })
+  await app.register(leaveRoutes, { prefix: '/api/leaves' })
+  await app.register(dashboardRoutes, { prefix: '/api/dashboard' })
 
   app.get('/api/health', async () => ({ status: 'ok', env: process.env.NODE_ENV }))
 

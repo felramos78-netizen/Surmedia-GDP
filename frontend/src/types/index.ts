@@ -23,14 +23,23 @@ export interface Employee {
   lastName: string
   email: string
   phone?: string
+  birthDate?: string
+  address?: string
+  nationality?: string
+  gender?: string
   position?: Position
+  positionId?: string
   department?: Department
-  contractType?: 'INDEFINIDO' | 'PLAZO_FIJO' | 'HONORARIOS' | 'PRACTICA'
+  departmentId?: string
+  managerId?: string
   startDate: string
   endDate?: string
   status: 'ACTIVE' | 'INACTIVE' | 'ON_LEAVE'
   afp?: string
   isapre?: string
+  previredCode?: string
+  contracts?: Contract[]
+  leaves?: Leave[]
   createdAt: string
   updatedAt: string
 }
@@ -39,15 +48,74 @@ export interface Department {
   id: string
   name: string
   code: string
-  managerId?: string
   parentId?: string
+  parent?: { id: string; name: string }
+  _count?: { employees: number }
 }
 
 export interface Position {
   id: string
   title: string
   departmentId: string
+  department?: { id: string; name: string }
   level?: string
+  _count?: { employees: number }
+}
+
+export interface Contract {
+  id: string
+  employeeId: string
+  employee?: Pick<Employee, 'id' | 'firstName' | 'lastName' | 'rut'>
+  type: 'INDEFINIDO' | 'PLAZO_FIJO' | 'HONORARIOS' | 'PRACTICA'
+  startDate: string
+  endDate?: string
+  salary: number
+  currency: string
+  isActive: boolean
+  fileUrl?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type LeaveType =
+  | 'VACACIONES'
+  | 'PERMISO'
+  | 'LICENCIA_MEDICA'
+  | 'LICENCIA_MATERNIDAD'
+  | 'LICENCIA_PATERNIDAD'
+  | 'OTRO'
+
+export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+
+export interface Leave {
+  id: string
+  employeeId: string
+  employee?: Pick<Employee, 'id' | 'firstName' | 'lastName' | 'rut'>
+  type: LeaveType
+  startDate: string
+  endDate: string
+  days: number
+  reason?: string
+  status: LeaveStatus
+  approvedBy?: string
+  approvedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DashboardStats {
+  activeEmployees: number
+  expiringContracts: number
+  pendingLeaves: number
+  upcomingBirthdays: Array<{
+    id: string
+    firstName: string
+    lastName: string
+    birthDate: string
+    daysUntil: number
+    nextBirthday: string
+    position?: { title: string }
+  }>
 }
 
 export interface ApiResponse<T> {

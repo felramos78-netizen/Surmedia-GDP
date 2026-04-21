@@ -8,10 +8,10 @@ import { useAuthStore } from '@/store/auth'
 const navItems = [
   { to: '/dashboard', icon: BarChart3, label: 'Dashboard' },
   { to: '/employees', icon: Users, label: 'Dotación' },
-  { to: '/recruitment', icon: UserPlus, label: 'Reclutamiento' },
-  { to: '/onboarding', icon: Building2, label: 'Onboarding' },
+  { to: '/contracts', icon: FileText, label: 'Contratos' },
   { to: '/leave', icon: Calendar, label: 'Vacaciones' },
-  { to: '/documents', icon: FileText, label: 'Documentos' },
+  { to: '/recruitment', icon: UserPlus, label: 'Reclutamiento', disabled: true },
+  { to: '/onboarding', icon: Building2, label: 'Onboarding', disabled: true },
 ]
 
 export default function AppLayout() {
@@ -33,22 +33,34 @@ export default function AppLayout() {
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                }`
-              }
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
-          ))}
+          {navItems.map(({ to, icon: Icon, label, disabled }) =>
+            disabled ? (
+              <div
+                key={to}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-400 cursor-not-allowed opacity-60"
+                title="Próximamente"
+              >
+                <Icon size={18} />
+                {label}
+                <span className="ml-auto text-xs bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded">Pronto</span>
+              </div>
+            ) : (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  }`
+                }
+              >
+                <Icon size={18} />
+                {label}
+              </NavLink>
+            ),
+          )}
         </nav>
 
         <div className="p-4 border-t border-gray-200">
