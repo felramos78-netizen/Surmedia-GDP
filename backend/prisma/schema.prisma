@@ -1,0 +1,227 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Auth & Usuarios
+// ─────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  RRHH_MANAGER
+  RRHH_ANALYST
+  MANAGER
+  EMPLOYEE
+}
+
+model User {
+  id         String    @id @default(uuid())
+  email      String    @unique
+  name       String
+  role       UserRole  @default(EMPLOYEE)
+  avatarUrl  String?
+  googleId   String?   @unique
+  microsoftId String?  @unique
+  employee   Employee? @relation(fields: [employeeId], references: [id])
+  employeeId String?   @unique
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// Estructura Organizacional
+// ─────────────────────────────────────────────
+
+model Department {
+  id        String      @id @default(uuid())
+  name      String
+  code      String      @unique
+  parent    Department? @relation("DeptHierarchy", fields: [parentId], references: [id])
+  parentId  String?
+  children  Department[] @relation("DeptHierarchy")
+  positions Position[]
+  employees Employee[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@map("departments")
+}
+
+model Position {
+  id           String     @id @default(uuid())
+  title        String
+  level        String?
+  department   Department @relation(fields: [departmentId], references: [id])
+  departmentId String
+  employees    Employee[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("positions")
+}
+
+// ─────────────────────────────────────────────
+// Colaboradores
+// ─────────────────────────────────────────────
+
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  ON_LEAVE
+}
+
+enum ContractType {
+  INDEFINIDO
+  PLAZO_FIJO
+  HONORARIOS
+  PRACTICA
+}
+
+model Employee {
+  id           String         @id @default(uuid())
+  rut          String         @unique
+  firstName    String
+  lastName     String
+  email        String         @unique
+  phone        String?
+  birthDate    DateTime?
+  address      String?
+  nationality  String?        @default("Chilena")
+  gender       String?
+
+  // Datos laborales
+  position     Position?      @relation(fields: [positionId], references: [id])
+  positionId   String?
+  department   Department?    @relation(fields: [departmentId], references: [id])
+  departmentId String?
+  manager      Employee?      @relation("ReportsTo", fields: [managerId], references: [id])
+  managerId    String?
+  reports      Employee[]     @relation("ReportsTo")
+  status       EmployeeStatus @default(ACTIVE)
+  startDate    DateTime
+  endDate      DateTime?
+
+  // Datos previsionales chilenos
+  afp          String?
+  isapre       String?
+  previredCode String?
+
+  // Relaciones
+  user         User?
+  contracts    Contract[]
+  leaves       Leave[]
+  documents    Document[]
+
+  // Soft delete
+  deletedAt    DateTime?
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("employees")
+}
+
+// ─────────────────────────────────────────────
+// Contratos
+// ─────────────────────────────────────────────
+
+model Contract {
+  id           String       @id @default(uuid())
+  employee     Employee     @relation(fields: [employeeId], references: [id])
+  employeeId   String
+  type         ContractType
+  startDate    DateTime
+  endDate      DateTime?
+  salary       Int
+  currency     String       @default("CLP")
+  isActive     Boolean      @default(true)
+  fileUrl      String?
+
+  deletedAt    DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("contracts")
+}
+
+// ─────────────────────────────────────────────
+// Vacaciones y Permisos
+// ─────────────────────────────────────────────
+
+enum LeaveType {
+  VACACIONES
+  PERMISO
+  LICENCIA_MEDICA
+  LICENCIA_MATERNIDAD
+  LICENCIA_PATERNIDAD
+  OTRO
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model Leave {
+  id          String      @id @default(uuid())
+  employee    Employee    @relation(fields: [employeeId], references: [id])
+  employeeId  String
+  type        LeaveType
+  startDate   DateTime
+  endDate     DateTime
+  days        Int
+  reason      String?
+  status      LeaveStatus @default(PENDING)
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("leaves")
+}
+
+// ─────────────────────────────────────────────
+// Documentos
+// ─────────────────────────────────────────────
+
+model Document {
+  id          String   @id @default(uuid())
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  employeeId  String
+  name        String
+  type        String
+  fileUrl     String
+  driveFileId String?
+  uploadedBy  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("documents")
+}
+
+// ─────────────────────────────────────────────
+// Auditoría
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  action     String
+  entity     String
+  entityId   String
+  oldValues  Json?
+  newValues  Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@map("audit_logs")
+}
