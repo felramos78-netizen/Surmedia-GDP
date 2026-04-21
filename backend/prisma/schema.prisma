@@ -96,7 +96,6 @@ model Employee {
   nationality  String?        @default("Chilena")
   gender       String?
 
-  // Datos laborales
   position     Position?      @relation(fields: [positionId], references: [id])
   positionId   String?
   department   Department?    @relation(fields: [departmentId], references: [id])
@@ -108,20 +107,16 @@ model Employee {
   startDate    DateTime
   endDate      DateTime?
 
-  // Datos previsionales chilenos
   afp          String?
   isapre       String?
   previredCode String?
 
-  // Relaciones
   user         User?
   contracts    Contract[]
   leaves       Leave[]
   documents    Document[]
 
-  // Soft delete
   deletedAt    DateTime?
-
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
