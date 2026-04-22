@@ -1,3 +1,4 @@
+import { execSync } from 'child_process'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import jwt from '@fastify/jwt'
@@ -11,8 +12,14 @@ import syncRoutes from './routes/sync'
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
 
 async function bootstrap() {
+  try {
+    execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' })
+  } catch (e) {
+    app.log.warn('prisma db push failed, continuing with existing schema')
+  }
+
   await app.register(cors, {
-    origin: process.env.APP_URL ?? 'http://localhost:3000',
+    origin: true,
     credentials: true,
   })
 
