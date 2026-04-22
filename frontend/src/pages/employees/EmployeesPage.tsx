@@ -1,49 +1,385 @@
-import { Search, Plus, Filter } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { Search, RefreshCw, ChevronDown, Building2, Users, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { useEmployees, useSyncBuk, useSyncLogs, type DotacionFilters } from '@/hooks/useDotacion'
+import { formatDate } from '@/lib/utils'
+import type { Employee, Contract, LegalEntity } from '@/types'
+import EmployeeDrawer from './EmployeeDrawer'
 
-export default function EmployeesPage() {
+// ─── Helpers de presentación ──────────────────────────────────────────────────
+
+const LEGAL_ENTITY_LABEL: Record<LegalEntity, string> = {
+  COMUNICACIONES_SURMEDIA: 'Comunicaciones',
+  SURMEDIA_CONSULTORIA:    'Consultoría',
+}
+
+const LEGAL_ENTITY_COLOR: Record<LegalEntity, string> = {
+  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+  SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  ACTIVE:    'Activo',
+  INACTIVE:  'Inactivo',
+  ON_LEAVE:  'Con permiso',
+}
+
+const STATUS_COLOR: Record<string, string> = {
+  ACTIVE:   'bg-green-100 text-green-700',
+  INACTIVE: 'bg-gray-100 text-gray-500',
+  ON_LEAVE: 'bg-amber-100 text-amber-700',
+}
+
+const CONTRACT_LABEL: Record<string, string> = {
+  INDEFINIDO: 'Indefinido',
+  PLAZO_FIJO: 'Plazo fijo',
+  HONORARIOS: 'Honorarios',
+  PRACTICA:   'Práctica',
+}
+
+function primaryContract(contracts?: Contract[]): Contract | undefined {
+  if (!contracts?.length) return undefined
+  return contracts.find(c => c.isActive && c.salary > 0) ?? contracts[0]
+}
+
+function tenureLabel(startDate: string): string {
+  const months = Math.floor((Date.now() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24 * 30))
+  if (months < 12) return `${months}m`
+  const years = Math.floor(months / 12)
+  const rem   = months % 12
+  return rem > 0 ? `${years}a ${rem}m` : `${years}a`
+}
+
+function initials(emp: Employee) {
+  return `${emp.firstName[0] ?? ''}${emp.lastName[0] ?? ''}`.toUpperCase()
+}
+
+// ─── Componente de stats ──────────────────────────────────────────────────────
+
+function StatCard({ label, value, sub, icon: Icon, color }: {
+  label: string
+  value: number | string
+  sub?: string
+  icon: React.ElementType
+  color: string
+}) {
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Dotación</h2>
-          <p className="text-gray-500 mt-1">Gestión de colaboradores activos</p>
-        </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-          <Plus size={16} />
-          Nuevo colaborador
-        </button>
+    <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4">
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
+        <Icon size={20} />
       </div>
-
-      <div className="bg-white rounded-xl border border-gray-200">
-        <div className="p-4 border-b border-gray-200 flex gap-3">
-          <div className="flex-1 relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Buscar por nombre, RUT o cargo..."
-              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-          <button className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-            <Filter size={16} />
-            Filtros
-          </button>
-        </div>
-
-        <div className="p-12 text-center text-gray-400">
-          <Users size={40} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">No hay colaboradores registrados aún.</p>
-          <p className="text-xs mt-1">Los datos se sincronizarán desde BUK cuando se configure la integración.</p>
-        </div>
+      <div>
+        <p className="text-2xl font-bold text-gray-900">{value}</p>
+        <p className="text-sm text-gray-500">{label}</p>
+        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
       </div>
     </div>
   )
 }
 
-function Users({ size, className }: { size: number; className?: string }) {
+// ─── Selector de filtro ───────────────────────────────────────────────────────
+
+function FilterSelect({ value, onChange, options, placeholder }: {
+  value: string
+  onChange: (v: string) => void
+  options: { value: string; label: string }[]
+  placeholder: string
+}) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-    </svg>
+    <div className="relative">
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+      >
+        <option value="">{placeholder}</option>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+    </div>
+  )
+}
+
+// ─── Botón de sincronización ──────────────────────────────────────────────────
+
+function SyncButton() {
+  const [synced, setSynced] = useState(false)
+  const { data: logs } = useSyncLogs()
+  const { mutate, isPending } = useSyncBuk()
+
+  const lastSync = logs?.[0]
+
+  function handleSync() {
+    mutate(undefined, {
+      onSuccess: () => { setSynced(true); setTimeout(() => setSynced(false), 4000) },
+    })
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      {lastSync && (
+        <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400">
+          {lastSync.status === 'SUCCESS'
+            ? <CheckCircle2 size={13} className="text-green-500" />
+            : lastSync.status === 'ERROR'
+            ? <AlertTriangle size={13} className="text-red-400" />
+            : <RefreshCw size={13} className="animate-spin text-blue-400" />}
+          Último sync: {formatDate(lastSync.completedAt ?? lastSync.startedAt)}
+        </div>
+      )}
+      <button
+        onClick={handleSync}
+        disabled={isPending}
+        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
+      >
+        <RefreshCw size={15} className={isPending ? 'animate-spin' : ''} />
+        {synced ? '¡Listo!' : isPending ? 'Sincronizando…' : 'Sincronizar BUK'}
+      </button>
+    </div>
+  )
+}
+
+// ─── Fila de la tabla ─────────────────────────────────────────────────────────
+
+function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
+  const contract = primaryContract(emp.contracts)
+
+  return (
+    <tr
+      onClick={onClick}
+      className="hover:bg-gray-50 cursor-pointer transition-colors"
+    >
+      {/* Avatar + nombre */}
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+            {initials(emp)}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-900">{emp.firstName} {emp.lastName}</p>
+            <p className="text-xs text-gray-400">{emp.email}</p>
+          </div>
+        </div>
+      </td>
+
+      {/* RUT */}
+      <td className="px-4 py-3 text-sm text-gray-600 font-mono">{emp.rut}</td>
+
+      {/* Cargo */}
+      <td className="px-4 py-3 text-sm text-gray-600">
+        {emp.position?.title ?? <span className="text-gray-300">—</span>}
+      </td>
+
+      {/* Departamento */}
+      <td className="px-4 py-3 text-sm text-gray-600">
+        {emp.department?.name ?? <span className="text-gray-300">—</span>}
+      </td>
+
+      {/* Empresa (badge por legalEntity del contrato) */}
+      <td className="px-4 py-3">
+        {contract?.legalEntity ? (
+          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${LEGAL_ENTITY_COLOR[contract.legalEntity]}`}>
+            {LEGAL_ENTITY_LABEL[contract.legalEntity]}
+          </span>
+        ) : (
+          emp.contracts && emp.contracts.length > 1 ? (
+            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">
+              Ambas
+            </span>
+          ) : <span className="text-gray-300 text-xs">—</span>
+        )}
+      </td>
+
+      {/* Tipo contrato */}
+      <td className="px-4 py-3 text-sm text-gray-600">
+        {contract ? CONTRACT_LABEL[contract.type] : <span className="text-gray-300">—</span>}
+      </td>
+
+      {/* Antigüedad */}
+      <td className="px-4 py-3 text-sm text-gray-500">
+        {tenureLabel(emp.startDate)}
+      </td>
+
+      {/* Estado */}
+      <td className="px-4 py-3">
+        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[emp.status]}`}>
+          {STATUS_LABEL[emp.status]}
+        </span>
+      </td>
+    </tr>
+  )
+}
+
+// ─── Página principal ─────────────────────────────────────────────────────────
+
+export default function EmployeesPage() {
+  const [filters, setFilters] = useState<DotacionFilters>({})
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const { data, isLoading, isError } = useEmployees(filters)
+  const employees = data?.data ?? []
+
+  function setFilter(key: keyof DotacionFilters, value: string) {
+    setFilters(prev => ({ ...prev, [key]: value || undefined }))
+  }
+
+  // Stats calculados del resultado actual
+  const stats = useMemo(() => {
+    const active    = employees.filter(e => e.status === 'ACTIVE').length
+    const comunic   = employees.filter(e => e.contracts?.some(c => c.legalEntity === 'COMUNICACIONES_SURMEDIA')).length
+    const consult   = employees.filter(e => e.contracts?.some(c => c.legalEntity === 'SURMEDIA_CONSULTORIA')).length
+    const expiring  = employees.filter(e => {
+      const c = primaryContract(e.contracts)
+      if (!c?.endDate) return false
+      const daysLeft = (new Date(c.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      return daysLeft >= 0 && daysLeft <= 30
+    }).length
+    return { active, comunic, consult, expiring }
+  }, [employees])
+
+  return (
+    <div className="p-6 lg:p-8 space-y-6">
+
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Dotación</h2>
+          <p className="text-gray-500 mt-1 text-sm">
+            {data?.total !== undefined ? `${data.total} colaboradores` : 'Cargando…'}
+          </p>
+        </div>
+        <SyncButton />
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="Activos"        value={stats.active}  icon={Users}      color="text-blue-600 bg-blue-50" />
+        <StatCard label="Comunicaciones" value={stats.comunic} icon={Building2}  color="text-blue-600 bg-blue-50"    sub="Comunicaciones Surmedia" />
+        <StatCard label="Consultoría"    value={stats.consult} icon={Building2}  color="text-violet-600 bg-violet-50" sub="Surmedia Consultoría" />
+        <StatCard label="Contratos por vencer" value={stats.expiring} icon={AlertTriangle} color="text-amber-600 bg-amber-50" sub="próximos 30 días" />
+      </div>
+
+      {/* Tabla */}
+      <div className="bg-white rounded-xl border border-gray-200">
+
+        {/* Barra de filtros */}
+        <div className="p-4 border-b border-gray-200 flex flex-wrap gap-3 items-center">
+          <div className="flex-1 min-w-48 relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Nombre, RUT, cargo o correo…"
+              value={filters.search ?? ''}
+              onChange={e => setFilter('search', e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <FilterSelect
+            value={filters.legalEntity ?? ''}
+            onChange={v => setFilter('legalEntity', v)}
+            placeholder="Todas las empresas"
+            options={[
+              { value: 'COMUNICACIONES_SURMEDIA', label: 'Comunicaciones' },
+              { value: 'SURMEDIA_CONSULTORIA',    label: 'Consultoría' },
+            ]}
+          />
+
+          <FilterSelect
+            value={filters.status ?? ''}
+            onChange={v => setFilter('status', v)}
+            placeholder="Todos los estados"
+            options={[
+              { value: 'ACTIVE',   label: 'Activos' },
+              { value: 'INACTIVE', label: 'Inactivos' },
+              { value: 'ON_LEAVE', label: 'Con permiso' },
+            ]}
+          />
+
+          <FilterSelect
+            value={filters.contractType ?? ''}
+            onChange={v => setFilter('contractType', v)}
+            placeholder="Tipo de contrato"
+            options={[
+              { value: 'INDEFINIDO', label: 'Indefinido' },
+              { value: 'PLAZO_FIJO', label: 'Plazo fijo' },
+              { value: 'HONORARIOS', label: 'Honorarios' },
+              { value: 'PRACTICA',   label: 'Práctica' },
+            ]}
+          />
+
+          {Object.values(filters).some(Boolean) && (
+            <button
+              onClick={() => setFilters({})}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-2"
+            >
+              Limpiar filtros
+            </button>
+          )}
+        </div>
+
+        {/* Contenido */}
+        {isLoading ? (
+          <div className="p-16 text-center">
+            <RefreshCw size={24} className="animate-spin text-blue-400 mx-auto mb-3" />
+            <p className="text-sm text-gray-400">Cargando colaboradores…</p>
+          </div>
+        ) : isError ? (
+          <div className="p-16 text-center">
+            <AlertTriangle size={24} className="text-red-300 mx-auto mb-3" />
+            <p className="text-sm text-gray-500">Error cargando datos. Intenta nuevamente.</p>
+          </div>
+        ) : employees.length === 0 ? (
+          <div className="p-16 text-center">
+            <Users size={36} className="text-gray-200 mx-auto mb-3" />
+            <p className="text-sm text-gray-500">No se encontraron colaboradores.</p>
+            {Object.values(filters).some(Boolean) && (
+              <p className="text-xs text-gray-400 mt-1">Prueba ajustando los filtros.</p>
+            )}
+            {!Object.values(filters).some(Boolean) && (
+              <p className="text-xs text-gray-400 mt-1">Sincroniza desde BUK para importar la dotación.</p>
+            )}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left border-b border-gray-100">
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Colaborador</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">RUT</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cargo</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Área</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Empresa</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Contrato</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Antigüedad</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {employees.map(emp => (
+                  <EmployeeRow
+                    key={emp.id}
+                    emp={emp}
+                    onClick={() => setSelectedId(emp.id)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Footer con total */}
+        {employees.length > 0 && (
+          <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
+            {employees.length} colaboradores{data?.total && data.total > employees.length ? ` de ${data.total}` : ''}
+          </div>
+        )}
+      </div>
+
+      {/* Drawer de detalle */}
+      <EmployeeDrawer
+        employeeId={selectedId}
+        onClose={() => setSelectedId(null)}
+      />
+    </div>
   )
 }

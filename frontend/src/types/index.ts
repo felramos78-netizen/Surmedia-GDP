@@ -1,4 +1,8 @@
 export type UserRole = 'ADMIN' | 'RRHH_MANAGER' | 'RRHH_ANALYST' | 'MANAGER' | 'EMPLOYEE'
+export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'ON_LEAVE'
+export type ContractType = 'INDEFINIDO' | 'PLAZO_FIJO' | 'HONORARIOS' | 'PRACTICA'
+export type LegalEntity = 'COMUNICACIONES_SURMEDIA' | 'SURMEDIA_CONSULTORIA'
+export type SyncStatus = 'RUNNING' | 'SUCCESS' | 'ERROR'
 
 export interface User {
   id: string
@@ -16,30 +20,10 @@ export interface AuthState {
   isLoading: boolean
 }
 
-export interface Employee {
-  id: string
-  rut: string
-  firstName: string
-  lastName: string
-  email: string
-  phone?: string
-  position?: Position
-  department?: Department
-  contractType?: 'INDEFINIDO' | 'PLAZO_FIJO' | 'HONORARIOS' | 'PRACTICA'
-  startDate: string
-  endDate?: string
-  status: 'ACTIVE' | 'INACTIVE' | 'ON_LEAVE'
-  afp?: string
-  isapre?: string
-  createdAt: string
-  updatedAt: string
-}
-
 export interface Department {
   id: string
   name: string
   code: string
-  managerId?: string
   parentId?: string
 }
 
@@ -48,6 +32,62 @@ export interface Position {
   title: string
   departmentId: string
   level?: string
+}
+
+export interface Contract {
+  id: string
+  employeeId: string
+  type: ContractType
+  startDate: string
+  endDate?: string | null
+  salary: number
+  grossSalary?: number | null
+  currency: string
+  isActive: boolean
+  legalEntity?: LegalEntity | null
+  bukEmployeeId?: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Employee {
+  id: string
+  rut: string
+  firstName: string
+  lastName: string
+  email: string
+  phone?: string | null
+  birthDate?: string | null
+  address?: string | null
+  nationality?: string | null
+  gender?: string | null
+  position?: Position | null
+  positionId?: string | null
+  department?: Department | null
+  departmentId?: string | null
+  status: EmployeeStatus
+  startDate: string
+  endDate?: string | null
+  afp?: string | null
+  isapre?: string | null
+  contracts?: Contract[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SyncLog {
+  id: string
+  source: string
+  legalEntity: LegalEntity
+  status: SyncStatus
+  startedAt: string
+  completedAt?: string | null
+  employeesTotal: number
+  employeesCreated: number
+  employeesUpdated: number
+  contractsUpserted: number
+  duplicatesSkipped: number
+  errorMessage?: string | null
 }
 
 export interface ApiResponse<T> {
