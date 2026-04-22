@@ -38,6 +38,15 @@ async function bootstrap() {
 
   app.get('/api/health', async () => ({ status: 'ok', env: process.env.NODE_ENV }))
 
+  app.get('/api/debug/employees', async (_req, reply) => {
+    try {
+      const count = await app.prisma.employee.count()
+      return reply.send({ ok: true, count })
+    } catch (e: any) {
+      return reply.status(500).send({ ok: false, error: e.message, code: e.code })
+    }
+  })
+
   const port = Number(process.env.PORT ?? 4000)
   await app.listen({ port, host: '0.0.0.0' })
   app.log.info(`GDP API corriendo en http://localhost:${port}`)
