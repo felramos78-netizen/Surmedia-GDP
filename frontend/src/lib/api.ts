@@ -16,7 +16,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('gdp_token')
-      window.location.href = '/login'
+      window.location.reload()
     }
     return Promise.reject(error)
   },
