@@ -9,6 +9,15 @@ datasource db {
 }
 
 // ─────────────────────────────────────────────
+// Razones Sociales (BUK multi-empresa)
+// ─────────────────────────────────────────────
+
+enum LegalEntity {
+  COMUNICACIONES_SURMEDIA
+  SURMEDIA_CONSULTORIA
+}
+
+// ─────────────────────────────────────────────
 // Auth & Usuarios
 // ─────────────────────────────────────────────
 
@@ -141,6 +150,10 @@ model Contract {
   isActive     Boolean      @default(true)
   fileUrl      String?
 
+  legalEntity  LegalEntity?
+  bukEmployeeId Int?
+  grossSalary  Int?
+
   deletedAt    DateTime?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -221,4 +234,32 @@ model AuditLog {
   createdAt  DateTime @default(now())
 
   @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────
+// Sincronización BUK
+// ─────────────────────────────────────────────
+
+enum SyncStatus {
+  RUNNING
+  SUCCESS
+  ERROR
+}
+
+model SyncLog {
+  id               String      @id @default(uuid())
+  source           String
+  legalEntity      LegalEntity
+  status           SyncStatus  @default(RUNNING)
+  startedAt        DateTime    @default(now())
+  completedAt      DateTime?
+  employeesTotal   Int         @default(0)
+  employeesCreated Int         @default(0)
+  employeesUpdated Int         @default(0)
+  contractsUpserted Int        @default(0)
+  duplicatesSkipped Int        @default(0)
+  errorMessage     String?
+  errorDetails     Json?
+
+  @@map("sync_logs")
 }
