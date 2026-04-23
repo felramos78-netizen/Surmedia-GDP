@@ -11,16 +11,17 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
   // ─── POST /api/sync/buk — dispara sync completo (ambas empresas) ─────────────
   fastify.post('/buk', {
     preHandler: fastify.authenticate,
+    config: { timeout: 120_000 },
   }, async (req, reply) => {
     fastify.log.info('Sync BUK iniciado manualmente')
-    // Ejecutar en background para no bloquear la respuesta
-    syncBukAll(fastify.prisma).then(results => {
+    try {
+      const results = await syncBukAll(fastify.prisma)
       fastify.log.info({ results }, 'Sync BUK completado')
-    }).catch(err => {
+      return reply.send({ ok: true, results })
+    } catch (err: any) {
       fastify.log.error({ err }, 'Sync BUK falló')
-    })
-
-    return reply.status(202).send({ message: 'Sincronización iniciada' })
+      return reply.status(500).send({ ok: false, error: err.message })
+    }
   })
 
   // ─── POST /api/sync/buk/:entity — sync de una sola empresa ──────────────────

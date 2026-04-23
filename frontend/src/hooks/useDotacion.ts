@@ -54,12 +54,9 @@ export function useSyncBuk() {
       const { data } = await api.post(path)
       return data
     },
-    onSuccess: () => {
-      // Reinvalidar la lista de empleados y logs tras disparar el sync
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['employees'] })
-        queryClient.invalidateQueries({ queryKey: ['syncLogs'] })
-      }, 3000)
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] })
+      queryClient.invalidateQueries({ queryKey: ['syncLogs'] })
     },
   })
 }

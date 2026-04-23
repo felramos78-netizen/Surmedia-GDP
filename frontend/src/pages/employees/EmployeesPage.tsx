@@ -102,38 +102,53 @@ function FilterSelect({ value, onChange, options, placeholder }: {
 // ─── Botón de sincronización ──────────────────────────────────────────────────
 
 function SyncButton() {
-  const [synced, setSynced] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const { data: logs } = useSyncLogs()
   const { mutate, isPending } = useSyncBuk()
 
   const lastSync = logs?.[0]
 
   function handleSync() {
+    setResult(null)
     mutate(undefined, {
-      onSuccess: () => { setSynced(true); setTimeout(() => setSynced(false), 4000) },
+      onSuccess: (data: any) => {
+        const total = data?.results?.reduce((n: number, r: any) => n + (r.employeesCreated ?? 0) + (r.employeesUpdated ?? 0), 0) ?? 0
+        setResult({ ok: true, msg: `${total} colaboradores sincronizados` })
+      },
+      onError: (err: any) => {
+        const msg = err?.response?.data?.error ?? err?.message ?? 'Error desconocido'
+        setResult({ ok: false, msg })
+      },
     })
   }
 
   return (
-    <div className="flex items-center gap-3">
-      {lastSync && (
-        <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400">
-          {lastSync.status === 'SUCCESS'
-            ? <CheckCircle2 size={13} className="text-green-500" />
-            : lastSync.status === 'ERROR'
-            ? <AlertTriangle size={13} className="text-red-400" />
-            : <RefreshCw size={13} className="animate-spin text-blue-400" />}
-          Último sync: {formatDate(lastSync.completedAt ?? lastSync.startedAt)}
-        </div>
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-3">
+        {lastSync && !result && (
+          <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400">
+            {lastSync.status === 'SUCCESS'
+              ? <CheckCircle2 size={13} className="text-green-500" />
+              : lastSync.status === 'ERROR'
+              ? <AlertTriangle size={13} className="text-red-400" />
+              : <RefreshCw size={13} className="animate-spin text-blue-400" />}
+            Último sync: {formatDate(lastSync.completedAt ?? lastSync.startedAt)}
+          </div>
+        )}
+        <button
+          onClick={handleSync}
+          disabled={isPending}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
+        >
+          <RefreshCw size={15} className={isPending ? 'animate-spin' : ''} />
+          {isPending ? 'Sincronizando…' : 'Sincronizar BUK'}
+        </button>
+      </div>
+      {result && (
+        <p className={`text-xs ${result.ok ? 'text-green-600' : 'text-red-500'}`}>
+          {result.ok ? '✓' : '✗'} {result.msg}
+        </p>
       )}
-      <button
-        onClick={handleSync}
-        disabled={isPending}
-        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
-      >
-        <RefreshCw size={15} className={isPending ? 'animate-spin' : ''} />
-        {synced ? '¡Listo!' : isPending ? 'Sincronizando…' : 'Sincronizar BUK'}
-      </button>
     </div>
   )
 }
