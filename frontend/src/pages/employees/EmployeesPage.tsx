@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react'
-import { Search, RefreshCw, ChevronDown, Building2, Users, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Search, RefreshCw, ChevronDown, Building2, Users, AlertTriangle, CheckCircle2, UserPlus } from 'lucide-react'
 import { useEmployees, useSyncBuk, useSyncLogs, type DotacionFilters } from '@/hooks/useDotacion'
 import { formatDate } from '@/lib/utils'
 import type { Employee, Contract, LegalEntity } from '@/types'
 import EmployeeDrawer from './EmployeeDrawer'
+import EmployeeForm from './EmployeeForm'
 
 // ─── Helpers de presentación ──────────────────────────────────────────────────
 
@@ -246,6 +247,7 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
 export default function EmployeesPage() {
   const [filters, setFilters] = useState<DotacionFilters>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [showCreateForm, setShowCreateForm] = useState(false)
 
   const { data, isLoading, isError } = useEmployees(filters)
   const employees = data?.data ?? []
@@ -271,6 +273,10 @@ export default function EmployeesPage() {
   return (
     <div className="p-6 lg:p-8 space-y-6">
 
+      {showCreateForm && (
+        <EmployeeForm onClose={() => setShowCreateForm(false)} />
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -279,7 +285,16 @@ export default function EmployeesPage() {
             {data?.total !== undefined ? `${data.total} colaboradores` : 'Cargando…'}
           </p>
         </div>
-        <SyncButton />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowCreateForm(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            <UserPlus size={15} />
+            Nuevo colaborador
+          </button>
+          <SyncButton />
+        </div>
       </div>
 
       {/* Stats */}

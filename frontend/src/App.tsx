@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AppLayout from '@/layouts/AppLayout'
 import DashboardPage from '@/pages/dashboard/DashboardPage'
 import EmployeesPage from '@/pages/employees/EmployeesPage'
+import LeavePage from '@/pages/leave/LeavePage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -16,9 +17,10 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<AppLayout />}>
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/employees" element={<EmployeesPage />} />
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard"  element={<DashboardPage />} />
+            <Route path="/employees"  element={<EmployeesPage />} />
+            <Route path="/leave"      element={<LeavePage />} />
+            <Route path="/"           element={<Navigate to="/dashboard" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

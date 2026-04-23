@@ -8,6 +8,9 @@ import authenticatePlugin from './middleware/authenticate'
 import authRoutes from './routes/auth'
 import employeeRoutes from './routes/employees'
 import syncRoutes from './routes/sync'
+import statsRoutes from './routes/stats'
+import leavesRoutes from './routes/leaves'
+import departmentsRoutes from './routes/departments'
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
 
@@ -35,6 +38,9 @@ async function bootstrap() {
   await app.register(authRoutes, { prefix: '/api/auth' })
   await app.register(employeeRoutes, { prefix: '/api/employees' })
   await app.register(syncRoutes, { prefix: '/api/sync' })
+  await app.register(statsRoutes, { prefix: '/api/stats' })
+  await app.register(leavesRoutes, { prefix: '/api/leaves' })
+  await app.register(departmentsRoutes, { prefix: '/api/departments' })
 
   app.get('/api/health', async () => ({ status: 'ok', env: process.env.NODE_ENV }))
 

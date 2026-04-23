@@ -90,6 +90,35 @@ export interface SyncLog {
   errorMessage?: string | null
 }
 
+export type LeaveType = 'VACACIONES' | 'PERMISO' | 'LICENCIA_MEDICA' | 'LICENCIA_MATERNIDAD' | 'LICENCIA_PATERNIDAD' | 'OTRO'
+export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+
+export interface Leave {
+  id: string
+  employeeId: string
+  employee?: { id: string; firstName: string; lastName: string; rut: string; position?: { title: string } | null }
+  type: LeaveType
+  startDate: string
+  endDate: string
+  days: number
+  reason?: string | null
+  status: LeaveStatus
+  approvedBy?: string | null
+  approvedAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DashboardStats {
+  activeEmployees: number
+  pendingLeaves: number
+  expiringContracts: Array<{ id: string; type: ContractType; endDate: string; employee: { id: string; firstName: string; lastName: string; rut: string } }>
+  birthdaysThisMonth: Array<{ id: string; name: string; position: string | null; birthDate: string; day: number }>
+  recentSyncs: SyncLog[]
+  byDepartment: Array<{ id: string; name: string; count: number }>
+  byContractType: Array<{ type: ContractType; count: number }>
+}
+
 export interface ApiResponse<T> {
   data: T
   message?: string

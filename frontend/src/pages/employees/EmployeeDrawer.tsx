@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
-import { X, Mail, Phone, MapPin, Calendar, Building2, Briefcase, CreditCard } from 'lucide-react'
-import { useEmployee } from '@/hooks/useDotacion'
+import { useEffect, useState } from 'react'
+import { X, Mail, Phone, MapPin, Calendar, Building2, Briefcase, CreditCard, Pencil, Trash2 } from 'lucide-react'
+import { useEmployee, useDeleteEmployee } from '@/hooks/useDotacion'
 import { formatDate, formatCLP } from '@/lib/utils'
 import type { Contract, LegalEntity } from '@/types'
+import EmployeeForm from './EmployeeForm'
 
 const LEGAL_ENTITY_LABEL: Record<LegalEntity, string> = {
   COMUNICACIONES_SURMEDIA: 'Comunicaciones Surmedia',
@@ -100,8 +101,9 @@ interface Props {
 
 export default function EmployeeDrawer({ employeeId, onClose }: Props) {
   const { data: employee, isLoading } = useEmployee(employeeId)
+  const deleteEmployee = useDeleteEmployee()
+  const [editing, setEditing] = useState(false)
 
-  // Cerrar con Escape
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
@@ -110,13 +112,28 @@ export default function EmployeeDrawer({ employeeId, onClose }: Props) {
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // Reset edit state when drawer closes
+  useEffect(() => {
+    if (!employeeId) setEditing(false)
+  }, [employeeId])
+
   const isOpen = !!employeeId
   const status = employee ? STATUS_CONFIG[employee.status] : null
   const activeContracts  = employee?.contracts?.filter(c => c.isActive) ?? []
   const inactiveContracts = employee?.contracts?.filter(c => !c.isActive) ?? []
 
+  function handleDelete() {
+    if (!employee) return
+    if (!window.confirm(`¿Eliminar a ${employee.firstName} ${employee.lastName}? Esta acción no se puede deshacer.`)) return
+    deleteEmployee.mutate(employee.id, { onSuccess: () => onClose() })
+  }
+
   return (
     <>
+      {editing && employee && (
+        <EmployeeForm employee={employee} onClose={() => setEditing(false)} />
+      )}
+
       {/* Overlay */}
       <div
         className={`fixed inset-0 bg-black/20 z-40 transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
@@ -130,9 +147,21 @@ export default function EmployeeDrawer({ employeeId, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <h3 className="font-semibold text-gray-900">Ficha del colaborador</h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-            <X size={18} className="text-gray-500" />
-          </button>
+          <div className="flex items-center gap-1">
+            {employee && (
+              <>
+                <button onClick={() => setEditing(true)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors" title="Editar">
+                  <Pencil size={15} />
+                </button>
+                <button onClick={handleDelete} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors" title="Eliminar">
+                  <Trash2 size={15} />
+                </button>
+              </>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+              <X size={18} className="text-gray-500" />
+            </button>
+          </div>
         </div>
 
         {/* Contenido scrolleable */}
