@@ -1,6 +1,6 @@
 import type { BukCompanyConfig, BukEmployee, BukPaginatedResponse } from './buk.types'
 
-const BUK_API_PATH = '/api/v1'
+const BUK_API_PATH = '/api/v1/chile'
 const PER_PAGE = 100
 const MAX_RETRIES = 3
 
@@ -46,7 +46,7 @@ export class BukClient {
     try {
       const res = await fetch(url, {
         headers: {
-          Authorization: `Token token=${this.config.apiKey}`,
+          auth_token: this.config.apiKey,
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
