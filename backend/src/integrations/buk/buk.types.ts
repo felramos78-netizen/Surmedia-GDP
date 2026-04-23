@@ -16,14 +16,12 @@ export interface BukCompanyConfig {
 
 export interface BukPaginatedResponse<T> {
   data?: T[]
-  employees?: T[]   // BUK usa a veces "employees" como root key
-  meta?: {
-    current_page: number
+  pagination?: {
+    next: string | null
+    previous: string | null
+    count: number
     total_pages: number
-    total_count: number
-    per_page: number
   }
-  // BUK también puede devolver paginación en headers: x-total, x-page
 }
 
 // ─── Colaborador en BUK ───────────────────────────────────────────────────────

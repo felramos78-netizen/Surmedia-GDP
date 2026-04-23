@@ -79,29 +79,14 @@ export class BukClient {
     let totalPages = 1
 
     do {
-      const url = `${this.config.baseUrl}${BUK_API_PATH}/employees?page=${page}&per_page=${PER_PAGE}`
+      const url = `${this.config.baseUrl}${BUK_API_PATH}/employees?page=${page}&page_size=${PER_PAGE}`
       const res = await this.fetchWithRetry(url)
       const body = await res.json() as BukPaginatedResponse<BukEmployee>
 
-      // BUK puede devolver los empleados bajo "data" o "employees"
-      const pageEmployees = body.data ?? body.employees ?? []
+      const pageEmployees = body.data ?? []
       employees.push(...pageEmployees)
 
-      if (body.meta) {
-        totalPages = body.meta.total_pages
-      } else {
-        // Si no hay meta, intentar leer total desde headers
-        const xTotal = res.headers.get('x-total')
-        const xTotalPages = res.headers.get('x-total-pages')
-        if (xTotalPages) {
-          totalPages = parseInt(xTotalPages, 10)
-        } else if (xTotal) {
-          totalPages = Math.ceil(parseInt(xTotal, 10) / PER_PAGE)
-        } else {
-          // Sin metadata de paginación: asumir una sola página
-          totalPages = 1
-        }
-      }
+      totalPages = body.pagination?.total_pages ?? 1
 
       page++
     } while (page <= totalPages)
@@ -113,8 +98,8 @@ export class BukClient {
   async fetchEmployee(bukId: number): Promise<BukEmployee> {
     const url = `${this.config.baseUrl}${BUK_API_PATH}/employees/${bukId}`
     const res = await this.fetchWithRetry(url)
-    const body = await res.json() as { data?: BukEmployee } | BukEmployee
-    return ((body as { data?: BukEmployee }).data ?? body) as BukEmployee
+    const body = await res.json() as { data: BukEmployee }
+    return body.data
   }
 }
 
