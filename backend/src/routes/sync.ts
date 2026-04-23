@@ -1,12 +1,27 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import type { FastifyPluginAsync } from 'fastify'
 import { Prisma } from '@prisma/client'
-import { syncBukAll, syncBukCompany } from '../integrations/buk/buk.sync'
+import { syncBukAll, syncBukCompany, previewBukAll } from '../integrations/buk/buk.sync'
 import type { BukLegalEntity } from '../integrations/buk/buk.types'
 
 const VALID_ENTITIES: BukLegalEntity[] = ['COMUNICACIONES_SURMEDIA', 'SURMEDIA_CONSULTORIA']
 
 const syncRoutes: FastifyPluginAsync = async (fastify) => {
+
+  // ─── POST /api/sync/buk/preview — vista previa sin guardar ──────────────────
+  fastify.post('/buk/preview', {
+    preHandler: fastify.authenticate,
+    config: { timeout: 120_000 },
+  }, async (_req, reply) => {
+    fastify.log.info('Preview BUK iniciado')
+    try {
+      const results = await previewBukAll(fastify.prisma)
+      return reply.send({ ok: true, results })
+    } catch (err: any) {
+      fastify.log.error({ err }, 'Preview BUK falló')
+      return reply.status(500).send({ ok: false, error: err.message })
+    }
+  })
 
   // ─── POST /api/sync/buk — dispara sync completo (ambas empresas) ─────────────
   fastify.post('/buk', {

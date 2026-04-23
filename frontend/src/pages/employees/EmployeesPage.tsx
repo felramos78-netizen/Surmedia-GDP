@@ -1,8 +1,8 @@
-import { useState, useMemo } from 'react'
-import { Search, RefreshCw, ChevronDown, Users, UserX, GitMerge, AlertTriangle, CheckCircle2 } from 'lucide-react'
-import { useEmployees, useSyncBuk, useSyncLogs, type DotacionFilters } from '@/hooks/useDotacion'
+import { useState } from 'react'
+import { Search, RefreshCw, ChevronDown, Users, UserX, GitMerge, AlertTriangle, CheckCircle2, X, Eye, Save, Calendar } from 'lucide-react'
+import { useEmployees, useEmployeeStats, useSyncBuk, useSyncLogs, usePreviewSync, type DotacionFilters } from '@/hooks/useDotacion'
 import { formatDate } from '@/lib/utils'
-import type { Employee, Contract, LegalEntity } from '@/types'
+import type { Employee, Contract, LegalEntity, SyncPreviewResult } from '@/types'
 import EmployeeDrawer from './EmployeeDrawer'
 
 // ─── Helpers de presentación ──────────────────────────────────────────────────
@@ -53,7 +53,7 @@ function initials(emp: Employee) {
   return `${emp.firstName[0] ?? ''}${emp.lastName[0] ?? ''}`.toUpperCase()
 }
 
-// ─── Componente de stats ──────────────────────────────────────────────────────
+// ─── Stat card ────────────────────────────────────────────────────────────────
 
 function StatCard({ label, value, sub, icon: Icon, color }: {
   label: string
@@ -99,25 +99,229 @@ function FilterSelect({ value, onChange, options, placeholder }: {
   )
 }
 
-// ─── Botón de sincronización ──────────────────────────────────────────────────
+// ─── Modal de vista previa ────────────────────────────────────────────────────
+
+function PreviewModal({ results, onConfirm, onCancel, isSaving }: {
+  results: SyncPreviewResult[]
+  onConfirm: () => void
+  onCancel: () => void
+  isSaving: boolean
+}) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+
+  const totalNew    = results.reduce((s, r) => s + r.toCreate, 0)
+  const totalUpdate = results.reduce((s, r) => s + r.toUpdate, 0)
+  const totalDups   = results.reduce((s, r) => s + r.duplicatesSkipped, 0)
+
+  const ENTITY_LABEL: Record<string, string> = {
+    COMUNICACIONES_SURMEDIA: 'Comunicaciones',
+    SURMEDIA_CONSULTORIA:    'Consultoría',
+  }
+  const ENTITY_COLOR: Record<string, string> = {
+    COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+    SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Overlay */}
+      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
+
+      {/* Panel */}
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <Eye size={18} className="text-blue-600" />
+            <h2 className="font-semibold text-gray-900">Vista previa — Sincronización BUK</h2>
+          </div>
+          <button onClick={onCancel} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+            <X size={16} className="text-gray-400" />
+          </button>
+        </div>
+
+        {/* Resumen global */}
+        <div className="px-6 py-4 border-b border-gray-100 flex flex-wrap gap-4">
+          <div className="text-center">
+            <p className="text-2xl font-bold text-green-600">{totalNew}</p>
+            <p className="text-xs text-gray-500">Colaboradores nuevos</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-blue-600">{totalUpdate}</p>
+            <p className="text-xs text-gray-500">Actualizaciones</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-gray-400">{totalDups}</p>
+            <p className="text-xs text-gray-500">Duplicados omitidos</p>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+          {results.map(r => {
+            const label = ENTITY_LABEL[r.legalEntity] ?? r.legalEntity
+            const isExpanded = expanded[r.legalEntity] ?? false
+
+            return (
+              <div key={r.legalEntity} className="border border-gray-100 rounded-xl overflow-hidden">
+                {/* Empresa header */}
+                <div className="px-4 py-3 bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ENTITY_COLOR[r.legalEntity] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {label}
+                    </span>
+                    <span className="text-xs text-gray-500">{r.employeesTotal} en BUK</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs">
+                    {r.toCreate > 0 && (
+                      <span className="text-green-600 font-medium">+{r.toCreate} nuevos</span>
+                    )}
+                    {r.toUpdate > 0 && (
+                      <span className="text-blue-600">{r.toUpdate} actualiz.</span>
+                    )}
+                    {r.duplicatesSkipped > 0 && (
+                      <span className="text-gray-400">{r.duplicatesSkipped} omitidos</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Rango de fechas */}
+                {(r.dateRange.min || r.dateRange.max) && (
+                  <div className="px-4 py-2 border-t border-gray-50 flex items-center gap-2 text-xs text-gray-500">
+                    <Calendar size={12} className="text-gray-400 flex-shrink-0" />
+                    <span>
+                      Ingresos: {r.dateRange.min ? formatDate(r.dateRange.min) : '—'}
+                      {r.dateRange.max && r.dateRange.max !== r.dateRange.min && (
+                        <> — {formatDate(r.dateRange.max)}</>
+                      )}
+                    </span>
+                  </div>
+                )}
+
+                {/* Lista de nuevos */}
+                {r.newEntries.length > 0 && (
+                  <div className="border-t border-gray-50">
+                    <button
+                      onClick={() => setExpanded(prev => ({ ...prev, [r.legalEntity]: !isExpanded }))}
+                      className="w-full px-4 py-2 text-left text-xs font-medium text-gray-500 hover:bg-gray-50 flex items-center justify-between"
+                    >
+                      <span>{r.newEntries.length} colaboradores nuevos a agregar</span>
+                      <ChevronDown size={13} className={`transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isExpanded && (
+                      <div className="divide-y divide-gray-50">
+                        {r.newEntries.map(entry => (
+                          <div key={entry.rut} className="px-4 py-2.5 flex items-center gap-3">
+                            <div className="w-7 h-7 rounded-full bg-green-100 text-green-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                              {`${entry.firstName[0] ?? ''}${entry.lastName[0] ?? ''}`.toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">
+                                {entry.firstName} {entry.lastName}
+                              </p>
+                              <p className="text-xs text-gray-400 truncate">
+                                {[entry.position, entry.department].filter(Boolean).join(' · ') || entry.rut}
+                              </p>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              {entry.startDate && (
+                                <p className="text-xs text-gray-400">
+                                  Ingreso: {formatDate(entry.startDate)}
+                                </p>
+                              )}
+                              {entry.endDate && (
+                                <p className="text-xs text-amber-500">
+                                  Salida: {formatDate(entry.endDate)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {r.newEntries.length === 0 && r.toUpdate > 0 && (
+                  <div className="px-4 py-3 border-t border-gray-50 text-xs text-gray-400">
+                    Sin colaboradores nuevos — se actualizarán {r.toUpdate} registros existentes.
+                  </div>
+                )}
+
+                {r.newEntries.length === 0 && r.toUpdate === 0 && (
+                  <div className="px-4 py-3 border-t border-gray-50 text-xs text-gray-400">
+                    Sin cambios detectados.
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
+          <button
+            onClick={onCancel}
+            disabled={isSaving}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
+          >
+            <Save size={14} className={isSaving ? 'animate-pulse' : ''} />
+            {isSaving ? 'Guardando…' : 'Guardar en base de datos'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Botón de sincronización con preview ─────────────────────────────────────
 
 type SyncLine = { ok: boolean; label: string; msg: string }
 
-function SyncButton() {
-  const [lines, setLines] = useState<SyncLine[] | null>(null)
-  const { data: logs } = useSyncLogs()
-  const { mutate, isPending } = useSyncBuk()
+function SyncButton({ onSaved }: { onSaved: () => void }) {
+  const [phase, setPhase]       = useState<'idle' | 'previewing' | 'modal' | 'saving'>('idle')
+  const [preview, setPreview]   = useState<SyncPreviewResult[] | null>(null)
+  const [lines, setLines]       = useState<SyncLine[] | null>(null)
 
+  const { data: logs } = useSyncLogs()
   const lastSync = logs?.[0]
+
+  const { mutate: doPreview } = usePreviewSync()
+  const { mutate: doSync }    = useSyncBuk()
 
   const ENTITY_LABEL: Record<string, string> = {
     COMUNICACIONES_SURMEDIA: 'Comunicaciones',
     SURMEDIA_CONSULTORIA:    'Consultoría',
   }
 
-  function handleSync() {
+  function handleClickSync() {
     setLines(null)
-    mutate(undefined, {
+    setPhase('previewing')
+    doPreview(undefined, {
+      onSuccess: (data: any) => {
+        setPreview(data.results ?? [])
+        setPhase('modal')
+      },
+      onError: (err: any) => {
+        const msg = err?.response?.data?.error ?? err?.message ?? 'Error al consultar BUK'
+        setLines([{ ok: false, label: '', msg }])
+        setPhase('idle')
+      },
+    })
+  }
+
+  function handleConfirm() {
+    setPhase('saving')
+    doSync(undefined, {
       onSuccess: (data: any) => {
         const parsed: SyncLine[] = (data?.results ?? []).map((r: any) => {
           const label = ENTITY_LABEL[r.legalEntity] ?? r.legalEntity
@@ -127,46 +331,71 @@ function SyncButton() {
           return { ok: true, label, msg: `${synced} sincronizados` }
         })
         setLines(parsed.length ? parsed : [{ ok: true, label: '', msg: 'Sin cambios' }])
+        setPhase('idle')
+        setPreview(null)
+        onSaved()
       },
       onError: (err: any) => {
-        const msg = err?.response?.data?.error ?? err?.message ?? 'Error desconocido'
+        const msg = err?.response?.data?.error ?? err?.message ?? 'Error al sincronizar'
         setLines([{ ok: false, label: '', msg }])
+        setPhase('idle')
+        setPreview(null)
       },
     })
   }
 
+  function handleCancel() {
+    setPhase('idle')
+    setPreview(null)
+  }
+
+  const isPreviewing = phase === 'previewing'
+  const isSaving     = phase === 'saving'
+  const showModal    = phase === 'modal' || phase === 'saving'
+
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex items-center gap-3">
-        {lastSync && !lines && (
-          <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400">
-            {lastSync.status === 'SUCCESS'
-              ? <CheckCircle2 size={13} className="text-green-500" />
-              : lastSync.status === 'ERROR'
-              ? <AlertTriangle size={13} className="text-red-400" />
-              : <RefreshCw size={13} className="animate-spin text-blue-400" />}
-            Último sync: {formatDate(lastSync.completedAt ?? lastSync.startedAt)}
+    <>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-3">
+          {lastSync && !lines && phase === 'idle' && (
+            <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400">
+              {lastSync.status === 'SUCCESS'
+                ? <CheckCircle2 size={13} className="text-green-500" />
+                : lastSync.status === 'ERROR'
+                ? <AlertTriangle size={13} className="text-red-400" />
+                : <RefreshCw size={13} className="animate-spin text-blue-400" />}
+              Último sync: {formatDate(lastSync.completedAt ?? lastSync.startedAt)}
+            </div>
+          )}
+          <button
+            onClick={handleClickSync}
+            disabled={isPreviewing || isSaving}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
+          >
+            <RefreshCw size={15} className={(isPreviewing || isSaving) ? 'animate-spin' : ''} />
+            {isPreviewing ? 'Consultando BUK…' : 'Sincronizar BUK'}
+          </button>
+        </div>
+        {lines && (
+          <div className="flex flex-col items-end gap-0.5">
+            {lines.map((l, i) => (
+              <p key={i} className={`text-xs ${l.ok ? 'text-green-600' : 'text-red-500'}`}>
+                {l.ok ? '✓' : '✗'} {l.label ? `${l.label}: ` : ''}{l.msg}
+              </p>
+            ))}
           </div>
         )}
-        <button
-          onClick={handleSync}
-          disabled={isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
-        >
-          <RefreshCw size={15} className={isPending ? 'animate-spin' : ''} />
-          {isPending ? 'Sincronizando…' : 'Sincronizar BUK'}
-        </button>
       </div>
-      {lines && (
-        <div className="flex flex-col items-end gap-0.5">
-          {lines.map((l, i) => (
-            <p key={i} className={`text-xs ${l.ok ? 'text-green-600' : 'text-red-500'}`}>
-              {l.ok ? '✓' : '✗'} {l.label ? `${l.label}: ` : ''}{l.msg}
-            </p>
-          ))}
-        </div>
+
+      {showModal && preview && (
+        <PreviewModal
+          results={preview}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+          isSaving={isSaving}
+        />
       )}
-    </div>
+    </>
   )
 }
 
@@ -206,7 +435,7 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
         {emp.department?.name ?? <span className="text-gray-300">—</span>}
       </td>
 
-      {/* Empresa (badge por legalEntity del contrato) */}
+      {/* Empresa */}
       <td className="px-4 py-3">
         {contract?.legalEntity ? (
           <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${LEGAL_ENTITY_COLOR[contract.legalEntity]}`}>
@@ -224,6 +453,19 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
       {/* Tipo contrato */}
       <td className="px-4 py-3 text-sm text-gray-600">
         {contract ? CONTRACT_LABEL[contract.type] : <span className="text-gray-300">—</span>}
+      </td>
+
+      {/* Ingreso */}
+      <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+        {formatDate(emp.startDate)}
+      </td>
+
+      {/* Salida */}
+      <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+        {emp.endDate
+          ? <span className="text-amber-600">{formatDate(emp.endDate)}</span>
+          : <span className="text-gray-300">—</span>
+        }
       </td>
 
       {/* Antigüedad */}
@@ -244,32 +486,16 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function EmployeesPage() {
-  const [filters, setFilters] = useState<DotacionFilters>({})
+  const [filters, setFilters]   = useState<DotacionFilters>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const { data, isLoading, isError } = useEmployees(filters)
+  const { data: stats, refetch: refetchStats } = useEmployeeStats()
   const employees = data?.data ?? []
 
   function setFilter(key: keyof DotacionFilters, value: string) {
     setFilters(prev => ({ ...prev, [key]: value || undefined }))
   }
-
-  // Stats calculados del resultado actual
-  const stats = useMemo(() => {
-    const active     = employees.filter(e => e.status === 'ACTIVE').length
-    const inactive   = employees.filter(e => e.status === 'INACTIVE').length
-    const duplicates = employees.filter(e =>
-      e.contracts?.some(c => c.legalEntity === 'COMUNICACIONES_SURMEDIA') &&
-      e.contracts?.some(c => c.legalEntity === 'SURMEDIA_CONSULTORIA')
-    ).length
-    const expiring   = employees.filter(e => {
-      const c = primaryContract(e.contracts)
-      if (!c?.endDate) return false
-      const daysLeft = (new Date(c.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-      return daysLeft >= 0 && daysLeft <= 30
-    }).length
-    return { active, inactive, duplicates, expiring }
-  }, [employees])
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -279,18 +505,40 @@ export default function EmployeesPage() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Dotación</h2>
           <p className="text-gray-500 mt-1 text-sm">
-            {data?.total !== undefined ? `${data.total} colaboradores` : 'Cargando…'}
+            {stats !== undefined ? `${stats.total} colaboradores en base de datos` : 'Cargando…'}
           </p>
         </div>
-        <SyncButton />
+        <SyncButton onSaved={refetchStats} />
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Activos"              value={stats.active}     icon={Users}        color="text-green-600 bg-green-50" />
-        <StatCard label="Inactivos"            value={stats.inactive}   icon={UserX}        color="text-gray-500 bg-gray-100" />
-        <StatCard label="En ambas empresas"    value={stats.duplicates} icon={GitMerge}     color="text-indigo-600 bg-indigo-50" sub="Comunicaciones y Consultoría" />
-        <StatCard label="Contratos por vencer" value={stats.expiring}   icon={AlertTriangle} color="text-amber-600 bg-amber-50" sub="próximos 30 días" />
+        <StatCard
+          label="Activos"
+          value={stats?.active ?? '—'}
+          icon={Users}
+          color="text-green-600 bg-green-50"
+        />
+        <StatCard
+          label="Inactivos"
+          value={stats?.inactive ?? '—'}
+          icon={UserX}
+          color="text-gray-500 bg-gray-100"
+        />
+        <StatCard
+          label="En ambas empresas"
+          value={stats?.inBoth ?? '—'}
+          icon={GitMerge}
+          color="text-indigo-600 bg-indigo-50"
+          sub="Comunicaciones y Consultoría"
+        />
+        <StatCard
+          label="Contratos por vencer"
+          value={stats?.expiring ?? '—'}
+          icon={AlertTriangle}
+          color="text-amber-600 bg-amber-50"
+          sub="próximos 30 días"
+        />
       </div>
 
       {/* Tabla */}
@@ -385,6 +633,8 @@ export default function EmployeesPage() {
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Área</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Empresa</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Contrato</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ingreso</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Salida</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Antigüedad</th>
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Estado</th>
                 </tr>
@@ -405,7 +655,7 @@ export default function EmployeesPage() {
         {/* Footer con total */}
         {employees.length > 0 && (
           <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
-            {employees.length} colaboradores{data?.total && data.total > employees.length ? ` de ${data.total}` : ''}
+            {employees.length} colaboradores mostrados{data?.total && data.total > employees.length ? ` de ${data.total} en total` : ''}
           </div>
         )}
       </div>

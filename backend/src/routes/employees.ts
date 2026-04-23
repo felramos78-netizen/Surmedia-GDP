@@ -14,6 +14,31 @@ interface EmployeeListQuery {
 const employeeRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate)
 
+  fastify.get('/stats', async (_req, reply) => {
+    const now = new Date()
+    const thirtyDays = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+
+    const [total, active, inactive, expiring, inBoth] = await Promise.all([
+      fastify.prisma.employee.count({ where: { deletedAt: null } }),
+      fastify.prisma.employee.count({ where: { deletedAt: null, status: 'ACTIVE' } }),
+      fastify.prisma.employee.count({ where: { deletedAt: null, status: 'INACTIVE' } }),
+      fastify.prisma.contract.count({
+        where: { deletedAt: null, isActive: true, endDate: { gte: now, lte: thirtyDays } },
+      }),
+      fastify.prisma.employee.count({
+        where: {
+          deletedAt: null,
+          AND: [
+            { contracts: { some: { legalEntity: 'COMUNICACIONES_SURMEDIA', deletedAt: null } } },
+            { contracts: { some: { legalEntity: 'SURMEDIA_CONSULTORIA', deletedAt: null } } },
+          ],
+        },
+      }),
+    ])
+
+    return reply.send({ data: { total, active, inactive, expiring, inBoth } })
+  })
+
   fastify.get<{ Querystring: EmployeeListQuery }>('/', async (req, reply) => {
     const { search, status, legalEntity, contractType, departmentId, page = '1', limit = '100' } = req.query
 

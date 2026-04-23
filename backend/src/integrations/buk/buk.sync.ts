@@ -4,6 +4,26 @@ import { BukClient } from './buk.client'
 import { buildDuplicateSet, mapContractUpsert, mapEmployeeUpsert, normalizeRut } from './buk.mapper'
 import type { BukEmployee, BukLegalEntity, BukSyncEmployeeResult } from './buk.types'
 
+export interface PreviewEntry {
+  rut: string
+  firstName: string
+  lastName: string
+  department?: string
+  position?: string
+  startDate?: string | null
+  endDate?: string | null
+}
+
+export interface PreviewResult {
+  legalEntity: BukLegalEntity
+  employeesTotal: number
+  toCreate: number
+  toUpdate: number
+  duplicatesSkipped: number
+  newEntries: PreviewEntry[]
+  dateRange: { min: string | null; max: string | null }
+}
+
 export interface SyncResult {
   legalEntity: BukLegalEntity
   employeesTotal: number
@@ -234,6 +254,94 @@ export async function syncBukAll(prisma: PrismaClient): Promise<SyncResult[]> {
       continue
     }
     const result = await syncCompany(prisma, client, allByEntity)
+    results.push(result)
+  }
+
+  return results
+}
+
+// ─── Vista previa sin guardar (compara BUK vs DB) ────────────────────────────
+
+export async function previewBukAll(prisma: PrismaClient): Promise<PreviewResult[]> {
+  const [clientComunicaciones, clientConsultoria] = BukClient.fromEnv()
+
+  const [resComunicaciones, resConsultoria] = await Promise.allSettled([
+    clientComunicaciones.fetchAllEmployees(),
+    clientConsultoria.fetchAllEmployees(),
+  ])
+
+  const empsComunicaciones = resComunicaciones.status === 'fulfilled' ? resComunicaciones.value : []
+  const empsConsultoria    = resConsultoria.status    === 'fulfilled' ? resConsultoria.value    : []
+
+  const allByEntity: Array<{ legalEntity: BukLegalEntity; employees: BukEmployee[] }> = [
+    { legalEntity: 'COMUNICACIONES_SURMEDIA', employees: empsComunicaciones },
+    { legalEntity: 'SURMEDIA_CONSULTORIA',   employees: empsConsultoria },
+  ]
+
+  const duplicateSet = buildDuplicateSet(allByEntity)
+
+  // Fetch all existing RUTs in a single query to avoid N+1
+  const allRutsToCheck = new Set<string>()
+  for (const { legalEntity, employees } of allByEntity) {
+    for (const bukEmp of employees) {
+      const rut = normalizeRut(bukEmp.rut)
+      if (!duplicateSet.has(`${rut}::${legalEntity}`)) allRutsToCheck.add(rut)
+    }
+  }
+  const existingRows = await prisma.employee.findMany({
+    where: { rut: { in: [...allRutsToCheck] } },
+    select: { rut: true },
+  })
+  const existingRuts = new Set(existingRows.map(e => e.rut))
+
+  const results: PreviewResult[] = []
+
+  for (const { legalEntity, employees } of allByEntity) {
+    const result: PreviewResult = {
+      legalEntity,
+      employeesTotal: employees.length,
+      toCreate: 0,
+      toUpdate: 0,
+      duplicatesSkipped: 0,
+      newEntries: [],
+      dateRange: { min: null, max: null },
+    }
+
+    const dates: string[] = []
+
+    for (const bukEmp of employees) {
+      const rut = normalizeRut(bukEmp.rut)
+      if (duplicateSet.has(`${rut}::${legalEntity}`)) {
+        result.duplicatesSkipped++
+        continue
+      }
+
+      const rawStartDate = bukEmp.start_date ?? bukEmp.current_job?.start_date ?? null
+      if (rawStartDate) dates.push(rawStartDate)
+
+      const fullLastName = [bukEmp.surname, bukEmp.second_surname].filter(Boolean).join(' ')
+
+      if (!existingRuts.has(rut)) {
+        result.toCreate++
+        result.newEntries.push({
+          rut,
+          firstName: bukEmp.first_name,
+          lastName: fullLastName,
+          department: bukEmp.department?.name,
+          position: bukEmp.current_job?.name,
+          startDate: rawStartDate,
+          endDate: bukEmp.end_date ?? null,
+        })
+      } else {
+        result.toUpdate++
+      }
+    }
+
+    if (dates.length) {
+      const sorted = [...dates].sort()
+      result.dateRange = { min: sorted[0], max: sorted[sorted.length - 1] }
+    }
+
     results.push(result)
   }
 

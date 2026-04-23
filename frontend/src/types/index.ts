@@ -90,6 +90,34 @@ export interface SyncLog {
   errorMessage?: string | null
 }
 
+export interface EmployeeStats {
+  total: number
+  active: number
+  inactive: number
+  expiring: number
+  inBoth: number
+}
+
+export interface SyncPreviewEntry {
+  rut: string
+  firstName: string
+  lastName: string
+  department?: string
+  position?: string
+  startDate?: string | null
+  endDate?: string | null
+}
+
+export interface SyncPreviewResult {
+  legalEntity: string
+  employeesTotal: number
+  toCreate: number
+  toUpdate: number
+  duplicatesSkipped: number
+  newEntries: SyncPreviewEntry[]
+  dateRange: { min: string | null; max: string | null }
+}
+
 export interface ApiResponse<T> {
   data: T
   message?: string

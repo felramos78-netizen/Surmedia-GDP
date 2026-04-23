@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Employee, SyncLog, ApiResponse } from '@/types'
+import type { Employee, EmployeeStats, SyncLog, SyncPreviewResult, ApiResponse } from '@/types'
 
 export interface DotacionFilters {
   search?: string
@@ -34,6 +34,25 @@ export function useEmployees(filters: DotacionFilters = {}) {
   })
 }
 
+export function useEmployeeStats() {
+  return useQuery({
+    queryKey: ['employeeStats'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<EmployeeStats>>('/employees/stats')
+      return data.data
+    },
+  })
+}
+
+export function usePreviewSync() {
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<{ ok: boolean; results: SyncPreviewResult[] }>('/sync/buk/preview')
+      return data
+    },
+  })
+}
+
 export function useEmployee(id: string | null) {
   return useQuery({
     queryKey: ['employee', id],
@@ -56,6 +75,7 @@ export function useSyncBuk() {
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['employees'] })
+      queryClient.invalidateQueries({ queryKey: ['employeeStats'] })
       queryClient.invalidateQueries({ queryKey: ['syncLogs'] })
     },
   })
