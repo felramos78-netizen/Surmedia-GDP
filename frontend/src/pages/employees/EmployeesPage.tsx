@@ -101,23 +101,36 @@ function FilterSelect({ value, onChange, options, placeholder }: {
 
 // ─── Botón de sincronización ──────────────────────────────────────────────────
 
+type SyncLine = { ok: boolean; label: string; msg: string }
+
 function SyncButton() {
-  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [lines, setLines] = useState<SyncLine[] | null>(null)
   const { data: logs } = useSyncLogs()
   const { mutate, isPending } = useSyncBuk()
 
   const lastSync = logs?.[0]
 
+  const ENTITY_LABEL: Record<string, string> = {
+    COMUNICACIONES_SURMEDIA: 'Comunicaciones',
+    SURMEDIA_CONSULTORIA:    'Consultoría',
+  }
+
   function handleSync() {
-    setResult(null)
+    setLines(null)
     mutate(undefined, {
       onSuccess: (data: any) => {
-        const total = data?.results?.reduce((n: number, r: any) => n + (r.employeesCreated ?? 0) + (r.employeesUpdated ?? 0), 0) ?? 0
-        setResult({ ok: true, msg: `${total} colaboradores sincronizados` })
+        const parsed: SyncLine[] = (data?.results ?? []).map((r: any) => {
+          const label = ENTITY_LABEL[r.legalEntity] ?? r.legalEntity
+          const fatalError = r.errors?.find((e: any) => e.rut === '*')?.error
+          if (fatalError) return { ok: false, label, msg: fatalError }
+          const synced = (r.employeesCreated ?? 0) + (r.employeesUpdated ?? 0)
+          return { ok: true, label, msg: `${synced} sincronizados` }
+        })
+        setLines(parsed.length ? parsed : [{ ok: true, label: '', msg: 'Sin cambios' }])
       },
       onError: (err: any) => {
         const msg = err?.response?.data?.error ?? err?.message ?? 'Error desconocido'
-        setResult({ ok: false, msg })
+        setLines([{ ok: false, label: '', msg }])
       },
     })
   }
@@ -125,7 +138,7 @@ function SyncButton() {
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-3">
-        {lastSync && !result && (
+        {lastSync && !lines && (
           <div className="hidden lg:flex items-center gap-1.5 text-xs text-gray-400">
             {lastSync.status === 'SUCCESS'
               ? <CheckCircle2 size={13} className="text-green-500" />
@@ -144,10 +157,14 @@ function SyncButton() {
           {isPending ? 'Sincronizando…' : 'Sincronizar BUK'}
         </button>
       </div>
-      {result && (
-        <p className={`text-xs ${result.ok ? 'text-green-600' : 'text-red-500'}`}>
-          {result.ok ? '✓' : '✗'} {result.msg}
-        </p>
+      {lines && (
+        <div className="flex flex-col items-end gap-0.5">
+          {lines.map((l, i) => (
+            <p key={i} className={`text-xs ${l.ok ? 'text-green-600' : 'text-red-500'}`}>
+              {l.ok ? '✓' : '✗'} {l.label ? `${l.label}: ` : ''}{l.msg}
+            </p>
+          ))}
+        </div>
       )}
     </div>
   )

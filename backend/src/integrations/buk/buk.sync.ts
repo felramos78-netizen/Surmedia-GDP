@@ -155,20 +155,51 @@ async function syncEmployee(
 export async function syncBukAll(prisma: PrismaClient): Promise<SyncResult[]> {
   const [clientComunicaciones, clientConsultoria] = BukClient.fromEnv()
 
-  // Descargar empleados de ambas empresas en paralelo
-  const [empsComunicaciones, empsConsultoria] = await Promise.all([
+  // Descargar empleados de ambas empresas en paralelo; cada una falla de forma independiente
+  const [resComunicaciones, resConsultoria] = await Promise.allSettled([
     clientComunicaciones.fetchAllEmployees(),
     clientConsultoria.fetchAllEmployees(),
   ])
+
+  const empsComunicaciones = resComunicaciones.status === 'fulfilled' ? resComunicaciones.value : []
+  const empsConsultoria    = resConsultoria.status    === 'fulfilled' ? resConsultoria.value    : []
 
   const allByEntity: Array<{ legalEntity: BukLegalEntity; employees: BukEmployee[] }> = [
     { legalEntity: 'COMUNICACIONES_SURMEDIA', employees: empsComunicaciones },
     { legalEntity: 'SURMEDIA_CONSULTORIA',   employees: empsConsultoria },
   ]
 
-  // Sincronizar cada empresa secuencialmente para no sobrecargar la BD
   const results: SyncResult[] = []
-  for (const client of [clientComunicaciones, clientConsultoria]) {
+
+  const pairs: Array<[BukClient, PromiseSettledResult<BukEmployee[]>]> = [
+    [clientComunicaciones, resComunicaciones],
+    [clientConsultoria,    resConsultoria],
+  ]
+
+  for (const [client, settled] of pairs) {
+    if (settled.status === 'rejected') {
+      const errMsg = String(settled.reason)
+      await prisma.syncLog.create({
+        data: {
+          source:       'buk',
+          legalEntity:  client.legalEntity as LegalEntity,
+          status:       'ERROR',
+          completedAt:  new Date(),
+          errorMessage: errMsg,
+        },
+      })
+      results.push({
+        legalEntity:       client.legalEntity,
+        employeesTotal:    0,
+        employeesCreated:  0,
+        employeesUpdated:  0,
+        contractsUpserted: 0,
+        duplicatesSkipped: 0,
+        durationMs:        0,
+        errors: [{ rut: '*', error: errMsg }],
+      })
+      continue
+    }
     const result = await syncCompany(prisma, client, allByEntity)
     results.push(result)
   }
