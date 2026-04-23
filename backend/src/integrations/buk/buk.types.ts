@@ -28,24 +28,28 @@ export interface BukPaginatedResponse<T> {
 
 export interface BukEmployee {
   id: number
-  rut: string                    // ej: "12.345.678-9" o "12345678-9"
+  person_id?: number
+  rut: string                    // ej: "12.345.678-9"
   first_name: string
-  first_last_name: string
-  second_last_name?: string
+  surname: string                // apellido paterno
+  second_surname?: string        // apellido materno
+  full_name?: string
   email?: string
   personal_email?: string
   active: boolean
-  entry_date: string             // ISO "2022-03-01"
-  exit_date?: string | null
-  gender?: 'male' | 'female' | 'other' | string
+  start_date?: string            // ISO "2022-03-01" — fecha de ingreso
+  end_date?: string | null       // fecha de egreso
+  gender?: string                // 'M' | 'F'
   birthday?: string
   nationality?: string
   address?: string
   phone?: string
 
-  job?: {
+  current_job?: {
     id: number
     name: string
+    contract_type?: string
+    start_date?: string
   }
   department?: {
     id: number
@@ -60,9 +64,8 @@ export interface BukEmployee {
   afp?: string | { id: number; name: string }
   health_institution?: string | { id: number; name: string }
 
-  // Remuneraciones — clave para la lógica de deduplicación
-  gross_salary?: number | null   // sueldo bruto en CLP
-  liquid_salary?: number | null  // sueldo líquido: si es 0/null → registro duplicado
+  gross_salary?: number | null
+  liquid_salary?: number | null
 }
 
 // ─── Contrato en BUK (endpoint /contracts si existe por separado) ─────────────

@@ -52,22 +52,25 @@ export function isDuplicateEmployee(emp: BukEmployee): boolean {
 // ─── Mapeo BukEmployee → datos para upsert de Employee ───────────────────────
 
 export function mapEmployeeUpsert(emp: BukEmployee) {
-  const fullLastName = [emp.first_last_name, emp.second_last_name]
+  const fullLastName = [emp.surname, emp.second_surname]
     .filter(Boolean)
     .join(' ')
+
+  const rawStartDate = emp.start_date ?? emp.current_job?.start_date
+  const startDate = rawStartDate ? new Date(rawStartDate) : new Date()
 
   return {
     rut:         normalizeRut(emp.rut),
     firstName:   emp.first_name,
     lastName:    fullLastName,
-    email:       emp.email ?? `${emp.id}@buk.surmedia.cl`,  // fallback si no hay email
+    email:       emp.email ?? `${emp.id}@buk.surmedia.cl`,
     phone:       emp.phone ?? null,
     birthDate:   emp.birthday ? new Date(emp.birthday) : null,
     address:     emp.address ?? null,
     nationality: emp.nationality ?? 'Chilena',
     gender:      emp.gender ?? null,
-    startDate:   new Date(emp.entry_date),
-    endDate:     emp.exit_date ? new Date(emp.exit_date) : null,
+    startDate,
+    endDate:     emp.end_date ? new Date(emp.end_date) : null,
     status:      emp.active ? EmployeeStatus.ACTIVE : EmployeeStatus.INACTIVE,
     afp:         extractName(emp.afp) ?? null,
     isapre:      extractName(emp.health_institution) ?? null,
@@ -77,14 +80,17 @@ export function mapEmployeeUpsert(emp: BukEmployee) {
 // ─── Mapeo BukEmployee → datos para upsert de Contract ───────────────────────
 
 export function mapContractUpsert(emp: BukEmployee, legalEntity: BukLegalEntity) {
+  const rawStartDate = emp.start_date ?? emp.current_job?.start_date
+  const startDate = rawStartDate ? new Date(rawStartDate) : new Date()
+  const contractType = emp.contract_type ?? emp.current_job?.contract_type
   return {
-    type:          mapContractType(emp.contract_type),
-    startDate:     new Date(emp.entry_date),
-    endDate:       emp.exit_date ? new Date(emp.exit_date) : null,
+    type:          mapContractType(contractType),
+    startDate,
+    endDate:       emp.end_date ? new Date(emp.end_date) : null,
     salary:        emp.liquid_salary ?? 0,
     grossSalary:   emp.gross_salary ?? null,
     currency:      'CLP',
-    isActive:      emp.active && !emp.exit_date,
+    isActive:      emp.active && !emp.end_date,
     legalEntity:   legalEntity as LegalEntity,
     bukEmployeeId: emp.id,
   }

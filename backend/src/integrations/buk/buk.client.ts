@@ -81,9 +81,7 @@ export class BukClient {
     do {
       const url = `${this.config.baseUrl}${BUK_API_PATH}/employees?page=${page}&page_size=${PER_PAGE}`
       const res = await this.fetchWithRetry(url)
-      const rawText = await res.text()
-      console.log(`[BUK DEBUG] ${this.config.legalEntity} page=${page} response:`, rawText.slice(0, 500))
-      const body = JSON.parse(rawText) as BukPaginatedResponse<BukEmployee>
+      const body = await res.json() as BukPaginatedResponse<BukEmployee>
 
       const pageEmployees = body.data ?? []
       employees.push(...pageEmployees)
