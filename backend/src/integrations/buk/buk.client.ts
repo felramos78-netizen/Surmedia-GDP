@@ -1,6 +1,6 @@
 import type { BukCompanyConfig, BukEmployee, BukPaginatedResponse } from './buk.types'
 
-const BUK_API_PATH = '/api/v2'
+const BUK_API_PATH = '/api/v1'
 const PER_PAGE = 100
 const MAX_RETRIES = 3
 
