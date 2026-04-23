@@ -71,7 +71,7 @@ export function mapEmployeeUpsert(emp: BukEmployee) {
     gender:      emp.gender ?? null,
     startDate,
     endDate:     emp.end_date ? new Date(emp.end_date) : null,
-    status:      emp.active ? EmployeeStatus.ACTIVE : EmployeeStatus.INACTIVE,
+    status:      (emp.current_job != null && !emp.end_date) ? EmployeeStatus.ACTIVE : EmployeeStatus.INACTIVE,
     afp:         extractName(emp.afp) ?? null,
     isapre:      extractName(emp.health_institution) ?? null,
   }
@@ -90,7 +90,7 @@ export function mapContractUpsert(emp: BukEmployee, legalEntity: BukLegalEntity)
     salary:        emp.liquid_salary ?? 0,
     grossSalary:   emp.gross_salary ?? null,
     currency:      'CLP',
-    isActive:      emp.active && !emp.end_date,
+    isActive:      emp.current_job != null && !emp.end_date,
     legalEntity:   legalEntity as LegalEntity,
     bukEmployeeId: emp.id,
   }

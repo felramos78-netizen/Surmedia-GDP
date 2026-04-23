@@ -100,6 +100,34 @@ async function syncCompany(
   return result
 }
 
+// ─── Resolución de departamento y cargo desde BUK ────────────────────────────
+
+async function resolveDeptAndPosition(
+  prisma: PrismaClient,
+  bukEmp: BukEmployee
+): Promise<{ departmentId?: string; positionId?: string }> {
+  if (!bukEmp.department) return {}
+
+  const dept = await prisma.department.upsert({
+    where:  { code: String(bukEmp.department.id) },
+    create: { name: bukEmp.department.name, code: String(bukEmp.department.id) },
+    update: { name: bukEmp.department.name },
+  })
+
+  if (!bukEmp.current_job) return { departmentId: dept.id }
+
+  let position = await prisma.position.findFirst({
+    where: { departmentId: dept.id, title: bukEmp.current_job.name },
+  })
+  if (!position) {
+    position = await prisma.position.create({
+      data: { title: bukEmp.current_job.name, departmentId: dept.id },
+    })
+  }
+
+  return { departmentId: dept.id, positionId: position.id }
+}
+
 // ─── Upsert de un colaborador + su contrato ───────────────────────────────────
 
 async function syncEmployee(
@@ -108,7 +136,12 @@ async function syncEmployee(
   legalEntity: BukLegalEntity
 ): Promise<BukSyncEmployeeResult> {
   const rut = normalizeRut(bukEmp.rut)
-  const employeeData = mapEmployeeUpsert(bukEmp)
+  const { departmentId, positionId } = await resolveDeptAndPosition(prisma, bukEmp)
+  const employeeData = {
+    ...mapEmployeeUpsert(bukEmp),
+    ...(departmentId != null && { departmentId }),
+    ...(positionId   != null && { positionId }),
+  }
   const contractData = mapContractUpsert(bukEmp, legalEntity)
 
   const existing = await prisma.employee.findFirst({ where: { rut } })

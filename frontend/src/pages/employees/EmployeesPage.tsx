@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Search, RefreshCw, ChevronDown, Building2, Users, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Search, RefreshCw, ChevronDown, Users, UserX, GitMerge, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useEmployees, useSyncBuk, useSyncLogs, type DotacionFilters } from '@/hooks/useDotacion'
 import { formatDate } from '@/lib/utils'
 import type { Employee, Contract, LegalEntity } from '@/types'
@@ -256,16 +256,19 @@ export default function EmployeesPage() {
 
   // Stats calculados del resultado actual
   const stats = useMemo(() => {
-    const active    = employees.filter(e => e.status === 'ACTIVE').length
-    const comunic   = employees.filter(e => e.contracts?.some(c => c.legalEntity === 'COMUNICACIONES_SURMEDIA')).length
-    const consult   = employees.filter(e => e.contracts?.some(c => c.legalEntity === 'SURMEDIA_CONSULTORIA')).length
-    const expiring  = employees.filter(e => {
+    const active     = employees.filter(e => e.status === 'ACTIVE').length
+    const inactive   = employees.filter(e => e.status === 'INACTIVE').length
+    const duplicates = employees.filter(e =>
+      e.contracts?.some(c => c.legalEntity === 'COMUNICACIONES_SURMEDIA') &&
+      e.contracts?.some(c => c.legalEntity === 'SURMEDIA_CONSULTORIA')
+    ).length
+    const expiring   = employees.filter(e => {
       const c = primaryContract(e.contracts)
       if (!c?.endDate) return false
       const daysLeft = (new Date(c.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
       return daysLeft >= 0 && daysLeft <= 30
     }).length
-    return { active, comunic, consult, expiring }
+    return { active, inactive, duplicates, expiring }
   }, [employees])
 
   return (
@@ -284,10 +287,10 @@ export default function EmployeesPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Activos"        value={stats.active}  icon={Users}      color="text-blue-600 bg-blue-50" />
-        <StatCard label="Comunicaciones" value={stats.comunic} icon={Building2}  color="text-blue-600 bg-blue-50"    sub="Comunicaciones Surmedia" />
-        <StatCard label="Consultoría"    value={stats.consult} icon={Building2}  color="text-violet-600 bg-violet-50" sub="Surmedia Consultoría" />
-        <StatCard label="Contratos por vencer" value={stats.expiring} icon={AlertTriangle} color="text-amber-600 bg-amber-50" sub="próximos 30 días" />
+        <StatCard label="Activos"              value={stats.active}     icon={Users}        color="text-green-600 bg-green-50" />
+        <StatCard label="Inactivos"            value={stats.inactive}   icon={UserX}        color="text-gray-500 bg-gray-100" />
+        <StatCard label="En ambas empresas"    value={stats.duplicates} icon={GitMerge}     color="text-indigo-600 bg-indigo-50" sub="Comunicaciones y Consultoría" />
+        <StatCard label="Contratos por vencer" value={stats.expiring}   icon={AlertTriangle} color="text-amber-600 bg-amber-50" sub="próximos 30 días" />
       </div>
 
       {/* Tabla */}
