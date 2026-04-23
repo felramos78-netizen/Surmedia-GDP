@@ -46,7 +46,7 @@ export class BukClient {
     try {
       const res = await fetch(url, {
         headers: {
-          Authorization: `Token ${this.config.apiKey}`,
+          Authorization: `Token token=${this.config.apiKey}`,
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
