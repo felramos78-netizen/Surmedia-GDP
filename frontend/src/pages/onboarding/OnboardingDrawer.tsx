@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react'
-import { X, CheckCircle2, Circle, Clock, Building2, Briefcase, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react'
-import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus } from '@/hooks/useOnboarding'
-import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus } from '@/types'
+import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save } from 'lucide-react'
+import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding } from '@/hooks/useOnboarding'
+import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus, OnboardingProcess } from '@/types'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ function daysIn(s: string) { return Math.floor((Date.now() - new Date(s).getTime
 // ─── Badge de tipo de automatización ─────────────────────────────────────────
 
 function AutoBadge({ type }: { type: TaskAutomationType }) {
-  const m = AUTO_META[type]
+  const m = AUTO_META[type] ?? { label: type, icon: null, color: 'bg-gray-100 text-gray-500' }
   return (
     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${m.color}`}>
       {m.icon}{m.label}
@@ -168,14 +168,14 @@ function TaskRow({
             <button
               onClick={handleAutomate}
               disabled={isRunning}
-              title={`Ejecutar: ${AUTO_META[task.automationType].label}`}
+              title={`Ejecutar: ${AUTO_META[task.automationType]?.label ?? task.automationType}`}
               className={`p-1.5 rounded text-xs font-medium transition-colors ${
                 autoStatus === 'SUCCESS'
                   ? 'text-green-500 hover:bg-green-50'
                   : 'text-blue-500 hover:bg-blue-50'
               } disabled:opacity-40`}
             >
-              {isRunning ? <Loader2 size={13} className="animate-spin" /> : AUTO_META[task.automationType].icon}
+              {isRunning ? <Loader2 size={13} className="animate-spin" /> : AUTO_META[task.automationType]?.icon}
             </button>
           )}
           {/* Delete */}
@@ -222,6 +222,150 @@ function AddTaskForm({ processId, period, onDone }: { processId: string; period:
   )
 }
 
+// ─── Modal: Editar proceso ────────────────────────────────────────────────────
+
+function EditProcessModal({ process, onClose }: { process: OnboardingProcess; onClose: () => void }) {
+  const [form, setForm] = useState({
+    collaboratorName:     process.collaboratorName ?? '',
+    collaboratorEmail:    process.collaboratorEmail ?? '',
+    collaboratorPosition: process.collaboratorPosition ?? '',
+    collaboratorPhone:    process.collaboratorPhone ?? '',
+    legalEntity:          process.legalEntity ?? '',
+    startDate:            process.startDate ? process.startDate.slice(0, 10) : '',
+    notes:                process.notes ?? '',
+  })
+
+  const updateOnboarding = useUpdateOnboarding()
+  const field = (key: keyof typeof form, val: string) => setForm(f => ({ ...f, [key]: val }))
+
+  const handleSave = async () => {
+    if (!form.collaboratorName.trim()) return
+    try {
+      await updateOnboarding.mutateAsync({
+        id:                    process.id,
+        collaboratorName:      form.collaboratorName.trim(),
+        collaboratorEmail:     form.collaboratorEmail.trim() || null,
+        collaboratorPosition:  form.collaboratorPosition.trim() || null,
+        collaboratorPhone:     form.collaboratorPhone.trim() || null,
+        legalEntity:           form.legalEntity || null,
+        startDate:             form.startDate || undefined,
+        notes:                 form.notes.trim() || null,
+      })
+      onClose()
+    } catch (err: any) {
+      alert(err?.response?.data?.message ?? 'Error al guardar los cambios')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-semibold text-gray-900">Editar proceso</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Modifica los datos del colaborador</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
+        </div>
+
+        <div className="p-6 space-y-4 overflow-y-auto max-h-[60vh]">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                Nombre completo <span className="text-red-400">*</span>
+              </label>
+              <input
+                autoFocus
+                type="text"
+                value={form.collaboratorName}
+                onChange={e => field('collaboratorName', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Email corporativo</label>
+              <input
+                type="email"
+                value={form.collaboratorEmail}
+                onChange={e => field('collaboratorEmail', e.target.value)}
+                placeholder="juan.perez@surmedia.cl"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Teléfono</label>
+              <input
+                type="text"
+                value={form.collaboratorPhone}
+                onChange={e => field('collaboratorPhone', e.target.value)}
+                placeholder="+56 9 XXXX XXXX"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo</label>
+              <input
+                type="text"
+                value={form.collaboratorPosition}
+                onChange={e => field('collaboratorPosition', e.target.value)}
+                placeholder="Ej: Diseñador Gráfico"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Empresa</label>
+              <select
+                value={form.legalEntity}
+                onChange={e => field('legalEntity', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Sin especificar</option>
+                <option value="COMUNICACIONES_SURMEDIA">Comunicaciones Surmedia Spa</option>
+                <option value="SURMEDIA_CONSULTORIA">Surmedia Consultoría Spa</option>
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha de ingreso</label>
+              <input
+                type="date"
+                value={form.startDate}
+                onChange={e => field('startDate', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Notas internas</label>
+              <textarea
+                rows={2}
+                value={form.notes}
+                onChange={e => field('notes', e.target.value)}
+                placeholder="Información relevante para el proceso..."
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
+          <button
+            onClick={handleSave}
+            disabled={!form.collaboratorName.trim() || updateOnboarding.isPending}
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {updateOnboarding.isPending ? (
+              <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Guardando...</>
+            ) : (
+              <><Save size={14} /> Guardar cambios</>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Drawer principal ─────────────────────────────────────────────────────────
 
 interface Props {
@@ -231,8 +375,10 @@ interface Props {
 
 export default function OnboardingDrawer({ processId, onClose }: Props) {
   const { data: process, isLoading } = useOnboardingProcess(processId)
-  const updateStatus = useUpdateOnboardingStatus()
+  const updateStatus  = useUpdateOnboardingStatus()
+  const deleteProcess = useDeleteOnboarding()
   const [addingPeriod, setAddingPeriod] = useState<OnboardingPeriod | null>(null)
+  const [showEdit, setShowEdit]         = useState(false)
 
   if (isLoading || !process) {
     return (
@@ -265,6 +411,7 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
     : process.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : null
 
   return (
+    <>
     <div className="fixed inset-0 z-40 flex justify-end">
       <div className="fixed inset-0 bg-black/30" onClick={onClose} />
       <div className="relative z-50 w-full max-w-xl bg-white shadow-2xl flex flex-col overflow-hidden">
@@ -280,7 +427,16 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
               <p className="text-xs text-gray-400">{process.collaboratorPosition ?? '—'}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400"><X size={18} /></button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowEdit(true)}
+              title="Editar proceso"
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <Pencil size={15} />
+            </button>
+            <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400"><X size={18} /></button>
+          </div>
         </div>
 
         {/* Meta */}
@@ -353,22 +509,42 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
         </div>
 
         {/* Footer */}
-        {process.status === 'IN_PROGRESS' && (
-          <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
-            {days > 95 && (
-              <div className="flex items-center gap-1 text-xs text-amber-500">
-                <AlertTriangle size={12} />Proceso extendido ({days} días)
-              </div>
+        <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between gap-2">
+          {process.status === 'IN_PROGRESS' && days > 95 && (
+            <div className="flex items-center gap-1 text-xs text-amber-500">
+              <AlertTriangle size={12} />Proceso extendido ({days} días)
+            </div>
+          )}
+          <div className="ml-auto flex items-center gap-3">
+            {process.status === 'IN_PROGRESS' && (
+              <button
+                onClick={() => { if (confirm('¿Cancelar este proceso de onboarding?')) { updateStatus.mutate({ id: process.id, status: 'CANCELLED' }); onClose() } }}
+                className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+              >
+                Cancelar proceso
+              </button>
             )}
             <button
-              onClick={() => { if (confirm('¿Cancelar este proceso?')) { updateStatus.mutate({ id: process.id, status: 'CANCELLED' }); onClose() } }}
-              className="ml-auto text-xs text-red-400 hover:text-red-600 underline"
+              onClick={() => {
+                if (confirm(`¿Eliminar permanentemente el proceso de ${process.collaboratorName ?? 'este colaborador'}? Esta acción no se puede deshacer.`)) {
+                  deleteProcess.mutate(process.id, { onSuccess: onClose })
+                }
+              }}
+              disabled={deleteProcess.isPending}
+              className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40"
             >
-              Cancelar proceso
+              <Trash2 size={12} />
+              {deleteProcess.isPending ? 'Eliminando…' : 'Eliminar proceso'}
             </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
+
+    {/* Modal de edición */}
+    {showEdit && (
+      <EditProcessModal process={process} onClose={() => setShowEdit(false)} />
+    )}
+    </>
   )
 }

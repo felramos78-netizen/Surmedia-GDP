@@ -9,7 +9,7 @@ export function useOnboardingTemplate() {
       const { data } = await api.get<ApiResponse<OnboardingTemplateTask[]>>('/onboarding/template')
       return data.data
     },
-    staleTime: Infinity,
+    refetchOnMount: 'always',
   })
 }
 
@@ -128,6 +128,42 @@ export function useUpdateOnboardingStatus() {
     mutationFn: async ({ id, ...body }: { id: string; status?: string; employeeId?: string }) => {
       const { data } = await api.patch(`/onboarding/${id}`, body)
       return data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['onboarding'] })
+      queryClient.invalidateQueries({ queryKey: ['onboardingStats'] })
+    },
+  })
+}
+
+export function useUpdateOnboarding() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...body }: {
+      id: string
+      collaboratorName?:     string
+      collaboratorEmail?:    string | null
+      collaboratorPosition?: string | null
+      collaboratorPhone?:    string | null
+      legalEntity?:          string | null
+      startDate?:            string
+      notes?:                string | null
+    }) => {
+      const { data } = await api.patch<ApiResponse<OnboardingProcess>>(`/onboarding/${id}`, body)
+      return data.data
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['onboarding', vars.id] })
+      queryClient.invalidateQueries({ queryKey: ['onboarding'] })
+    },
+  })
+}
+
+export function useDeleteOnboarding() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/onboarding/${id}`)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['onboarding'] })

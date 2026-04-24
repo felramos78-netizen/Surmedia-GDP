@@ -499,11 +499,38 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: updatedTask, result })
   })
 
-  // PATCH /:id — cambiar estado del proceso
-  fastify.patch<{ Params: { id: string }; Body: { status?: string; employeeId?: string } }>('/:id', async (req, reply) => {
+  // PATCH /:id — editar proceso (datos del colaborador y/o estado)
+  fastify.patch<{
+    Params: { id: string }
+    Body: {
+      status?:               string
+      employeeId?:           string
+      collaboratorName?:     string
+      collaboratorEmail?:    string | null
+      collaboratorPosition?: string | null
+      collaboratorPhone?:    string | null
+      legalEntity?:          string | null
+      startDate?:            string
+      notes?:                string | null
+    }
+  }>('/:id', async (req, reply) => {
     const updateData: Record<string, any> = {}
-    if (req.body.status)     updateData.status      = req.body.status
-    if (req.body.employeeId) updateData.employeeId  = req.body.employeeId
+
+    if (req.body.status !== undefined)               updateData.status               = req.body.status
+    if (req.body.employeeId !== undefined)           updateData.employeeId           = req.body.employeeId
+    if (req.body.collaboratorName !== undefined)     updateData.collaboratorName     = req.body.collaboratorName?.trim()
+    if (req.body.collaboratorEmail !== undefined)    updateData.collaboratorEmail    = req.body.collaboratorEmail?.trim() || null
+    if (req.body.collaboratorPosition !== undefined) updateData.collaboratorPosition = req.body.collaboratorPosition?.trim() || null
+    if (req.body.collaboratorPhone !== undefined)    updateData.collaboratorPhone    = req.body.collaboratorPhone?.trim() || null
+    if (req.body.legalEntity !== undefined)          updateData.legalEntity          = req.body.legalEntity || null
+    if (req.body.notes !== undefined)                updateData.notes                = req.body.notes?.trim() || null
+    if (req.body.startDate !== undefined) {
+      const start = new Date(req.body.startDate)
+      const expectedEndDate = new Date(start)
+      expectedEndDate.setDate(expectedEndDate.getDate() + 90)
+      updateData.startDate        = start
+      updateData.expectedEndDate  = expectedEndDate
+    }
     if (req.body.status === 'COMPLETED') updateData.completedAt = new Date()
 
     const process = await prisma.onboardingProcess.update({
@@ -511,6 +538,12 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       data:  updateData,
     })
     return reply.send({ data: process })
+  })
+
+  // DELETE /:id — eliminar proceso y sus hitos (cascade)
+  fastify.delete<{ Params: { id: string } }>('/:id', async (req, reply) => {
+    await prisma.onboardingProcess.delete({ where: { id: req.params.id } })
+    return reply.status(204).send()
   })
 }
 
