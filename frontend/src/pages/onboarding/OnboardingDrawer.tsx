@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 import { X, CheckCircle2, Circle, Clock, Building2, Briefcase, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check } from 'lucide-react'
 import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus } from '@/hooks/useOnboarding'
 import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus } from '@/types'
@@ -273,7 +273,7 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white font-semibold text-sm">
-              {process.collaboratorName.split(' ').map(n => n[0]).slice(0, 2).join('')}
+              {(process.collaboratorName ?? '?').split(' ').map((n: string) => n[0]).filter(Boolean).slice(0, 2).join('')}
             </div>
             <div>
               <p className="font-semibold text-gray-900">{process.collaboratorName}</p>

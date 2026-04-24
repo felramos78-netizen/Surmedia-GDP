@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import {
   Plus, Rocket, CheckCircle2, AlertTriangle, ChevronRight, X,
   Mail, Calendar, RefreshCw, Wrench, Globe, ChevronLeft,
@@ -26,8 +26,9 @@ function calcProgress(process: OnboardingProcess) {
   return Math.round((process.tasks.filter(t => t.completedAt).length / total) * 100)
 }
 
-function initials(name: string) {
-  const parts = name.trim().split(' ')
+function initials(name: string | null | undefined) {
+  if (!name) return '?'
+  const parts = name.trim().split(' ').filter(Boolean)
   return parts.length >= 2 ? parts[0][0] + parts[1][0] : parts[0].slice(0, 2)
 }
 
@@ -351,13 +352,17 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
   })
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  const { data: template = [] } = useOnboardingTemplate()
+  const { data: template = [], isLoading: templateLoading } = useOnboardingTemplate()
   const createOnboarding = useCreateOnboarding()
 
-  const handleGoToStep2 = () => {
-    if (selected.size === 0 && template.length > 0) {
+  // Auto-select all hitos when template loads (handles race condition)
+  useEffect(() => {
+    if (template.length > 0 && selected.size === 0) {
       setSelected(new Set(template.map(t => t.id)))
     }
+  }, [template])
+
+  const handleGoToStep2 = () => {
     setStep(2)
   }
 
@@ -408,6 +413,11 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
             onNext={handleGoToStep2}
             onClose={onClose}
           />
+        ) : templateLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <div className="w-7 h-7 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-gray-400">Cargando hitos del template…</p>
+          </div>
         ) : (
           <Step2
             template={template}
@@ -434,6 +444,7 @@ export default function OnboardingPage() {
 
   const { data: processes, isLoading, isError } = useOnboardingProcesses()
   const { data: stats } = useOnboardingStats()
+  useOnboardingTemplate() // prefetch so template is ready when modal opens
 
   const filtered = (processes ?? []).filter(p =>
     filterStatus === 'ALL' ? true : p.status === filterStatus
