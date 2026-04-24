@@ -144,41 +144,65 @@ export interface PayrollEntry {
   items: PayrollItem[]
 }
 
-export type OnboardingPeriod = 'PRE_INGRESO' | 'DIA_1' | 'SEMANA_1' | 'MES_1' | 'EVALUACION'
-export type OnboardingStatus = 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+export type OnboardingPeriod    = 'PRE_INGRESO' | 'DIA_1' | 'SEMANA_1' | 'MES_1' | 'EVALUACION'
+export type OnboardingStatus    = 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+export type TaskAutomationType  = 'MANUAL' | 'EMAIL' | 'CALENDAR' | 'BUK_CHECK' | 'EXTERNAL'
+export type AutomationStatus    = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED'
 
 export interface OnboardingTask {
-  id: string
-  processId: string
-  period: OnboardingPeriod
-  name: string
-  tool?: string | null
-  appliesWhen?: string | null
-  isRequired: boolean
-  sortOrder: number
-  completedAt?: string | null
-  completedBy?: string | null
-  notes?: string | null
+  id:               string
+  processId:        string
+  templateId?:      string | null
+  period:           OnboardingPeriod
+  name:             string
+  tool?:            string | null
+  appliesWhen?:     string | null
+  sortOrder:        number
+  automationType:   TaskAutomationType
+  automationConfig: Record<string, any> | null
+  automationStatus: AutomationStatus | null
+  automationResult: Record<string, any> | null
+  automatedAt?:     string | null
+  completedAt?:     string | null
+  completedBy?:     string | null
+  completedNote?:   string | null
 }
 
 export interface OnboardingProcess {
-  id: string
-  employeeId: string
-  employee?: Employee
-  status: OnboardingStatus
-  startDate: string
-  expectedEndDate: string
-  completedAt?: string | null
-  tasks: OnboardingTask[]
-  createdAt: string
-  updatedAt: string
+  id:                   string
+  collaboratorName:     string
+  collaboratorEmail?:   string | null
+  collaboratorPosition?: string | null
+  collaboratorPhone?:   string | null
+  legalEntity?:         string | null
+  notes?:               string | null
+  employeeId?:          string | null
+  employee?:            Employee | null
+  status:               OnboardingStatus
+  startDate:            string
+  expectedEndDate:      string
+  completedAt?:         string | null
+  tasks:                OnboardingTask[]
+  createdAt:            string
+  updatedAt:            string
+}
+
+export interface OnboardingTemplateTask {
+  id:              string
+  period:          OnboardingPeriod
+  name:            string
+  tool:            string
+  automationType:  TaskAutomationType
+  automationConfig: Record<string, any> | null
+  appliesWhen:     string | null
+  sortOrder:       number
 }
 
 export interface OnboardingStats {
-  inProgress: number
-  completed: number
-  cancelled: number
-  finalizingSoon: number
+  inProgress:      number
+  completed:       number
+  cancelled:       number
+  finalizingSoon:  number
 }
 
 export interface ApiResponse<T> {

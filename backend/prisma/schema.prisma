@@ -136,7 +136,7 @@ model Employee {
   leaves         Leave[]
   documents      Document[]
   payrollEntries      PayrollEntry[]
-  onboardingProcesses OnboardingProcess[]
+  onboardingProcesses OnboardingProcess[] // vinculados después del ingreso en BUK
 
   deletedAt    DateTime?
   createdAt    DateTime       @default(now())
@@ -297,36 +297,68 @@ enum OnboardingStatus {
   CANCELLED
 }
 
+enum TaskAutomationType {
+  MANUAL
+  EMAIL
+  CALENDAR
+  BUK_CHECK
+  EXTERNAL
+}
+
+enum AutomationStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  SKIPPED
+}
+
 model OnboardingProcess {
-  id              String           @id @default(uuid())
-  employee        Employee         @relation(fields: [employeeId], references: [id])
-  employeeId      String
-  status          OnboardingStatus @default(IN_PROGRESS)
-  startDate       DateTime
-  expectedEndDate DateTime
-  completedAt     DateTime?
-  tasks           OnboardingTask[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id                   String           @id @default(uuid())
+  // Colaborador libre — no requiere Employee en DB
+  collaboratorName     String
+  collaboratorEmail    String?
+  collaboratorPosition String?
+  collaboratorPhone    String?
+  legalEntity          LegalEntity?
+  notes                String?
+  // Vinculación opcional a Employee de BUK (se hace después)
+  employee             Employee?        @relation(fields: [employeeId], references: [id])
+  employeeId           String?
+  // Estado del proceso
+  status               OnboardingStatus @default(IN_PROGRESS)
+  startDate            DateTime
+  expectedEndDate      DateTime
+  completedAt          DateTime?
+  tasks                OnboardingTask[]
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
 
   @@map("onboarding_processes")
 }
 
 model OnboardingTask {
-  id          String            @id @default(uuid())
-  process     OnboardingProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
-  processId   String
-  period      OnboardingPeriod
-  name        String
-  tool        String?
-  appliesWhen String?
-  isRequired  Boolean           @default(true)
-  sortOrder   Int               @default(0)
-  completedAt DateTime?
-  completedBy String?
-  notes       String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id               String             @id @default(uuid())
+  process          OnboardingProcess  @relation(fields: [processId], references: [id], onDelete: Cascade)
+  processId        String
+  templateId       String?            // ID del hito en la plantilla (para trazabilidad)
+  period           OnboardingPeriod
+  name             String
+  tool             String?
+  appliesWhen      String?
+  sortOrder        Int                @default(0)
+  // Automatización
+  automationType   TaskAutomationType @default(MANUAL)
+  automationConfig Json?              // Configuración específica (email template, calendar config, etc.)
+  automationStatus AutomationStatus?
+  automationResult Json?              // Resultado del último intento
+  automatedAt      DateTime?
+  // Completado
+  completedAt      DateTime?
+  completedBy      String?
+  completedNote    String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
   @@map("onboarding_tasks")
 }

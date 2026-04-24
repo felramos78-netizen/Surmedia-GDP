@@ -1,40 +1,290 @@
 import type { FastifyPluginAsync } from 'fastify'
+import { runTaskAutomation } from '../services/automation.service'
 
-// ─── Plantilla de tareas (workflow oficial Surmedia) ──────────────────────────
+// ─── Plantilla oficial de hitos (workflow Surmedia) ──────────────────────────
+// Cada hito tiene: id estable, período, nombre, herramienta, tipo de automatización,
+// config de automatización, y si requiere condición especial.
 
-const TASK_TEMPLATE = [
-  // PRE_INGRESO — Día -7 a Día 0
-  { period: 'PRE_INGRESO', name: 'Carta oferta recibida y aceptada',                                          tool: 'Correo a ingresante',     sortOrder: 1 },
-  { period: 'PRE_INGRESO', name: 'Documentos personales revisados, validados y enviados al proveedor',        tool: 'IA + correo',             sortOrder: 2 },
-  { period: 'PRE_INGRESO', name: 'Coordinación interna con administración y SSO',                             tool: 'Correo interno',          sortOrder: 3 },
-  { period: 'PRE_INGRESO', name: 'Generación de documentos contractuales en BUK',                             tool: 'BUK + correo proveedor',  sortOrder: 4 },
-  { period: 'PRE_INGRESO', name: 'Correo empresa creado',                                                     tool: 'Google Workspace',        sortOrder: 5 },
-  { period: 'PRE_INGRESO', name: 'Perfil BUK marcaje asistencia creado',                                      tool: 'BUK (vía proveedor)',     sortOrder: 6 },
-  { period: 'PRE_INGRESO', name: 'Perfil BUK creado',                                                         tool: 'BUK (vía proveedor)',     sortOrder: 7 },
-  // DIA_1 — Fecha de ingreso
-  { period: 'DIA_1', name: 'Correo de bienvenida',                             tool: 'Correo interno',            sortOrder: 1 },
-  { period: 'DIA_1', name: 'Entrega de EPP y firma',                           tool: 'SSO + BUK',                 sortOrder: 2, appliesWhen: 'si aplica' },
-  { period: 'DIA_1', name: 'Inducción de jefatura realizada',                  tool: 'Google Calendar',           sortOrder: 3 },
-  { period: 'DIA_1', name: 'Enrolamiento de ingreso a oficina',                tool: 'Adm. física',               sortOrder: 4, appliesWhen: 'si aplica' },
-  { period: 'DIA_1', name: 'Entrega de kit de bienvenida',                     tool: 'Adm. física',               sortOrder: 5 },
-  { period: 'DIA_1', name: 'Licencia de Adobe habilitada',                     tool: 'Correo interno',            sortOrder: 6, appliesWhen: 'solo Diseño' },
-  { period: 'DIA_1', name: 'Inducción corporativa realizada',                  tool: 'Google Calendar',           sortOrder: 7 },
-  { period: 'DIA_1', name: 'Contrato · RIOHS · IRL firmados',                 tool: 'BUK firma electrónica',     sortOrder: 8 },
-  { period: 'DIA_1', name: 'Entrega de computador y recepción firmada',        tool: 'Adm. física + BUK',         sortOrder: 9 },
-  // SEMANA_1 — Días 1–7
-  { period: 'SEMANA_1', name: 'Foto individual corporativa',                                        tool: 'Coordinación jefatura',  sortOrder: 1 },
-  { period: 'SEMANA_1', name: 'Inducción de SSO realizada',                                         tool: 'Google Calendar',        sortOrder: 2 },
-  { period: 'SEMANA_1', name: 'Presentación a la empresa y círculo de especialistas',               tool: 'WhatsApp',               sortOrder: 3 },
-  { period: 'SEMANA_1', name: 'Formulario seguro complementario completo y enviado',                tool: 'Correo interno',         sortOrder: 4 },
-  { period: 'SEMANA_1', name: 'Tarjeta Pluxee entregada',                                           tool: 'Adm. física + BUK',      sortOrder: 5 },
-  { period: 'SEMANA_1', name: 'Foto individual cargada en web',                                     tool: 'WordPress',              sortOrder: 6 },
-  // MES_1 — Días 7–30
-  { period: 'MES_1', name: 'Café virtual con directores', tool: 'Correo + Calendar', sortOrder: 1 },
-  { period: 'MES_1', name: 'Mentor asignado',             tool: 'Correo interno',    sortOrder: 2 },
-  { period: 'MES_1', name: 'Checkpoint 1 · Día 30',       tool: 'Google Calendar',   sortOrder: 3 },
-  // EVALUACION — Días 60–90
-  { period: 'EVALUACION', name: 'Checkpoint 2 · Día 60',    tool: 'Google Calendar',               sortOrder: 1 },
-  { period: 'EVALUACION', name: 'Feedback 3 meses · Día 90', tool: 'Calendar + correo con pauta',  sortOrder: 2 },
+export const TASK_TEMPLATE = [
+  // ── PRE-INGRESO (Día -7 a Día 0) ──────────────────────────────────────────
+  {
+    id:              'pre_carta_oferta',
+    period:          'PRE_INGRESO',
+    name:            'Carta oferta recibida y aceptada',
+    tool:            'Correo a ingresante',
+    automationType:  'EMAIL',
+    automationConfig: { emailTo: 'collaborator', template: 'bienvenida' },
+    appliesWhen:     null,
+    sortOrder:       1,
+  },
+  {
+    id:              'pre_documentos',
+    period:          'PRE_INGRESO',
+    name:            'Documentos personales revisados, validados y enviados al proveedor',
+    tool:            'IA + correo',
+    automationType:  'EMAIL',
+    automationConfig: { emailTo: 'rrhh', instruction: 'Revisar documentos del ingresante y enviarlos al proveedor de contratos.' },
+    appliesWhen:     null,
+    sortOrder:       2,
+  },
+  {
+    id:              'pre_coordinacion',
+    period:          'PRE_INGRESO',
+    name:            'Coordinación interna con administración y SSO',
+    tool:            'Correo interno',
+    automationType:  'EMAIL',
+    automationConfig: { emailTo: 'team', template: 'coordinacion_interna' },
+    appliesWhen:     null,
+    sortOrder:       3,
+  },
+  {
+    id:              'pre_contratos_buk',
+    period:          'PRE_INGRESO',
+    name:            'Generación de documentos contractuales en BUK',
+    tool:            'BUK + correo proveedor',
+    automationType:  'BUK_CHECK',
+    automationConfig: { checkType: 'contract_signed' },
+    appliesWhen:     null,
+    sortOrder:       4,
+  },
+  {
+    id:              'pre_correo_empresa',
+    period:          'PRE_INGRESO',
+    name:            'Correo empresa creado',
+    tool:            'Google Workspace',
+    automationType:  'EXTERNAL',
+    automationConfig: { system: 'google_workspace', action: 'create_account' },
+    appliesWhen:     null,
+    sortOrder:       5,
+  },
+  {
+    id:              'pre_buk_asistencia',
+    period:          'PRE_INGRESO',
+    name:            'Perfil BUK marcaje asistencia creado',
+    tool:            'BUK (vía proveedor)',
+    automationType:  'BUK_CHECK',
+    automationConfig: { checkType: 'attendance_profile' },
+    appliesWhen:     null,
+    sortOrder:       6,
+  },
+  {
+    id:              'pre_buk_perfil',
+    period:          'PRE_INGRESO',
+    name:            'Perfil BUK creado',
+    tool:            'BUK (vía proveedor)',
+    automationType:  'BUK_CHECK',
+    automationConfig: { checkType: 'employee_profile' },
+    appliesWhen:     null,
+    sortOrder:       7,
+  },
+
+  // ── DÍA 1 (Fecha de ingreso) ───────────────────────────────────────────────
+  {
+    id:              'day1_bienvenida',
+    period:          'DIA_1',
+    name:            'Correo de bienvenida',
+    tool:            'Correo interno',
+    automationType:  'EMAIL',
+    automationConfig: { emailTo: 'collaborator', template: 'bienvenida' },
+    appliesWhen:     null,
+    sortOrder:       1,
+  },
+  {
+    id:              'day1_epp',
+    period:          'DIA_1',
+    name:            'Entrega de EPP y firma',
+    tool:            'SSO + BUK',
+    automationType:  'MANUAL',
+    automationConfig: null,
+    appliesWhen:     'si aplica',
+    sortOrder:       2,
+  },
+  {
+    id:              'day1_induccion_jefatura',
+    period:          'DIA_1',
+    name:            'Inducción de jefatura realizada',
+    tool:            'Google Calendar',
+    automationType:  'CALENDAR',
+    automationConfig: { title: 'Inducción de jefatura — {collaboratorName}', daysFromStart: 0, durationMinutes: 60, attendees: ['supervisor', 'collaborator'] },
+    appliesWhen:     null,
+    sortOrder:       3,
+  },
+  {
+    id:              'day1_enrolamiento',
+    period:          'DIA_1',
+    name:            'Enrolamiento de ingreso a oficina',
+    tool:            'Adm. física',
+    automationType:  'MANUAL',
+    automationConfig: null,
+    appliesWhen:     'si aplica',
+    sortOrder:       4,
+  },
+  {
+    id:              'day1_kit',
+    period:          'DIA_1',
+    name:            'Entrega de kit de bienvenida',
+    tool:            'Adm. física',
+    automationType:  'MANUAL',
+    automationConfig: null,
+    appliesWhen:     null,
+    sortOrder:       5,
+  },
+  {
+    id:              'day1_adobe',
+    period:          'DIA_1',
+    name:            'Licencia de Adobe habilitada',
+    tool:            'Correo interno',
+    automationType:  'EMAIL',
+    automationConfig: { emailTo: 'rrhh', instruction: 'Habilitar licencia Adobe Creative Cloud para el colaborador desde el panel de administración.' },
+    appliesWhen:     'solo Diseño',
+    sortOrder:       6,
+  },
+  {
+    id:              'day1_induccion_corporativa',
+    period:          'DIA_1',
+    name:            'Inducción corporativa realizada',
+    tool:            'Google Calendar',
+    automationType:  'CALENDAR',
+    automationConfig: { title: 'Inducción Corporativa — {collaboratorName}', daysFromStart: 0, durationMinutes: 120, attendees: ['rrhh', 'collaborator'] },
+    appliesWhen:     null,
+    sortOrder:       7,
+  },
+  {
+    id:              'day1_firmas',
+    period:          'DIA_1',
+    name:            'Contrato · RIOHS · IRL firmados',
+    tool:            'BUK firma electrónica',
+    automationType:  'BUK_CHECK',
+    automationConfig: { checkType: 'document_signing' },
+    appliesWhen:     null,
+    sortOrder:       8,
+  },
+  {
+    id:              'day1_computador',
+    period:          'DIA_1',
+    name:            'Entrega de computador y recepción firmada',
+    tool:            'Adm. física + BUK',
+    automationType:  'BUK_CHECK',
+    automationConfig: { checkType: 'asset_delivery' },
+    appliesWhen:     null,
+    sortOrder:       9,
+  },
+
+  // ── SEMANA 1 (Días 1–7) ───────────────────────────────────────────────────
+  {
+    id:              'semana_foto',
+    period:          'SEMANA_1',
+    name:            'Foto individual corporativa',
+    tool:            'Coordinación jefatura',
+    automationType:  'MANUAL',
+    automationConfig: null,
+    appliesWhen:     null,
+    sortOrder:       1,
+  },
+  {
+    id:              'semana_sso',
+    period:          'SEMANA_1',
+    name:            'Inducción de SSO realizada',
+    tool:            'Google Calendar',
+    automationType:  'CALENDAR',
+    automationConfig: { title: 'Inducción SSO — {collaboratorName}', daysFromStart: 3, durationMinutes: 90, attendees: ['sso', 'collaborator'] },
+    appliesWhen:     null,
+    sortOrder:       2,
+  },
+  {
+    id:              'semana_presentacion',
+    period:          'SEMANA_1',
+    name:            'Presentación a la empresa y círculo de especialistas',
+    tool:            'WhatsApp',
+    automationType:  'EXTERNAL',
+    automationConfig: { system: 'whatsapp', action: 'group_announcement' },
+    appliesWhen:     null,
+    sortOrder:       3,
+  },
+  {
+    id:              'semana_seguro',
+    period:          'SEMANA_1',
+    name:            'Formulario seguro complementario completo y enviado',
+    tool:            'Correo interno',
+    automationType:  'EMAIL',
+    automationConfig: { emailTo: 'collaborator', template: 'seguro_complementario' },
+    appliesWhen:     null,
+    sortOrder:       4,
+  },
+  {
+    id:              'semana_pluxee',
+    period:          'SEMANA_1',
+    name:            'Tarjeta Pluxee entregada',
+    tool:            'Adm. física + BUK',
+    automationType:  'MANUAL',
+    automationConfig: null,
+    appliesWhen:     null,
+    sortOrder:       5,
+  },
+  {
+    id:              'semana_foto_web',
+    period:          'SEMANA_1',
+    name:            'Foto individual cargada en web',
+    tool:            'WordPress',
+    automationType:  'EXTERNAL',
+    automationConfig: { system: 'wordpress', action: 'upload_photo' },
+    appliesWhen:     null,
+    sortOrder:       6,
+  },
+
+  // ── MES 1 (Días 7–30) ─────────────────────────────────────────────────────
+  {
+    id:              'mes_cafe',
+    period:          'MES_1',
+    name:            'Café virtual con directores',
+    tool:            'Correo + Calendar',
+    automationType:  'CALENDAR',
+    automationConfig: { title: 'Café con directores — {collaboratorName}', daysFromStart: 14, durationMinutes: 30, attendees: ['directors', 'collaborator'] },
+    appliesWhen:     null,
+    sortOrder:       1,
+  },
+  {
+    id:              'mes_mentor',
+    period:          'MES_1',
+    name:            'Mentor asignado',
+    tool:            'Correo interno',
+    automationType:  'EMAIL',
+    automationConfig: { emailTo: 'collaborator', template: 'mentor_asignado' },
+    appliesWhen:     null,
+    sortOrder:       2,
+  },
+  {
+    id:              'eval_checkpoint30',
+    period:          'MES_1',
+    name:            'Checkpoint 1 · Día 30',
+    tool:            'Google Calendar',
+    automationType:  'CALENDAR',
+    automationConfig: { title: 'Checkpoint 30 días — {collaboratorName}', daysFromStart: 30, durationMinutes: 60, attendees: ['supervisor', 'rrhh', 'collaborator'] },
+    appliesWhen:     null,
+    sortOrder:       3,
+  },
+
+  // ── EVALUACIÓN (Días 60–90) ───────────────────────────────────────────────
+  {
+    id:              'eval_checkpoint60',
+    period:          'EVALUACION',
+    name:            'Checkpoint 2 · Día 60',
+    tool:            'Google Calendar',
+    automationType:  'CALENDAR',
+    automationConfig: { title: 'Checkpoint 60 días — {collaboratorName}', daysFromStart: 60, durationMinutes: 60, attendees: ['supervisor', 'rrhh', 'collaborator'] },
+    appliesWhen:     null,
+    sortOrder:       1,
+  },
+  {
+    id:              'eval_feedback90',
+    period:          'EVALUACION',
+    name:            'Feedback 3 meses · Día 90',
+    tool:            'Calendar + correo con pauta',
+    automationType:  'CALENDAR',
+    automationConfig: { title: 'Evaluación período de prueba — {collaboratorName}', daysFromStart: 90, durationMinutes: 90, attendees: ['supervisor', 'rrhh', 'collaborator'] },
+    appliesWhen:     null,
+    sortOrder:       2,
+  },
 ] as const
 
 // ─── Rutas ─────────────────────────────────────────────────────────────────────
@@ -44,24 +294,24 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
 
   const prisma = fastify.prisma as any
 
+  // GET /template — devuelve los hitos disponibles para el checklist de creación
+  fastify.get('/template', async (_req, reply) => {
+    return reply.send({ data: TASK_TEMPLATE })
+  })
+
   // GET / — lista todos los procesos
   fastify.get('/', async (_req, reply) => {
     const processes = await prisma.onboardingProcess.findMany({
       orderBy: { startDate: 'desc' },
       include: {
-        employee: {
-          include: {
-            position: true,
-            contracts: { where: { isActive: true, deletedAt: null }, orderBy: { startDate: 'desc' }, take: 1 },
-          },
-        },
-        tasks: { select: { id: true, completedAt: true } },
+        employee: { include: { position: true } },
+        tasks:    { select: { id: true, completedAt: true, automationStatus: true } },
       },
     })
     return reply.send({ data: processes })
   })
 
-  // GET /stats — conteos para el dashboard
+  // GET /stats
   fastify.get('/stats', async (_req, reply) => {
     const [inProgress, completed, cancelled] = await Promise.all([
       prisma.onboardingProcess.count({ where: { status: 'IN_PROGRESS' } }),
@@ -69,52 +319,61 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       prisma.onboardingProcess.count({ where: { status: 'CANCELLED' } }),
     ])
     const soon = await prisma.onboardingProcess.count({
-      where: {
-        status: 'IN_PROGRESS',
-        expectedEndDate: { lte: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000) },
-      },
+      where: { status: 'IN_PROGRESS', expectedEndDate: { lte: new Date(Date.now() + 15 * 864e5) } },
     })
     return reply.send({ data: { inProgress, completed, cancelled, finalizingSoon: soon } })
   })
 
-  // POST / — crear nuevo proceso para un colaborador
-  fastify.post<{ Body: { employeeId: string; startDate?: string } }>('/', async (req, reply) => {
-    const { employeeId, startDate } = req.body
-
-    const employee = await fastify.prisma.employee.findFirst({
-      where: { id: employeeId, deletedAt: null },
-    })
-    if (!employee) return reply.status(404).send({ message: 'Colaborador no encontrado' })
-
-    const existing = await prisma.onboardingProcess.findFirst({
-      where: { employeeId, status: 'IN_PROGRESS' },
-    })
-    if (existing) {
-      return reply.status(409).send({ message: 'Este colaborador ya tiene un proceso de onboarding activo' })
+  // POST / — crear proceso con hitos seleccionados
+  fastify.post<{
+    Body: {
+      collaboratorName:     string
+      collaboratorEmail?:   string
+      collaboratorPosition?: string
+      collaboratorPhone?:   string
+      legalEntity?:         string
+      startDate?:           string
+      notes?:               string
+      selectedTaskIds:      string[]  // IDs de la plantilla que aplican
     }
+  }>('/', async (req, reply) => {
+    const { collaboratorName, collaboratorEmail, collaboratorPosition, collaboratorPhone, legalEntity, startDate, notes, selectedTaskIds } = req.body
 
-    const start = startDate ? new Date(startDate) : new Date(employee.startDate)
+    if (!collaboratorName?.trim()) return reply.status(400).send({ message: 'El nombre del colaborador es requerido' })
+    if (!selectedTaskIds?.length)  return reply.status(400).send({ message: 'Selecciona al menos un hito' })
+
+    const start = startDate ? new Date(startDate) : new Date()
     const expectedEndDate = new Date(start)
     expectedEndDate.setDate(expectedEndDate.getDate() + 90)
 
+    // Filtrar plantilla a los IDs seleccionados, mantener orden original
+    const selectedTasks = TASK_TEMPLATE.filter(t => selectedTaskIds.includes(t.id))
+
     const process = await prisma.onboardingProcess.create({
       data: {
-        employeeId,
-        startDate: start,
+        collaboratorName:     collaboratorName.trim(),
+        collaboratorEmail:    collaboratorEmail?.trim() || null,
+        collaboratorPosition: collaboratorPosition?.trim() || null,
+        collaboratorPhone:    collaboratorPhone?.trim() || null,
+        legalEntity:          legalEntity || null,
+        notes:                notes?.trim() || null,
+        startDate:            start,
         expectedEndDate,
         tasks: {
-          create: TASK_TEMPLATE.map(t => ({
-            period:      t.period,
-            name:        t.name,
-            tool:        t.tool ?? null,
-            appliesWhen: (t as any).appliesWhen ?? null,
-            sortOrder:   t.sortOrder,
+          create: selectedTasks.map(t => ({
+            templateId:       t.id,
+            period:           t.period,
+            name:             t.name,
+            tool:             t.tool ?? null,
+            appliesWhen:      t.appliesWhen ?? null,
+            sortOrder:        t.sortOrder,
+            automationType:   t.automationType,
+            automationConfig: t.automationConfig ?? null,
           })),
         },
       },
       include: {
-        employee: { include: { position: true } },
-        tasks:    { orderBy: [{ sortOrder: 'asc' }] },
+        tasks: { orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }] },
       },
     })
 
@@ -126,43 +385,42 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     const process = await prisma.onboardingProcess.findFirst({
       where: { id: req.params.id },
       include: {
-        employee: {
-          include: {
-            position: true,
-            department: true,
-            contracts: { where: { isActive: true, deletedAt: null }, orderBy: { startDate: 'desc' }, take: 1 },
-          },
-        },
-        tasks: { orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }] },
+        employee: { include: { position: true, department: true } },
+        tasks:    { orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }] },
       },
     })
     if (!process) return reply.status(404).send({ message: 'Proceso no encontrado' })
     return reply.send({ data: process })
   })
 
-  // PATCH /:id/tasks/:taskId — marcar tarea completada / pendiente
+  // PATCH /:id/tasks/:taskId — completar / editar tarea
   fastify.patch<{
     Params: { id: string; taskId: string }
-    Body: { completed: boolean; notes?: string }
+    Body: { completed?: boolean; name?: string; tool?: string; completedNote?: string }
   }>('/:id/tasks/:taskId', async (req, reply) => {
-    const { completed, notes } = req.body
+    const { completed, name, tool, completedNote } = req.body
     const userId = (req.user as any)?.id ?? 'system'
+
+    const updateData: Record<string, any> = {}
+    if (name        !== undefined) updateData.name        = name
+    if (tool        !== undefined) updateData.tool        = tool
+    if (completedNote !== undefined) updateData.completedNote = completedNote
+    if (completed   !== undefined) {
+      updateData.completedAt = completed ? new Date() : null
+      updateData.completedBy = completed ? userId : null
+    }
 
     const task = await prisma.onboardingTask.update({
       where: { id: req.params.taskId },
-      data: {
-        completedAt: completed ? new Date() : null,
-        completedBy: completed ? userId : null,
-        notes:       notes ?? undefined,
-      },
+      data:  updateData,
     })
 
-    // Auto-completar proceso cuando todas las tareas estén listas
-    const allTasks = await prisma.onboardingTask.findMany({
+    // Auto-completar proceso si todas las tareas están listas
+    const all = await prisma.onboardingTask.findMany({
       where:  { processId: req.params.id },
       select: { completedAt: true },
     })
-    if (allTasks.every((t: any) => t.completedAt !== null)) {
+    if (all.every((t: any) => t.completedAt !== null)) {
       await prisma.onboardingProcess.update({
         where: { id: req.params.id },
         data:  { status: 'COMPLETED', completedAt: new Date() },
@@ -172,14 +430,85 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: task })
   })
 
-  // PATCH /:id — cambiar estado del proceso (cancelar, reabrir)
-  fastify.patch<{ Params: { id: string }; Body: { status: string } }>('/:id', async (req, reply) => {
+  // POST /:id/tasks — agregar hito personalizado
+  fastify.post<{
+    Params: { id: string }
+    Body: { period: string; name: string; tool?: string; automationType?: string }
+  }>('/:id/tasks', async (req, reply) => {
+    const { period, name, tool, automationType } = req.body
+
+    const lastTask = await prisma.onboardingTask.findFirst({
+      where:   { processId: req.params.id, period },
+      orderBy: { sortOrder: 'desc' },
+    })
+
+    const task = await prisma.onboardingTask.create({
+      data: {
+        processId:     req.params.id,
+        period,
+        name,
+        tool:          tool ?? null,
+        automationType: automationType ?? 'MANUAL',
+        sortOrder:     (lastTask?.sortOrder ?? 0) + 1,
+      },
+    })
+
+    return reply.status(201).send({ data: task })
+  })
+
+  // DELETE /:id/tasks/:taskId — eliminar hito del proceso
+  fastify.delete<{ Params: { id: string; taskId: string } }>('/:id/tasks/:taskId', async (req, reply) => {
+    await prisma.onboardingTask.delete({ where: { id: req.params.taskId } })
+    return reply.status(204).send()
+  })
+
+  // POST /:id/tasks/:taskId/automate — ejecutar automatización de un hito
+  fastify.post<{ Params: { id: string; taskId: string } }>('/:id/tasks/:taskId/automate', async (req, reply) => {
+    const process = await prisma.onboardingProcess.findFirst({
+      where: { id: req.params.id },
+    })
+    if (!process) return reply.status(404).send({ message: 'Proceso no encontrado' })
+
+    const task = await prisma.onboardingTask.findFirst({
+      where: { id: req.params.taskId, processId: req.params.id },
+    })
+    if (!task) return reply.status(404).send({ message: 'Hito no encontrado' })
+
+    // Actualizar estado a RUNNING
+    await prisma.onboardingTask.update({
+      where: { id: task.id },
+      data:  { automationStatus: 'RUNNING' },
+    })
+
+    const result = await runTaskAutomation(task, process)
+
+    // Guardar resultado
+    const updatedTask = await prisma.onboardingTask.update({
+      where: { id: task.id },
+      data:  {
+        automationStatus: result.status,
+        automationResult: result,
+        automatedAt:      new Date(),
+        // Si la automatización fue exitosa y es del tipo adecuado, marcar como completado
+        ...(result.status === 'SUCCESS' && task.automationType === 'EMAIL'
+          ? { completedAt: new Date(), completedBy: 'automation' }
+          : {}),
+      },
+    })
+
+    return reply.send({ data: updatedTask, result })
+  })
+
+  // PATCH /:id — cambiar estado del proceso
+  fastify.patch<{ Params: { id: string }; Body: { status?: string; employeeId?: string } }>('/:id', async (req, reply) => {
+    const updateData: Record<string, any> = {}
+    if (req.body.status)     updateData.status      = req.body.status
+    if (req.body.employeeId) updateData.employeeId  = req.body.employeeId
+    if (req.body.status === 'COMPLETED') updateData.completedAt = new Date()
+
     const process = await prisma.onboardingProcess.update({
       where: { id: req.params.id },
-      data:  {
-        status:      req.body.status,
-        completedAt: req.body.status === 'COMPLETED' ? new Date() : null,
-      },
+      data:  updateData,
     })
     return reply.send({ data: process })
   })
