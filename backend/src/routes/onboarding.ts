@@ -545,6 +545,12 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     await prisma.onboardingProcess.delete({ where: { id: req.params.id } })
     return reply.status(204).send()
   })
+
+  // POST /:id/delete — workaround para clientes que no soportan DELETE
+  fastify.post<{ Params: { id: string } }>('/:id/delete', async (req, reply) => {
+    await prisma.onboardingProcess.delete({ where: { id: req.params.id } })
+    return reply.status(204).send()
+  })
 }
 
 export default onboardingRoutes
