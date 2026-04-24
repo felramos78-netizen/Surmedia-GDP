@@ -3,13 +3,10 @@ import type { BukEmployee, BukLegalEntity } from './buk.types'
 
 // ─── Normalización de RUT ─────────────────────────────────────────────────────
 
-// BUK puede devolver RUT con o sin puntos: "12.345.678-9" o "12345678-9"
-// GDP guarda el formato estándar con puntos: "12.345.678-9"
 export function normalizeRut(raw: string): string {
   const clean = raw.replace(/\./g, '').trim()
   const [body, dv] = clean.split('-')
-  if (!body || !dv) return raw  // devolver tal cual si el formato es inesperado
-
+  if (!body || !dv) return raw
   const formatted = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
   return `${formatted}-${dv.toUpperCase()}`
 }
@@ -17,14 +14,13 @@ export function normalizeRut(raw: string): string {
 // ─── Mapeo de tipo de contrato ────────────────────────────────────────────────
 
 const CONTRACT_TYPE_MAP: Record<string, ContractType> = {
-  indefinido:   ContractType.INDEFINIDO,
-  plazo_fijo:   ContractType.PLAZO_FIJO,
-  honorarios:   ContractType.HONORARIOS,
-  practica:     ContractType.PRACTICA,
-  // variantes adicionales que BUK podría enviar
-  'plazo fijo': ContractType.PLAZO_FIJO,
-  'a honorarios': ContractType.HONORARIOS,
-  práctica:     ContractType.PRACTICA,
+  indefinido:      ContractType.INDEFINIDO,
+  plazo_fijo:      ContractType.PLAZO_FIJO,
+  honorarios:      ContractType.HONORARIOS,
+  practica:        ContractType.PRACTICA,
+  'plazo fijo':    ContractType.PLAZO_FIJO,
+  'a honorarios':  ContractType.HONORARIOS,
+  práctica:        ContractType.PRACTICA,
 }
 
 export function mapContractType(bukType?: string): ContractType {
@@ -32,7 +28,7 @@ export function mapContractType(bukType?: string): ContractType {
   return CONTRACT_TYPE_MAP[bukType.toLowerCase()] ?? ContractType.INDEFINIDO
 }
 
-// ─── Extracción de nombre de AFP/Isapre ──────────────────────────────────────
+// ─── Extracción de nombre AFP/Isapre ─────────────────────────────────────────
 
 function extractName(value: string | { id: number; name: string } | undefined): string | undefined {
   if (!value) return undefined
@@ -40,9 +36,17 @@ function extractName(value: string | { id: number; name: string } | undefined): 
   return value.name
 }
 
-// ─── Lógica de deduplicación ─────────────────────────────────────────────────
-// Regla: si sueldo líquido es 0 o null → el registro es duplicado en esa empresa.
-// El original está en la otra razón social.
+// ─── Lógica de activo/inactivo ────────────────────────────────────────────────
+// Regla: si end_date existe Y es PASADA → INACTIVO. Cualquier otro caso → ACTIVO.
+// Cubre: sin end_date (indefinido activo), end_date futura (plazo fijo vigente),
+//        end_date pasada (contrato terminado = inactivo).
+
+export function resolveEmployeeStatus(emp: BukEmployee): EmployeeStatus {
+  if (!emp.end_date) return EmployeeStatus.ACTIVE
+  return new Date(emp.end_date) > new Date() ? EmployeeStatus.ACTIVE : EmployeeStatus.INACTIVE
+}
+
+// ─── Lógica de deduplicación ──────────────────────────────────────────────────
 
 export function isDuplicateEmployee(emp: BukEmployee): boolean {
   const liquid = emp.liquid_salary
@@ -52,28 +56,33 @@ export function isDuplicateEmployee(emp: BukEmployee): boolean {
 // ─── Mapeo BukEmployee → datos para upsert de Employee ───────────────────────
 
 export function mapEmployeeUpsert(emp: BukEmployee) {
-  const fullLastName = [emp.surname, emp.second_surname]
-    .filter(Boolean)
-    .join(' ')
-
+  const fullLastName = [emp.surname, emp.second_surname].filter(Boolean).join(' ')
   const rawStartDate = emp.start_date ?? emp.current_job?.start_date
-  const startDate = rawStartDate ? new Date(rawStartDate) : new Date()
+  const startDate    = rawStartDate ? new Date(rawStartDate) : new Date()
+  const endDate      = emp.end_date ? new Date(emp.end_date) : null
+  const status       = resolveEmployeeStatus(emp)
 
   return {
-    rut:         normalizeRut(emp.rut),
-    firstName:   emp.first_name,
-    lastName:    fullLastName,
-    email:       emp.email ?? `${emp.id}@buk.surmedia.cl`,
-    phone:       emp.phone ?? null,
-    birthDate:   emp.birthday ? new Date(emp.birthday) : null,
-    address:     emp.address ?? null,
-    nationality: emp.nationality ?? 'Chilena',
-    gender:      emp.gender ?? null,
+    rut:            normalizeRut(emp.rut),
+    firstName:      emp.first_name,
+    lastName:       fullLastName,
+    email:          emp.email ?? `${emp.id}@buk.surmedia.cl`,
+    phone:          emp.phone ?? null,
+    birthDate:      emp.birthday ? new Date(emp.birthday) : null,
+    address:        emp.address ?? null,
+    nationality:    emp.nationality ?? 'Chilena',
+    gender:         emp.gender ?? null,
     startDate,
-    endDate:     emp.end_date ? new Date(emp.end_date) : null,
-    status:      (emp.current_job != null && !emp.end_date) ? EmployeeStatus.ACTIVE : EmployeeStatus.INACTIVE,
-    afp:         extractName(emp.afp) ?? null,
-    isapre:      extractName(emp.health_institution) ?? null,
+    endDate,
+    status,
+    afp:            extractName(emp.afp) ?? null,
+    isapre:         extractName(emp.health_institution) ?? null,
+    // Campos extendidos
+    city:           emp.city ?? null,
+    commune:        emp.district ?? null,
+    personalEmail:  emp.personal_email ?? null,
+    workSchedule:   emp.current_job?.working_schedule ?? null,
+    jobFamily:      emp.department?.name ?? null,
   }
 }
 
@@ -81,29 +90,28 @@ export function mapEmployeeUpsert(emp: BukEmployee) {
 
 export function mapContractUpsert(emp: BukEmployee, legalEntity: BukLegalEntity) {
   const rawStartDate = emp.start_date ?? emp.current_job?.start_date
-  const startDate = rawStartDate ? new Date(rawStartDate) : new Date()
+  const startDate    = rawStartDate ? new Date(rawStartDate) : new Date()
+  const endDate      = emp.end_date ? new Date(emp.end_date) : null
   const contractType = emp.contract_type ?? emp.current_job?.contract_type
+
   return {
     type:          mapContractType(contractType),
     startDate,
-    endDate:       emp.end_date ? new Date(emp.end_date) : null,
+    endDate,
     salary:        emp.liquid_salary ?? 0,
     grossSalary:   emp.gross_salary ?? null,
     currency:      'CLP',
-    isActive:      emp.current_job != null && !emp.end_date,
+    isActive:      !endDate || endDate > new Date(),
     legalEntity:   legalEntity as LegalEntity,
     bukEmployeeId: emp.id,
   }
 }
 
 // ─── Deduplicación cross-empresa ─────────────────────────────────────────────
-// Recibe empleados de ambas empresas y determina cuáles son duplicados.
-// Retorna un Set de (rut + legalEntity) que deben saltearse.
 
 export function buildDuplicateSet(
   empleadosPorEmpresa: Array<{ legalEntity: BukLegalEntity; employees: BukEmployee[] }>
 ): Set<string> {
-  // Mapa: rut → [{ legalEntity, liquid_salary }]
   const rutMap = new Map<string, Array<{ legalEntity: BukLegalEntity; liquid: number | null }>>()
 
   for (const { legalEntity, employees } of empleadosPorEmpresa) {
@@ -117,18 +125,13 @@ export function buildDuplicateSet(
   const duplicates = new Set<string>()
 
   for (const [rut, entries] of rutMap) {
-    if (entries.length < 2) continue  // solo aparece en una empresa → no hay duplicado
+    if (entries.length < 2) continue
 
-    // Aparece en ambas empresas
     const withSalary    = entries.filter(e => e.liquid !== null && e.liquid > 0)
     const withoutSalary = entries.filter(e => !e.liquid || e.liquid === 0)
 
-    if (withSalary.length === 2) {
-      // Dos contratos activos con sueldo → persona válida en ambas empresas, ninguno es duplicado
-      continue
-    }
+    if (withSalary.length === 2) continue
 
-    // El que no tiene sueldo es el duplicado
     for (const dup of withoutSalary) {
       duplicates.add(`${rut}::${dup.legalEntity}`)
     }

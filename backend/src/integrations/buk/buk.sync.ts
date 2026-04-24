@@ -2,7 +2,7 @@ import type { PrismaClient } from '@prisma/client'
 import { LegalEntity } from '@prisma/client'
 import { BukClient } from './buk.client'
 import { buildDuplicateSet, mapContractUpsert, mapEmployeeUpsert, normalizeRut } from './buk.mapper'
-import type { BukEmployee, BukLegalEntity, BukSyncEmployeeResult } from './buk.types'
+import type { BukEmployee, BukLegalEntity, BukSyncEmployeeResult, BukProcessPeriod } from './buk.types'
 
 export interface PreviewEntry {
   rut: string
@@ -126,26 +126,37 @@ async function resolveDeptAndPosition(
   prisma: PrismaClient,
   bukEmp: BukEmployee
 ): Promise<{ departmentId?: string; positionId?: string }> {
-  if (!bukEmp.department) return {}
+  const hasDept  = !!bukEmp.department
+  const jobTitle = bukEmp.current_job?.name
+
+  if (!hasDept && !jobTitle) return {}
+
+  // Si BUK provee departamento, usarlo; si solo hay cargo, agruparlo bajo "Sin Área"
+  const deptCode = hasDept ? String(bukEmp.department!.id) : '__sin_area__'
+  const deptName = hasDept ? bukEmp.department!.name       : 'Sin Área'
 
   const dept = await prisma.department.upsert({
-    where:  { code: String(bukEmp.department.id) },
-    create: { name: bukEmp.department.name, code: String(bukEmp.department.id) },
-    update: { name: bukEmp.department.name },
+    where:  { code: deptCode },
+    create: { name: deptName, code: deptCode },
+    update: hasDept ? { name: deptName } : {},
   })
 
-  if (!bukEmp.current_job) return { departmentId: dept.id }
+  if (!jobTitle) return { departmentId: hasDept ? dept.id : undefined }
 
   let position = await prisma.position.findFirst({
-    where: { departmentId: dept.id, title: bukEmp.current_job.name },
+    where: { departmentId: dept.id, title: jobTitle },
   })
   if (!position) {
     position = await prisma.position.create({
-      data: { title: bukEmp.current_job.name, departmentId: dept.id },
+      data: { title: jobTitle, departmentId: dept.id },
     })
   }
 
-  return { departmentId: dept.id, positionId: position.id }
+  // Solo propagamos departmentId al empleado si BUK entregó un departamento real
+  return {
+    departmentId: hasDept ? dept.id : undefined,
+    positionId:   position.id,
+  }
 }
 
 // ─── Upsert de un colaborador + su contrato ───────────────────────────────────
@@ -378,4 +389,102 @@ export async function syncBukCompany(
   ]
 
   return syncCompany(prisma, targetClient, allByEntity)
+}
+
+// ─── Sync de remuneraciones mensuales desde BUK ───────────────────────────────
+
+export interface PayrollSyncResult {
+  legalEntity:      BukLegalEntity
+  periodsProcessed: number
+  entriesUpserted:  number
+  errors:           Array<{ period: string; error: string }>
+}
+
+export async function syncPayrollAll(
+  prisma: PrismaClient,
+  startDate: string,
+  endDate: string
+): Promise<PayrollSyncResult[]> {
+  const [clientComunicaciones, clientConsultoria] = BukClient.fromEnv()
+  const pairs: Array<[BukClient, BukLegalEntity]> = [
+    [clientComunicaciones, 'COMUNICACIONES_SURMEDIA'],
+    [clientConsultoria,    'SURMEDIA_CONSULTORIA'],
+  ]
+
+  const results: PayrollSyncResult[] = []
+
+  for (const [client, legalEntity] of pairs) {
+    const result: PayrollSyncResult = {
+      legalEntity,
+      periodsProcessed: 0,
+      entriesUpserted:  0,
+      errors:           [],
+    }
+
+    try {
+      const periods = await client.fetchProcessPeriods(startDate, endDate)
+      result.periodsProcessed = periods.length
+
+      // Mapa bukEmployeeId → employeeId interno (un solo query por empresa)
+      const bukContracts = await prisma.contract.findMany({
+        where: { legalEntity: legalEntity as LegalEntity, bukEmployeeId: { not: null } },
+        select: { bukEmployeeId: true, employeeId: true },
+      })
+      const bukIdToEmployeeId = new Map(
+        bukContracts.map(c => [c.bukEmployeeId!, c.employeeId])
+      )
+
+      for (const period of periods) {
+        try {
+          const settlements = await client.fetchPayrollSettlements(period.id)
+
+          const periodDate = new Date(period.start_date)
+          const year  = periodDate.getFullYear()
+          const month = periodDate.getMonth() + 1
+
+          for (const settlement of settlements) {
+            const employeeId = bukIdToEmployeeId.get(settlement.employee_id)
+            if (!employeeId) continue
+
+            const items    = JSON.stringify(settlement.items ?? settlement.payment_items ?? [])
+            const gross    = settlement.gross_salary  ?? 0
+            const liquid   = settlement.liquid_salary ?? 0
+            const entity   = legalEntity
+
+            await prisma.$executeRaw`
+              INSERT INTO payroll_entries
+                ("employeeId", "legalEntity", year, month, "bukPayrollId", "grossSalary", "liquidSalary", items, "updatedAt")
+              VALUES (
+                ${employeeId}::uuid,
+                ${entity}::"LegalEntity",
+                ${year},
+                ${month},
+                ${period.id},
+                ${gross},
+                ${liquid},
+                ${items}::jsonb,
+                NOW()
+              )
+              ON CONFLICT ("employeeId", "legalEntity", year, month)
+              DO UPDATE SET
+                "grossSalary"  = EXCLUDED."grossSalary",
+                "liquidSalary" = EXCLUDED."liquidSalary",
+                items          = EXCLUDED.items,
+                "bukPayrollId" = EXCLUDED."bukPayrollId",
+                "updatedAt"    = NOW()
+            `
+            result.entriesUpserted++
+          }
+        } catch (err) {
+          result.errors.push({ period: period.start_date, error: String(err) })
+        }
+      }
+    } catch (err) {
+      result.errors.push({ period: '*', error: String(err) })
+    }
+
+    results.push(result)
+  }
+
+  return results
 }

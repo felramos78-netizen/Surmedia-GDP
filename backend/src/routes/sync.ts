@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import type { FastifyPluginAsync } from 'fastify'
 import { Prisma } from '@prisma/client'
-import { syncBukAll, syncBukCompany, previewBukAll } from '../integrations/buk/buk.sync'
+import { syncBukAll, syncBukCompany, previewBukAll, syncPayrollAll } from '../integrations/buk/buk.sync'
 import type { BukLegalEntity } from '../integrations/buk/buk.types'
 
 const VALID_ENTITIES: BukLegalEntity[] = ['COMUNICACIONES_SURMEDIA', 'SURMEDIA_CONSULTORIA']
@@ -58,6 +58,27 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
     })
 
     return reply.status(202).send({ message: `Sincronización de ${entity} iniciada` })
+  })
+
+  // ─── POST /api/sync/buk/payroll — sync de remuneraciones mensuales ───────────
+  fastify.post<{ Body: { startDate?: string; endDate?: string } }>('/buk/payroll', {
+    preHandler: fastify.authenticate,
+    config: { timeout: 300_000 },
+  }, async (req, reply) => {
+    const now = new Date()
+    const defaultEnd   = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+    const defaultStart = `${now.getFullYear() - 1}-01-01`
+    const startDate = req.body?.startDate ?? defaultStart
+    const endDate   = req.body?.endDate   ?? defaultEnd
+
+    fastify.log.info({ startDate, endDate }, 'Sync payroll BUK iniciado')
+    try {
+      const results = await syncPayrollAll(fastify.prisma, startDate, endDate)
+      return reply.send({ ok: true, results })
+    } catch (err: any) {
+      fastify.log.error({ err }, 'Sync payroll BUK falló')
+      return reply.status(500).send({ ok: false, error: err.message })
+    }
   })
 
   // ─── GET /api/sync/logs — historial de sincronizaciones ─────────────────────

@@ -1,6 +1,3 @@
-// Tipos que reflejan la respuesta real de la API BUK v2
-// Ajustar nombres de campos si difieren al inspeccionar la respuesta real
-
 export type BukLegalEntity = 'COMUNICACIONES_SURMEDIA' | 'SURMEDIA_CONSULTORIA'
 
 export interface BukCompanyConfig {
@@ -12,7 +9,7 @@ export interface BukCompanyConfig {
   editorKey: string
 }
 
-// ─── Respuesta paginada genérica de BUK ───────────────────────────────────────
+// ─── Respuesta paginada genérica ──────────────────────────────────────────────
 
 export interface BukPaginatedResponse<T> {
   data?: T[]
@@ -29,27 +26,35 @@ export interface BukPaginatedResponse<T> {
 export interface BukEmployee {
   id: number
   person_id?: number
-  rut: string                    // ej: "12.345.678-9"
+  rut: string
   first_name: string
-  surname: string                // apellido paterno
-  second_surname?: string        // apellido materno
+  surname: string
+  second_surname?: string
   full_name?: string
   email?: string
   personal_email?: string
   active: boolean
-  start_date?: string            // ISO "2022-03-01" — fecha de ingreso
-  end_date?: string | null       // fecha de egreso
-  gender?: string                // 'M' | 'F'
+  status?: string           // 'active' | 'inactive' | 'pending'
+  start_date?: string
+  end_date?: string | null
+  gender?: string
   birthday?: string
   nationality?: string
   address?: string
   phone?: string
+  city?: string
+  district?: string         // comuna
 
   current_job?: {
     id: number
     name: string
     contract_type?: string
     start_date?: string
+    end_date?: string | null
+    area_id?: number
+    area_name?: string
+    working_schedule?: string
+    base_wage?: number
   }
   department?: {
     id: number
@@ -60,7 +65,7 @@ export interface BukEmployee {
     name: string
   }
 
-  contract_type?: string         // "indefinido" | "plazo_fijo" | "honorarios" | "practica"
+  contract_type?: string
   afp?: string | { id: number; name: string }
   health_institution?: string | { id: number; name: string }
 
@@ -68,7 +73,42 @@ export interface BukEmployee {
   liquid_salary?: number | null
 }
 
-// ─── Contrato en BUK (endpoint /contracts si existe por separado) ─────────────
+// ─── Período de proceso de remuneraciones ─────────────────────────────────────
+
+export interface BukProcessPeriod {
+  id: number
+  name?: string
+  start_date: string
+  end_date: string
+  year?: number
+  month?: number
+  closed?: boolean
+}
+
+// ─── Item de liquidación (haber o descuento) ──────────────────────────────────
+
+export interface BukPayrollItem {
+  name: string
+  amount: number
+  taxable?: boolean
+  category?: string
+  type?: string
+}
+
+// ─── Liquidación de un colaborador en un período ──────────────────────────────
+
+export interface BukEmployeeSettlement {
+  employee_id: number
+  process_period_id?: number
+  gross_salary?: number
+  liquid_salary?: number
+  total_haberes?: number
+  total_descuentos?: number
+  items?: BukPayrollItem[]
+  payment_items?: BukPayrollItem[]
+}
+
+// ─── Contrato en BUK ──────────────────────────────────────────────────────────
 
 export interface BukContract {
   id: number
@@ -81,16 +121,14 @@ export interface BukContract {
   active: boolean
 }
 
-// ─── Resultado del proceso de deduplicación ──────────────────────────────────
+// ─── Resultados internos ──────────────────────────────────────────────────────
 
 export interface BukDeduplicationResult {
   rut: string
   bukEmployee: BukEmployee
   legalEntity: BukLegalEntity
-  isDuplicate: boolean  // true → existe en la otra empresa con salary > 0
+  isDuplicate: boolean
 }
-
-// ─── Resultado del proceso de sync de un colaborador ─────────────────────────
 
 export interface BukSyncEmployeeResult {
   rut: string

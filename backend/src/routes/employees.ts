@@ -91,6 +91,19 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: employees, total, page: Number(page), limit: Number(limit) })
   })
 
+  fastify.get<{ Params: { id: string } }>('/:id/payroll', async (req, reply) => {
+    const entries = await fastify.prisma.$queryRaw<Array<{
+      id: string; year: number; month: number; legalEntity: string;
+      grossSalary: number; liquidSalary: number; items: unknown
+    }>>`
+      SELECT id, year, month, "legalEntity", "grossSalary", "liquidSalary", items
+      FROM payroll_entries
+      WHERE "employeeId" = ${req.params.id}::uuid
+      ORDER BY year DESC, month DESC
+    `
+    return reply.send({ data: entries })
+  })
+
   fastify.get<{ Params: { id: string } }>('/:id', async (req, reply) => {
     const employee = await fastify.prisma.employee.findFirst({
       where: { id: req.params.id, deletedAt: null },

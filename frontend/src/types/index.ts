@@ -70,6 +70,14 @@ export interface Employee {
   endDate?: string | null
   afp?: string | null
   isapre?: string | null
+  // Campos extendidos
+  city?: string | null
+  commune?: string | null
+  personalEmail?: string | null
+  workSchedule?: string | null
+  supervisorName?: string | null
+  supervisorTitle?: string | null
+  jobFamily?: string | null
   contracts?: Contract[]
   createdAt: string
   updatedAt: string
@@ -116,6 +124,24 @@ export interface SyncPreviewResult {
   duplicatesSkipped: number
   newEntries: SyncPreviewEntry[]
   dateRange: { min: string | null; max: string | null }
+}
+
+export interface PayrollItem {
+  name: string
+  amount: number
+  taxable?: boolean
+  category?: string
+  type?: string
+}
+
+export interface PayrollEntry {
+  id: string
+  year: number
+  month: number
+  legalEntity: string
+  grossSalary: number
+  liquidSalary: number
+  items: PayrollItem[]
 }
 
 export interface ApiResponse<T> {

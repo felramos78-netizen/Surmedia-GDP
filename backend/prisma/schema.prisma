@@ -122,10 +122,20 @@ model Employee {
   isapre       String?
   previredCode String?
 
-  user         User?
-  contracts    Contract[]
-  leaves       Leave[]
-  documents    Document[]
+  // Campos extendidos desde BUK
+  city           String?
+  commune        String?
+  personalEmail  String?
+  workSchedule   String?
+  supervisorName  String?
+  supervisorTitle String?
+  jobFamily      String?   // Trabajo - Familia de Cargo
+
+  user           User?
+  contracts      Contract[]
+  leaves         Leave[]
+  documents      Document[]
+  payrollEntries PayrollEntry[]
 
   deletedAt    DateTime?
   createdAt    DateTime       @default(now())
@@ -244,6 +254,28 @@ enum SyncStatus {
   RUNNING
   SUCCESS
   ERROR
+}
+
+// ─────────────────────────────────────────────
+// Remuneraciones mensuales (desde BUK)
+// ─────────────────────────────────────────────
+
+model PayrollEntry {
+  id             String      @id @default(uuid())
+  employee       Employee    @relation(fields: [employeeId], references: [id])
+  employeeId     String
+  legalEntity    LegalEntity
+  year           Int
+  month          Int
+  bukPayrollId   Int?
+  grossSalary    Int         @default(0)
+  liquidSalary   Int         @default(0)
+  items          Json        @default("[]")
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([employeeId, legalEntity, year, month])
+  @@map("payroll_entries")
 }
 
 model SyncLog {

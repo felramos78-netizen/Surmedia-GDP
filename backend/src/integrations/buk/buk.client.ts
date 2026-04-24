@@ -1,4 +1,4 @@
-import type { BukCompanyConfig, BukEmployee, BukPaginatedResponse } from './buk.types'
+import type { BukCompanyConfig, BukEmployee, BukEmployeeSettlement, BukPaginatedResponse, BukProcessPeriod } from './buk.types'
 
 const BUK_API_PATH = '/api/v1/chile'
 const PER_PAGE = 100
@@ -100,6 +100,42 @@ export class BukClient {
     const res = await this.fetchWithRetry(url)
     const body = await res.json() as { data: BukEmployee }
     return body.data
+  }
+
+  // Obtiene los períodos de proceso de remuneraciones en un rango de fechas
+  async fetchProcessPeriods(startDate: string, endDate: string): Promise<BukProcessPeriod[]> {
+    const periods: BukProcessPeriod[] = []
+    let page = 1
+    let totalPages = 1
+
+    do {
+      const url = `${this.config.baseUrl}${BUK_API_PATH}/process_periods?start_date=${startDate}&end_date=${endDate}&page_size=${PER_PAGE}&page=${page}`
+      const res = await this.fetchWithRetry(url)
+      const body = await res.json() as BukPaginatedResponse<BukProcessPeriod>
+      periods.push(...(body.data ?? []))
+      totalPages = body.pagination?.total_pages ?? 1
+      page++
+    } while (page <= totalPages)
+
+    return periods
+  }
+
+  // Obtiene las liquidaciones de todos los empleados en un período dado
+  async fetchPayrollSettlements(periodId: number): Promise<BukEmployeeSettlement[]> {
+    const settlements: BukEmployeeSettlement[] = []
+    let page = 1
+    let totalPages = 1
+
+    do {
+      const url = `${this.config.baseUrl}${BUK_API_PATH}/process_periods/${periodId}/employee_payroll_processes?page_size=${PER_PAGE}&page=${page}`
+      const res = await this.fetchWithRetry(url)
+      const body = await res.json() as BukPaginatedResponse<BukEmployeeSettlement>
+      settlements.push(...(body.data ?? []))
+      totalPages = body.pagination?.total_pages ?? 1
+      page++
+    } while (page <= totalPages)
+
+    return settlements
   }
 }
 
