@@ -135,7 +135,8 @@ model Employee {
   contracts      Contract[]
   leaves         Leave[]
   documents      Document[]
-  payrollEntries PayrollEntry[]
+  payrollEntries      PayrollEntry[]
+  onboardingProcesses OnboardingProcess[]
 
   deletedAt    DateTime?
   createdAt    DateTime       @default(now())
@@ -276,6 +277,58 @@ model PayrollEntry {
 
   @@unique([employeeId, legalEntity, year, month])
   @@map("payroll_entries")
+}
+
+// ─────────────────────────────────────────────
+// Onboarding
+// ─────────────────────────────────────────────
+
+enum OnboardingPeriod {
+  PRE_INGRESO
+  DIA_1
+  SEMANA_1
+  MES_1
+  EVALUACION
+}
+
+enum OnboardingStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model OnboardingProcess {
+  id              String           @id @default(uuid())
+  employee        Employee         @relation(fields: [employeeId], references: [id])
+  employeeId      String
+  status          OnboardingStatus @default(IN_PROGRESS)
+  startDate       DateTime
+  expectedEndDate DateTime
+  completedAt     DateTime?
+  tasks           OnboardingTask[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@map("onboarding_processes")
+}
+
+model OnboardingTask {
+  id          String            @id @default(uuid())
+  process     OnboardingProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  processId   String
+  period      OnboardingPeriod
+  name        String
+  tool        String?
+  appliesWhen String?
+  isRequired  Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  completedAt DateTime?
+  completedBy String?
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@map("onboarding_tasks")
 }
 
 model SyncLog {

@@ -144,6 +144,43 @@ export interface PayrollEntry {
   items: PayrollItem[]
 }
 
+export type OnboardingPeriod = 'PRE_INGRESO' | 'DIA_1' | 'SEMANA_1' | 'MES_1' | 'EVALUACION'
+export type OnboardingStatus = 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+
+export interface OnboardingTask {
+  id: string
+  processId: string
+  period: OnboardingPeriod
+  name: string
+  tool?: string | null
+  appliesWhen?: string | null
+  isRequired: boolean
+  sortOrder: number
+  completedAt?: string | null
+  completedBy?: string | null
+  notes?: string | null
+}
+
+export interface OnboardingProcess {
+  id: string
+  employeeId: string
+  employee?: Employee
+  status: OnboardingStatus
+  startDate: string
+  expectedEndDate: string
+  completedAt?: string | null
+  tasks: OnboardingTask[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OnboardingStats {
+  inProgress: number
+  completed: number
+  cancelled: number
+  finalizingSoon: number
+}
+
 export interface ApiResponse<T> {
   data: T
   message?: string
