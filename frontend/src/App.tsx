@@ -4,6 +4,7 @@ import AppLayout from '@/layouts/AppLayout'
 import DashboardPage from '@/pages/dashboard/DashboardPage'
 import EmployeesPage from '@/pages/employees/EmployeesPage'
 import OnboardingPage from '@/pages/onboarding/OnboardingPage'
+import ProfilesPage from '@/pages/profiles/ProfilesPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,6 +21,7 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/employees" element={<EmployeesPage />} />
             <Route path="/onboarding" element={<OnboardingPage />} />
+            <Route path="/perfiles"   element={<ProfilesPage />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

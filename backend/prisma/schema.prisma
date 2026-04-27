@@ -4,8 +4,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─────────────────────────────────────────────
@@ -303,6 +304,7 @@ enum TaskAutomationType {
   CALENDAR
   BUK_CHECK
   EXTERNAL
+  SHEET_VERIFY
 }
 
 enum AutomationStatus {
@@ -316,10 +318,12 @@ enum AutomationStatus {
 model OnboardingProcess {
   id                   String           @id @default(uuid())
   // Colaborador libre — no requiere Employee en DB
-  collaboratorName     String
-  collaboratorEmail    String?
-  collaboratorPosition String?
-  collaboratorPhone    String?
+  collaboratorName          String
+  collaboratorEmail         String?
+  collaboratorPersonalEmail String?
+  collaboratorPosition      String?
+  collaboratorPhone         String?
+  costCenter                String?
   legalEntity          LegalEntity?
   notes                String?
   // Vinculación opcional a Employee de BUK (se hace después)
@@ -357,10 +361,53 @@ model OnboardingTask {
   completedAt      DateTime?
   completedBy      String?
   completedNote    String?
+  assignments      OnboardingTaskAssignment[]
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
   @@map("onboarding_tasks")
+}
+
+// ─────────────────────────────────────────────
+// Perfiles — roles en el ecosistema de onboarding
+// ─────────────────────────────────────────────
+
+model Profile {
+  id        String        @id @default(uuid())
+  name      String
+  position  String
+  email     String        @unique
+  phone     String?
+  notes     String?
+  roles           ProfileRole[]
+  taskAssignments OnboardingTaskAssignment[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@map("profiles")
+}
+
+model OnboardingTaskAssignment {
+  id        String         @id @default(uuid())
+  task      OnboardingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId    String
+  profile   Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId String
+  roleType  String         // RESPONSABLE_HITO | COPIA_CORREOS | ENVIA_CORREOS | RECIBE_CORREOS | PREPARA_ADM_FISICA
+  createdAt DateTime       @default(now())
+
+  @@unique([taskId, profileId, roleType])
+  @@map("onboarding_task_assignments")
+}
+
+model ProfileRole {
+  id        String  @id @default(uuid())
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId String
+  area      String  // BUK | SMART | ADMINISTRACION | ACREDITACION | INGRESANTE | JEFATURA | MENTORIA | CHECKPOINTS | GENERAL
+  roleType  String  // ENVIA_CORREOS | RECIBE_CORREOS | COPIA_CORREOS | PREPARA_ADM_FISICA | RESPONSABLE_HITO
+
+  @@map("profile_roles")
 }
 
 model SyncLog {

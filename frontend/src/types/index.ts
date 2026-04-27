@@ -146,8 +146,17 @@ export interface PayrollEntry {
 
 export type OnboardingPeriod    = 'PRE_INGRESO' | 'DIA_1' | 'SEMANA_1' | 'MES_1' | 'EVALUACION'
 export type OnboardingStatus    = 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
-export type TaskAutomationType  = 'MANUAL' | 'EMAIL' | 'CALENDAR' | 'BUK_CHECK' | 'EXTERNAL'
+export type TaskAutomationType  = 'MANUAL' | 'EMAIL' | 'CALENDAR' | 'BUK_CHECK' | 'EXTERNAL' | 'SHEET_VERIFY'
 export type AutomationStatus    = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED'
+
+export interface TaskAssignment {
+  id:        string
+  taskId:    string
+  profileId: string
+  profile:   { id: string; name: string; position: string; email: string }
+  roleType:  string
+  createdAt: string
+}
 
 export interface OnboardingTask {
   id:               string
@@ -166,13 +175,15 @@ export interface OnboardingTask {
   completedAt?:     string | null
   completedBy?:     string | null
   completedNote?:   string | null
+  assignments?:     TaskAssignment[]
 }
 
 export interface OnboardingProcess {
   id:                   string
-  collaboratorName:     string
-  collaboratorEmail?:   string | null
-  collaboratorPosition?: string | null
+  collaboratorName:           string
+  collaboratorEmail?:         string | null
+  collaboratorPersonalEmail?: string | null
+  collaboratorPosition?:      string | null
   collaboratorPhone?:   string | null
   legalEntity?:         string | null
   notes?:               string | null
@@ -185,6 +196,24 @@ export interface OnboardingProcess {
   tasks:                OnboardingTask[]
   createdAt:            string
   updatedAt:            string
+}
+
+export interface ProfileRole {
+  id:       string
+  area:     string
+  roleType: string
+}
+
+export interface Profile {
+  id:        string
+  name:      string
+  position:  string
+  email:     string
+  phone?:    string | null
+  notes?:    string | null
+  roles:     ProfileRole[]
+  createdAt: string
+  updatedAt: string
 }
 
 export interface OnboardingTemplateTask {

@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { runTaskAutomation } from '../services/automation.service'
+import { getFormResponses } from '../services/sheets.service'
 
 // ─── Plantilla oficial de hitos (workflow Surmedia) ──────────────────────────
 // Cada hito tiene: id estable, período, nombre, herramienta, tipo de automatización,
@@ -11,7 +12,7 @@ export const TASK_TEMPLATE = [
     id:              'pre_carta_oferta',
     period:          'PRE_INGRESO',
     name:            'Carta oferta recibida y aceptada',
-    tool:            'Correo a ingresante',
+    tool:            'Correo, Google Calendar',
     automationType:  'EMAIL',
     automationConfig: { emailTo: 'collaborator', template: 'bienvenida' },
     appliesWhen:     null,
@@ -20,10 +21,10 @@ export const TASK_TEMPLATE = [
   {
     id:              'pre_documentos',
     period:          'PRE_INGRESO',
-    name:            'Documentos personales revisados, validados y enviados al proveedor',
-    tool:            'IA + correo',
-    automationType:  'EMAIL',
-    automationConfig: { emailTo: 'rrhh', instruction: 'Revisar documentos del ingresante y enviarlos al proveedor de contratos.' },
+    name:            'Documentos personales validados',
+    tool:            'Google Sheets API',
+    automationType:  'SHEET_VERIFY',
+    automationConfig: { nameColumn: 'Nombre completo', docColumns: ['Cédula de identidad por ambas partes', 'Certificado de afiliación AFP', 'Certificado de afiliación ISAPRE', 'Certificado de título académico', 'Licencia de conducir (si aplica)', 'Carta de renuncia (último trabajo si aplica)'] },
     appliesWhen:     null,
     sortOrder:       2,
   },
@@ -31,7 +32,7 @@ export const TASK_TEMPLATE = [
     id:              'pre_coordinacion',
     period:          'PRE_INGRESO',
     name:            'Coordinación interna con administración y SSO',
-    tool:            'Correo interno',
+    tool:            'Correo, Google Calendar',
     automationType:  'EMAIL',
     automationConfig: { emailTo: 'team', template: 'coordinacion_interna' },
     appliesWhen:     null,
@@ -41,7 +42,7 @@ export const TASK_TEMPLATE = [
     id:              'pre_contratos_buk',
     period:          'PRE_INGRESO',
     name:            'Generación de documentos contractuales en BUK',
-    tool:            'BUK + correo proveedor',
+    tool:            'BUK API, Correo, Google Calendar',
     automationType:  'BUK_CHECK',
     automationConfig: { checkType: 'contract_signed' },
     appliesWhen:     null,
@@ -51,7 +52,7 @@ export const TASK_TEMPLATE = [
     id:              'pre_correo_empresa',
     period:          'PRE_INGRESO',
     name:            'Correo empresa creado',
-    tool:            'Google Workspace',
+    tool:            'Google Workspace API',
     automationType:  'EXTERNAL',
     automationConfig: { system: 'google_workspace', action: 'create_account' },
     appliesWhen:     null,
@@ -61,7 +62,7 @@ export const TASK_TEMPLATE = [
     id:              'pre_buk_asistencia',
     period:          'PRE_INGRESO',
     name:            'Perfil BUK marcaje asistencia creado',
-    tool:            'BUK (vía proveedor)',
+    tool:            'BUK API',
     automationType:  'BUK_CHECK',
     automationConfig: { checkType: 'attendance_profile' },
     appliesWhen:     null,
@@ -71,7 +72,7 @@ export const TASK_TEMPLATE = [
     id:              'pre_buk_perfil',
     period:          'PRE_INGRESO',
     name:            'Perfil BUK creado',
-    tool:            'BUK (vía proveedor)',
+    tool:            'BUK API',
     automationType:  'BUK_CHECK',
     automationConfig: { checkType: 'employee_profile' },
     appliesWhen:     null,
@@ -83,7 +84,7 @@ export const TASK_TEMPLATE = [
     id:              'day1_bienvenida',
     period:          'DIA_1',
     name:            'Correo de bienvenida',
-    tool:            'Correo interno',
+    tool:            'Correo, Google Calendar',
     automationType:  'EMAIL',
     automationConfig: { emailTo: 'collaborator', template: 'bienvenida' },
     appliesWhen:     null,
@@ -93,9 +94,9 @@ export const TASK_TEMPLATE = [
     id:              'day1_epp',
     period:          'DIA_1',
     name:            'Entrega de EPP y firma',
-    tool:            'SSO + BUK',
-    automationType:  'MANUAL',
-    automationConfig: null,
+    tool:            'BUK API',
+    automationType:  'BUK_CHECK',
+    automationConfig: { checkType: 'epp_delivery' },
     appliesWhen:     'si aplica',
     sortOrder:       2,
   },
@@ -113,7 +114,7 @@ export const TASK_TEMPLATE = [
     id:              'day1_enrolamiento',
     period:          'DIA_1',
     name:            'Enrolamiento de ingreso a oficina',
-    tool:            'Adm. física',
+    tool:            'Físico/Manual, Google Calendar',
     automationType:  'MANUAL',
     automationConfig: null,
     appliesWhen:     'si aplica',
@@ -123,7 +124,7 @@ export const TASK_TEMPLATE = [
     id:              'day1_kit',
     period:          'DIA_1',
     name:            'Entrega de kit de bienvenida',
-    tool:            'Adm. física',
+    tool:            'Físico/Manual, Google Calendar',
     automationType:  'MANUAL',
     automationConfig: null,
     appliesWhen:     null,
@@ -133,7 +134,7 @@ export const TASK_TEMPLATE = [
     id:              'day1_adobe',
     period:          'DIA_1',
     name:            'Licencia de Adobe habilitada',
-    tool:            'Correo interno',
+    tool:            'Correo, Google Calendar',
     automationType:  'EMAIL',
     automationConfig: { emailTo: 'rrhh', instruction: 'Habilitar licencia Adobe Creative Cloud para el colaborador desde el panel de administración.' },
     appliesWhen:     'solo Diseño',
@@ -153,7 +154,7 @@ export const TASK_TEMPLATE = [
     id:              'day1_firmas',
     period:          'DIA_1',
     name:            'Contrato · RIOHS · IRL firmados',
-    tool:            'BUK firma electrónica',
+    tool:            'BUK API',
     automationType:  'BUK_CHECK',
     automationConfig: { checkType: 'document_signing' },
     appliesWhen:     null,
@@ -163,7 +164,7 @@ export const TASK_TEMPLATE = [
     id:              'day1_computador',
     period:          'DIA_1',
     name:            'Entrega de computador y recepción firmada',
-    tool:            'Adm. física + BUK',
+    tool:            'Físico/Manual, BUK API, Google Calendar',
     automationType:  'BUK_CHECK',
     automationConfig: { checkType: 'asset_delivery' },
     appliesWhen:     null,
@@ -175,7 +176,7 @@ export const TASK_TEMPLATE = [
     id:              'semana_foto',
     period:          'SEMANA_1',
     name:            'Foto individual corporativa',
-    tool:            'Coordinación jefatura',
+    tool:            'Físico/Manual, Google Calendar',
     automationType:  'MANUAL',
     automationConfig: null,
     appliesWhen:     null,
@@ -195,9 +196,9 @@ export const TASK_TEMPLATE = [
     id:              'semana_presentacion',
     period:          'SEMANA_1',
     name:            'Presentación a la empresa y círculo de especialistas',
-    tool:            'WhatsApp',
-    automationType:  'EXTERNAL',
-    automationConfig: { system: 'whatsapp', action: 'group_announcement' },
+    tool:            'Correo, Google Calendar',
+    automationType:  'EMAIL',
+    automationConfig: { emailTo: 'team', template: 'presentacion_empresa' },
     appliesWhen:     null,
     sortOrder:       3,
   },
@@ -205,7 +206,7 @@ export const TASK_TEMPLATE = [
     id:              'semana_seguro',
     period:          'SEMANA_1',
     name:            'Formulario seguro complementario completo y enviado',
-    tool:            'Correo interno',
+    tool:            'Correo, Google Calendar',
     automationType:  'EMAIL',
     automationConfig: { emailTo: 'collaborator', template: 'seguro_complementario' },
     appliesWhen:     null,
@@ -215,7 +216,7 @@ export const TASK_TEMPLATE = [
     id:              'semana_pluxee',
     period:          'SEMANA_1',
     name:            'Tarjeta Pluxee entregada',
-    tool:            'Adm. física + BUK',
+    tool:            'Físico/Manual, Correo, Google Calendar',
     automationType:  'MANUAL',
     automationConfig: null,
     appliesWhen:     null,
@@ -225,9 +226,9 @@ export const TASK_TEMPLATE = [
     id:              'semana_foto_web',
     period:          'SEMANA_1',
     name:            'Foto individual cargada en web',
-    tool:            'WordPress',
-    automationType:  'EXTERNAL',
-    automationConfig: { system: 'wordpress', action: 'upload_photo' },
+    tool:            'Correo, Google Calendar',
+    automationType:  'EMAIL',
+    automationConfig: { emailTo: 'rrhh', template: 'foto_web' },
     appliesWhen:     null,
     sortOrder:       6,
   },
@@ -237,7 +238,7 @@ export const TASK_TEMPLATE = [
     id:              'mes_cafe',
     period:          'MES_1',
     name:            'Café virtual con directores',
-    tool:            'Correo + Calendar',
+    tool:            'Correo, Google Calendar',
     automationType:  'CALENDAR',
     automationConfig: { title: 'Café con directores — {collaboratorName}', daysFromStart: 14, durationMinutes: 30, attendees: ['directors', 'collaborator'] },
     appliesWhen:     null,
@@ -247,7 +248,7 @@ export const TASK_TEMPLATE = [
     id:              'mes_mentor',
     period:          'MES_1',
     name:            'Mentor asignado',
-    tool:            'Correo interno',
+    tool:            'Correo, Google Calendar',
     automationType:  'EMAIL',
     automationConfig: { emailTo: 'collaborator', template: 'mentor_asignado' },
     appliesWhen:     null,
@@ -279,7 +280,7 @@ export const TASK_TEMPLATE = [
     id:              'eval_feedback90',
     period:          'EVALUACION',
     name:            'Feedback 3 meses · Día 90',
-    tool:            'Calendar + correo con pauta',
+    tool:            'Correo, Google Calendar',
     automationType:  'CALENDAR',
     automationConfig: { title: 'Evaluación período de prueba — {collaboratorName}', daysFromStart: 90, durationMinutes: 90, attendees: ['supervisor', 'rrhh', 'collaborator'] },
     appliesWhen:     null,
@@ -327,17 +328,18 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
   // POST / — crear proceso con hitos seleccionados
   fastify.post<{
     Body: {
-      collaboratorName:     string
-      collaboratorEmail?:   string
-      collaboratorPosition?: string
-      collaboratorPhone?:   string
-      legalEntity?:         string
-      startDate?:           string
-      notes?:               string
-      selectedTaskIds:      string[]  // IDs de la plantilla que aplican
+      collaboratorName:          string
+      collaboratorEmail?:        string
+      collaboratorPersonalEmail?: string
+      collaboratorPosition?:     string
+      collaboratorPhone?:        string
+      legalEntity?:              string
+      startDate?:                string
+      notes?:                    string
+      selectedTaskIds:           string[]
     }
   }>('/', async (req, reply) => {
-    const { collaboratorName, collaboratorEmail, collaboratorPosition, collaboratorPhone, legalEntity, startDate, notes, selectedTaskIds } = req.body
+    const { collaboratorName, collaboratorEmail, collaboratorPersonalEmail, collaboratorPosition, collaboratorPhone, legalEntity, startDate, notes, selectedTaskIds } = req.body
 
     if (!collaboratorName?.trim()) return reply.status(400).send({ message: 'El nombre del colaborador es requerido' })
     if (!selectedTaskIds?.length)  return reply.status(400).send({ message: 'Selecciona al menos un hito' })
@@ -351,9 +353,10 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
 
     const process = await prisma.onboardingProcess.create({
       data: {
-        collaboratorName:     collaboratorName.trim(),
-        collaboratorEmail:    collaboratorEmail?.trim() || null,
-        collaboratorPosition: collaboratorPosition?.trim() || null,
+        collaboratorName:          collaboratorName.trim(),
+        collaboratorEmail:         collaboratorEmail?.trim() || null,
+        collaboratorPersonalEmail: collaboratorPersonalEmail?.trim() || null,
+        collaboratorPosition:      collaboratorPosition?.trim() || null,
         collaboratorPhone:    collaboratorPhone?.trim() || null,
         legalEntity:          legalEntity || null,
         notes:                notes?.trim() || null,
@@ -380,13 +383,31 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send({ data: process })
   })
 
+  // GET /sheet/form-responses — respuestas del formulario de ingreso (debe ir antes de /:id)
+  fastify.get('/sheet/form-responses', async (_req, reply) => {
+    try {
+      const rows = await getFormResponses()
+      return { data: rows, total: rows.length }
+    } catch (err: any) {
+      return reply.status(500).send({ message: 'Error al leer el sheet', detail: err.message })
+    }
+  })
+
   // GET /:id — detalle completo
   fastify.get<{ Params: { id: string } }>('/:id', async (req, reply) => {
     const process = await prisma.onboardingProcess.findFirst({
       where: { id: req.params.id },
       include: {
         employee: { include: { position: true, department: true } },
-        tasks:    { orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }] },
+        tasks: {
+          orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
+          include: {
+            assignments: {
+              include: { profile: { select: { id: true, name: true, position: true, email: true } } },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
       },
     })
     if (!process) return reply.status(404).send({ message: 'Proceso no encontrado' })
@@ -396,15 +417,17 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
   // PATCH /:id/tasks/:taskId — completar / editar tarea
   fastify.patch<{
     Params: { id: string; taskId: string }
-    Body: { completed?: boolean; name?: string; tool?: string; completedNote?: string }
+    Body: { completed?: boolean; name?: string; tool?: string; completedNote?: string; period?: string; appliesWhen?: string | null }
   }>('/:id/tasks/:taskId', async (req, reply) => {
-    const { completed, name, tool, completedNote } = req.body
+    const { completed, name, tool, completedNote, period, appliesWhen } = req.body
     const userId = (req.user as any)?.id ?? 'system'
 
     const updateData: Record<string, any> = {}
-    if (name        !== undefined) updateData.name        = name
-    if (tool        !== undefined) updateData.tool        = tool
+    if (name          !== undefined) updateData.name        = name
+    if (tool          !== undefined) updateData.tool        = tool
     if (completedNote !== undefined) updateData.completedNote = completedNote
+    if (period        !== undefined) updateData.period      = period
+    if (appliesWhen   !== undefined) updateData.appliesWhen = appliesWhen
     if (completed   !== undefined) {
       updateData.completedAt = completed ? new Date() : null
       updateData.completedBy = completed ? userId : null
@@ -456,6 +479,30 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(201).send({ data: task })
   })
 
+  // POST /:id/tasks/:taskId/assignments — asignar perfil a hito
+  fastify.post<{
+    Params: { id: string; taskId: string }
+    Body: { profileId: string; roleType: string }
+  }>('/:id/tasks/:taskId/assignments', async (req, reply) => {
+    const { profileId, roleType } = req.body
+    try {
+      const assignment = await prisma.onboardingTaskAssignment.create({
+        data: { taskId: req.params.taskId, profileId, roleType },
+        include: { profile: { select: { id: true, name: true, position: true, email: true } } },
+      })
+      return reply.status(201).send({ data: assignment })
+    } catch (err: any) {
+      if (err.code === 'P2002') return reply.status(409).send({ message: 'Este perfil ya está asignado con ese rol' })
+      throw err
+    }
+  })
+
+  // DELETE /:id/tasks/:taskId/assignments/:assignmentId — quitar perfil de hito
+  fastify.delete<{ Params: { id: string; taskId: string; assignmentId: string } }>('/:id/tasks/:taskId/assignments/:assignmentId', async (req, reply) => {
+    await prisma.onboardingTaskAssignment.delete({ where: { id: req.params.assignmentId } })
+    return reply.status(204).send()
+  })
+
   // DELETE /:id/tasks/:taskId — eliminar hito del proceso
   fastify.delete<{ Params: { id: string; taskId: string } }>('/:id/tasks/:taskId', async (req, reply) => {
     await prisma.onboardingTask.delete({ where: { id: req.params.taskId } })
@@ -505,25 +552,27 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     Body: {
       status?:               string
       employeeId?:           string
-      collaboratorName?:     string
-      collaboratorEmail?:    string | null
-      collaboratorPosition?: string | null
-      collaboratorPhone?:    string | null
-      legalEntity?:          string | null
-      startDate?:            string
-      notes?:                string | null
+      collaboratorName?:          string
+      collaboratorEmail?:         string | null
+      collaboratorPersonalEmail?: string | null
+      collaboratorPosition?:      string | null
+      collaboratorPhone?:         string | null
+      legalEntity?:               string | null
+      startDate?:                 string
+      notes?:                     string | null
     }
   }>('/:id', async (req, reply) => {
     const updateData: Record<string, any> = {}
 
-    if (req.body.status !== undefined)               updateData.status               = req.body.status
-    if (req.body.employeeId !== undefined)           updateData.employeeId           = req.body.employeeId
-    if (req.body.collaboratorName !== undefined)     updateData.collaboratorName     = req.body.collaboratorName?.trim()
-    if (req.body.collaboratorEmail !== undefined)    updateData.collaboratorEmail    = req.body.collaboratorEmail?.trim() || null
-    if (req.body.collaboratorPosition !== undefined) updateData.collaboratorPosition = req.body.collaboratorPosition?.trim() || null
-    if (req.body.collaboratorPhone !== undefined)    updateData.collaboratorPhone    = req.body.collaboratorPhone?.trim() || null
-    if (req.body.legalEntity !== undefined)          updateData.legalEntity          = req.body.legalEntity || null
-    if (req.body.notes !== undefined)                updateData.notes                = req.body.notes?.trim() || null
+    if (req.body.status !== undefined)                    updateData.status                    = req.body.status
+    if (req.body.employeeId !== undefined)                updateData.employeeId                = req.body.employeeId
+    if (req.body.collaboratorName !== undefined)          updateData.collaboratorName          = req.body.collaboratorName?.trim()
+    if (req.body.collaboratorEmail !== undefined)         updateData.collaboratorEmail         = req.body.collaboratorEmail?.trim() || null
+    if (req.body.collaboratorPersonalEmail !== undefined) updateData.collaboratorPersonalEmail = req.body.collaboratorPersonalEmail?.trim() || null
+    if (req.body.collaboratorPosition !== undefined)      updateData.collaboratorPosition      = req.body.collaboratorPosition?.trim() || null
+    if (req.body.collaboratorPhone !== undefined)         updateData.collaboratorPhone         = req.body.collaboratorPhone?.trim() || null
+    if (req.body.legalEntity !== undefined)               updateData.legalEntity               = req.body.legalEntity || null
+    if (req.body.notes !== undefined)                     updateData.notes                     = req.body.notes?.trim() || null
     if (req.body.startDate !== undefined) {
       const start = new Date(req.body.startDate)
       const expectedEndDate = new Date(start)
@@ -551,6 +600,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     await prisma.onboardingProcess.delete({ where: { id: req.params.id } })
     return reply.status(204).send()
   })
+
 }
 
 export default onboardingRoutes

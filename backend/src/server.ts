@@ -9,15 +9,11 @@ import authRoutes from './routes/auth'
 import employeeRoutes from './routes/employees'
 import syncRoutes from './routes/sync'
 import onboardingRoutes from './routes/onboarding'
+import profileRoutes from './routes/profiles'
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
 
 async function bootstrap() {
-  try {
-    execSync('npx prisma db push --accept-data-loss', { stdio: 'inherit' })
-  } catch (e) {
-    app.log.warn('prisma db push failed, continuing with existing schema')
-  }
 
   await app.register(cors, {
     origin: true,
@@ -37,6 +33,7 @@ async function bootstrap() {
   await app.register(employeeRoutes, { prefix: '/api/employees' })
   await app.register(syncRoutes, { prefix: '/api/sync' })
   await app.register(onboardingRoutes, { prefix: '/api/onboarding' })
+  await app.register(profileRoutes,    { prefix: '/api/profiles' })
 
   app.get('/api/health', async () => ({ status: 'ok', env: process.env.NODE_ENV }))
 

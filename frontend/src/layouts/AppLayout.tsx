@@ -1,16 +1,17 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import {
   Users, FileText, UserPlus, Calendar, BarChart3,
-  Settings, Building2,
+  Settings, Building2, Contact,
 } from 'lucide-react'
 
 const navItems = [
-  { to: '/dashboard', icon: BarChart3, label: 'Dashboard' },
-  { to: '/employees', icon: Users, label: 'Dotación' },
+  { to: '/dashboard', icon: BarChart3,  label: 'Dashboard' },
+  { to: '/employees', icon: Users,      label: 'Dotación' },
   { to: '/recruitment', icon: UserPlus, label: 'Reclutamiento' },
   { to: '/onboarding', icon: Building2, label: 'Onboarding' },
-  { to: '/leave', icon: Calendar, label: 'Vacaciones' },
-  { to: '/documents', icon: FileText, label: 'Documentos' },
+  { to: '/perfiles',   icon: Contact,   label: 'Perfiles' },
+  { to: '/leave',      icon: Calendar,  label: 'Vacaciones' },
+  { to: '/documents',  icon: FileText,  label: 'Documentos' },
 ]
 
 export default function AppLayout() {

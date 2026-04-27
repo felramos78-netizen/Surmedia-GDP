@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react'
-import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save } from 'lucide-react'
-import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding } from '@/hooks/useOnboarding'
-import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus, OnboardingProcess } from '@/types'
+import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save, FileText, ExternalLink, Users, ListChecks } from 'lucide-react'
+import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment } from '@/hooks/useOnboarding'
+import { useProfiles, ROLE_TYPES } from '@/hooks/useProfiles'
+import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus, OnboardingProcess, TaskAssignment } from '@/types'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -16,11 +17,28 @@ const PERIOD_META: Record<OnboardingPeriod, { label: string; range: string; colo
 }
 
 const AUTO_META: Record<TaskAutomationType, { label: string; icon: React.ReactNode; color: string }> = {
-  MANUAL:    { label: 'Manual',    icon: <Wrench size={11} />,     color: 'bg-gray-100 text-gray-500' },
-  EMAIL:     { label: 'Correo',    icon: <Mail size={11} />,       color: 'bg-blue-100 text-blue-600' },
-  CALENDAR:  { label: 'Calendar',  icon: <Calendar size={11} />,   color: 'bg-purple-100 text-purple-600' },
-  BUK_CHECK: { label: 'BUK',       icon: <RefreshCw size={11} />,  color: 'bg-orange-100 text-orange-600' },
-  EXTERNAL:  { label: 'Externo',   icon: <Globe size={11} />,      color: 'bg-teal-100 text-teal-600' },
+  MANUAL:       { label: 'Manual',    icon: <Wrench size={11} />,     color: 'bg-gray-100 text-gray-500' },
+  EMAIL:        { label: 'Correo',    icon: <Mail size={11} />,       color: 'bg-blue-100 text-blue-600' },
+  CALENDAR:     { label: 'Calendar',  icon: <Calendar size={11} />,   color: 'bg-purple-100 text-purple-600' },
+  BUK_CHECK:    { label: 'BUK',       icon: <RefreshCw size={11} />,  color: 'bg-orange-100 text-orange-600' },
+  EXTERNAL:     { label: 'Externo',   icon: <Globe size={11} />,      color: 'bg-teal-100 text-teal-600' },
+  SHEET_VERIFY: { label: 'Formulario',icon: <FileText size={11} />,   color: 'bg-green-100 text-green-600' },
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  RESPONSABLE_HITO:   'Responsable',
+  COPIA_CORREOS:      'Copia',
+  ENVIA_CORREOS:      'Envía',
+  RECIBE_CORREOS:     'Recibe',
+  PREPARA_ADM_FISICA: 'Adm. física',
+}
+
+const ROLE_COLORS: Record<string, string> = {
+  RESPONSABLE_HITO:   'bg-blue-100 text-blue-700',
+  COPIA_CORREOS:      'bg-gray-100 text-gray-600',
+  ENVIA_CORREOS:      'bg-green-100 text-green-700',
+  RECIBE_CORREOS:     'bg-amber-100 text-amber-700',
+  PREPARA_ADM_FISICA: 'bg-purple-100 text-purple-700',
 }
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
@@ -31,11 +49,82 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   PENDING: { label: 'Pendiente',   color: 'text-gray-400' },
 }
 
+// ─── Herramientas disponibles ─────────────────────────────────────────────────
+
+const TOOLS = [
+  'Correo',
+  'Google Calendar',
+  'BUK API',
+  'Google Sheets API',
+  'Google Workspace API',
+  'Físico/Manual',
+]
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(d: string) { return new Date(d).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) }
 function fmtShort(d: string) { return new Date(d).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' }) }
 function daysIn(s: string) { return Math.floor((Date.now() - new Date(s).getTime()) / 864e5) }
+
+// ─── Multi-select de herramientas ────────────────────────────────────────────
+
+function ToolsSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const selected = value ? value.split(',').map(t => t.trim()).filter(Boolean) : []
+
+  React.useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const toggle = (tool: string) => {
+    const next = selected.includes(tool)
+      ? selected.filter(t => t !== tool)
+      : [...selected, tool]
+    onChange(next.join(', '))
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg text-left flex items-center justify-between gap-2 bg-white hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[34px]"
+      >
+        <span className="flex flex-wrap gap-1 flex-1">
+          {selected.length === 0
+            ? <span className="text-gray-400">Seleccionar herramientas…</span>
+            : selected.map(t => (
+                <span key={t} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-[10px]">
+                  {t}
+                </span>
+              ))
+          }
+        </span>
+        <ChevronDown size={12} className="flex-shrink-0 text-gray-400" />
+      </button>
+      {open && (
+        <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-lg border border-gray-200 shadow-lg py-1 max-h-48 overflow-y-auto">
+          {TOOLS.map(tool => (
+            <label key={tool} className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected.includes(tool)}
+                onChange={() => toggle(tool)}
+                className="w-3.5 h-3.5 accent-blue-600 flex-shrink-0"
+              />
+              <span className="text-xs text-gray-700">{tool}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── Badge de tipo de automatización ─────────────────────────────────────────
 
@@ -48,16 +137,257 @@ function AutoBadge({ type }: { type: TaskAutomationType }) {
   )
 }
 
-// ─── Fila de tarea ────────────────────────────────────────────────────────────
+// ─── Plantillas de correo ─────────────────────────────────────────────────────
+
+function buildEmail(task: OnboardingTask, process: OnboardingProcess): { to: string; subject: string; body: string } {
+  const cfg = task.automationConfig as Record<string, any> | null
+  const name     = process.collaboratorName
+  const position = process.collaboratorPosition ?? 'colaborador/a'
+  const start    = process.startDate ? new Date(process.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }) : ''
+  const corpEmail = process.collaboratorEmail ?? ''
+  const persEmail = process.collaboratorPersonalEmail ?? ''
+
+  const recipientTo = cfg?.emailTo === 'collaborator'
+    ? (corpEmail || persEmail)
+    : cfg?.emailTo === 'rrhh'
+      ? 'rrhh@surmedia.cl'
+      : 'equipo@surmedia.cl'
+
+  const templates: Record<string, { subject: string; body: string }> = {
+    bienvenida: {
+      subject: `¡Bienvenido/a a Surmedia, ${name}!`,
+      body: `Hola ${name},\n\nNos alegra darte la bienvenida a Surmedia como ${position}.\n\nTu fecha de ingreso es el ${start}. En los próximos días recibirás toda la información necesaria para comenzar.\n\nEn caso de cualquier consulta, no dudes en contactarnos.\n\nEquipo RRHH Surmedia`,
+    },
+    seguro_complementario: {
+      subject: 'Formulario Seguro Complementario — Surmedia',
+      body: `Hola ${name},\n\nTe enviamos el formulario para activar tu seguro complementario de salud.\n\nPor favor complétalo y envíalo de vuelta antes de tu primer día.\n\n[Adjuntar formulario]\n\nEquipo RRHH Surmedia`,
+    },
+    mentor_asignado: {
+      subject: `Tu mentor en Surmedia — ${name}`,
+      body: `Hola ${name},\n\nComo parte de tu proceso de onboarding, hemos asignado un mentor que te acompañará durante tus primeros 90 días.\n\nPronto recibirás los datos de contacto de tu mentor.\n\nEquipo RRHH Surmedia`,
+    },
+  }
+
+  const templateKey = cfg?.template ?? ''
+  const tpl = templates[templateKey] ?? {
+    subject: `[Onboarding] ${task.name} — ${name}`,
+    body: `Hola,\n\nEste correo corresponde al hito "${task.name}" del proceso de onboarding de ${name} (${position}).\n\nFecha de ingreso: ${start}\n\nEquipo RRHH Surmedia`,
+  }
+
+  return { to: recipientTo, subject: tpl.subject, body: tpl.body }
+}
+
+// ─── Modal verificación de documentos (Google Sheet) ─────────────────────────
+
+import api from '@/lib/api'
+
+function SheetVerifyModal({
+  task, process, onClose,
+}: { task: OnboardingTask; process: OnboardingProcess; onClose: () => void }) {
+  const cfg = task.automationConfig as Record<string, any> | null
+  const nameColumn = cfg?.nameColumn ?? 'Nombre completo'
+  const docColumns: string[] = cfg?.docColumns ?? []
+
+  const [rows, setRows]           = useState<Record<string, string>[] | null>(null)
+  const [error, setError]         = useState('')
+  const [selected, setSelected]   = useState<Record<string, string> | null>(null)
+  const [checked, setChecked]     = useState<Set<string>>(new Set())
+  const updateTask = useUpdateTask()
+
+  React.useEffect(() => {
+    api.get('/onboarding/sheet/form-responses')
+      .then(r => setRows(r.data.data))
+      .catch(() => setError('No se pudo cargar el formulario'))
+  }, [])
+
+  const handleSelect = (row: Record<string, string>) => {
+    setSelected(row)
+    setChecked(new Set())
+  }
+
+  const toggleDoc = (col: string) => {
+    setChecked(prev => {
+      const next = new Set(prev)
+      next.has(col) ? next.delete(col) : next.add(col)
+      return next
+    })
+  }
+
+  const allChecked = docColumns.filter(c => selected?.[c]).every(c => checked.has(c))
+
+  const handleConfirm = async () => {
+    await updateTask.mutateAsync({ processId: process.id, taskId: task.id, completed: true })
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Verificar documentos del formulario</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{process.collaboratorName}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={15} /></button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-4 flex flex-col gap-4">
+          {error && <p className="text-sm text-red-500">{error}</p>}
+          {!rows && !error && <p className="text-sm text-gray-400">Cargando respuestas...</p>}
+
+          {rows && (
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                Selecciona el ingresante ({rows.length} respuestas)
+              </label>
+              <select
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                defaultValue=""
+                onChange={e => {
+                  const row = rows.find(r => r[nameColumn] === e.target.value)
+                  if (row) handleSelect(row)
+                }}
+              >
+                <option value="" disabled>Seleccionar...</option>
+                {rows.map((r, i) => (
+                  <option key={i} value={r[nameColumn]}>{r[nameColumn]}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {selected && (
+            <div>
+              <p className="text-xs font-medium text-gray-600 mb-2">Documentos adjuntos — marca cada uno como revisado</p>
+              <div className="flex flex-col gap-2">
+                {docColumns.map(col => {
+                  const url = selected[col]
+                  const hasDoc = !!url
+                  return (
+                    <div key={col} className={`flex items-center gap-3 p-3 rounded-lg border ${checked.has(col) ? 'border-green-200 bg-green-50' : 'border-gray-100 bg-gray-50'}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked.has(col)}
+                        onChange={() => hasDoc && toggleDoc(col)}
+                        disabled={!hasDoc}
+                        className="w-4 h-4 accent-green-600"
+                      />
+                      <span className={`flex-1 text-sm ${hasDoc ? 'text-gray-800' : 'text-gray-400'}`}>{col}</span>
+                      {hasDoc ? (
+                        <a href={url} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                          <ExternalLink size={11} /> Ver
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-400">No adjuntado</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <button
+            onClick={handleConfirm}
+            disabled={!selected || !allChecked || updateTask.isPending}
+            className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            {updateTask.isPending ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+            Confirmar documentos validados
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal previsualización de correo ─────────────────────────────────────────
+
+function EmailPreviewModal({
+  task, process, onClose, onSent,
+}: { task: OnboardingTask; process: OnboardingProcess; onClose: () => void; onSent: () => void }) {
+  const initial = buildEmail(task, process)
+  const [from,    setFrom]    = useState('rrhh@surmedia.cl')
+  const [to,      setTo]      = useState(initial.to)
+  const [cc,      setCc]      = useState('')
+  const [subject, setSubject] = useState(initial.subject)
+  const [body,    setBody]    = useState(initial.body)
+  const runAuto = useRunAutomation()
+
+  const handleSend = async () => {
+    await runAuto.mutateAsync({ processId: process.id, taskId: task.id })
+    onSent()
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Previsualizar correo</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{task.name}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={15} /></button>
+        </div>
+        <div className="overflow-y-auto px-6 py-4 flex flex-col gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">De</label>
+            <input value={from} onChange={e => setFrom(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Para</label>
+            <input value={to} onChange={e => setTo(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">CC (opcional)</label>
+            <input value={cc} onChange={e => setCc(e.target.value)}
+              placeholder="correo@ejemplo.com"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Asunto</label>
+            <input value={subject} onChange={e => setSubject(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Cuerpo</label>
+            <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono text-xs" />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <button onClick={handleSend} disabled={runAuto.isPending || !to}
+            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+            {runAuto.isPending ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
+            {runAuto.isPending ? 'Enviando…' : 'Enviar correo'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Fila de tarea (pestaña Progreso) ─────────────────────────────────────────
 
 function TaskRow({
   task,
   processId,
+  process,
   canEdit,
-}: { task: OnboardingTask; processId: string; canEdit: boolean }) {
-  const [editing, setEditing]       = useState(false)
-  const [editName, setEditName]     = useState(task.name)
-  const [showResult, setShowResult] = useState(false)
+}: { task: OnboardingTask; processId: string; process: OnboardingProcess; canEdit: boolean }) {
+  const [editing, setEditing]         = useState(false)
+  const [editName, setEditName]       = useState(task.name)
+  const [showResult, setShowResult]   = useState(false)
+  const [emailModal, setEmailModal]   = useState(false)
+  const [sheetModal, setSheetModal]   = useState(false)
   const inputRef  = useRef<HTMLInputElement>(null)
 
   const updateTask  = useUpdateTask()
@@ -82,6 +412,8 @@ function TaskRow({
 
   const handleAutomate = (e: React.MouseEvent) => {
     e.stopPropagation()
+    if (task.automationType === 'EMAIL') { setEmailModal(true); return }
+    if (task.automationType === 'SHEET_VERIFY') { setSheetModal(true); return }
     runAuto.mutate({ processId, taskId: task.id })
   }
 
@@ -136,7 +468,9 @@ function TaskRow({
           {/* Badges */}
           <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
             <AutoBadge type={task.automationType} />
-            {task.tool && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-50 text-gray-400 border border-gray-100">{task.tool}</span>}
+            {task.tool && task.tool.split(',').map(t => t.trim()).filter(Boolean).map(t => (
+              <span key={t} className="text-xs px-1.5 py-0.5 rounded bg-gray-50 text-gray-400 border border-gray-100">{t}</span>
+            ))}
             {task.appliesWhen && <span className="text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-500 border border-amber-100">{task.appliesWhen}</span>}
             {task.completedAt && <span className="text-xs text-gray-400">{fmtShort(task.completedAt)}</span>}
             {autoStatus && autoStatus !== 'PENDING' && (
@@ -147,6 +481,12 @@ function TaskRow({
                 {STATUS_META[autoStatus]?.label}
                 {showResult ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
               </button>
+            )}
+            {/* Profile assignments pill */}
+            {!!task.assignments?.length && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] text-gray-400">
+                <Users size={10} />{task.assignments.length}
+              </span>
             )}
           </div>
 
@@ -163,7 +503,6 @@ function TaskRow({
 
         {/* Actions */}
         <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Automate button */}
           {canEdit && task.automationType !== 'MANUAL' && (
             <button
               onClick={handleAutomate}
@@ -178,7 +517,6 @@ function TaskRow({
               {isRunning ? <Loader2 size={13} className="animate-spin" /> : AUTO_META[task.automationType]?.icon}
             </button>
           )}
-          {/* Delete */}
           {canEdit && (
             <button
               onClick={handleDelete}
@@ -189,6 +527,21 @@ function TaskRow({
           )}
         </div>
       </div>
+      {emailModal && (
+        <EmailPreviewModal
+          task={task}
+          process={process}
+          onClose={() => setEmailModal(false)}
+          onSent={() => setEmailModal(false)}
+        />
+      )}
+      {sheetModal && (
+        <SheetVerifyModal
+          task={task}
+          process={process}
+          onClose={() => setSheetModal(false)}
+        />
+      )}
     </div>
   )
 }
@@ -222,13 +575,315 @@ function AddTaskForm({ processId, period, onDone }: { processId: string; period:
   )
 }
 
+// ─── Tarjeta de configuración de hito (pestaña Hitos) ────────────────────────
+
+function HitoConfigCard({ task, processId, canEdit }: { task: OnboardingTask; processId: string; canEdit: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [form, setForm] = useState({
+    name:        task.name,
+    tool:        task.tool ?? '',
+    appliesWhen: task.appliesWhen ?? '',
+    period:      task.period as string,
+  })
+  const [addProfileId,  setAddProfileId]  = useState('')
+  const [addRoleType,   setAddRoleType]   = useState('RESPONSABLE_HITO')
+
+  const { data: profiles = [] } = useProfiles()
+  const updateTask        = useUpdateTask()
+  const deleteTask        = useDeleteTask()
+  const addAssignment     = useAddTaskAssignment()
+  const deleteAssignment  = useDeleteTaskAssignment()
+
+  const assignments: TaskAssignment[] = task.assignments ?? []
+
+  const handleSaveEdit = async () => {
+    await updateTask.mutateAsync({
+      processId,
+      taskId:     task.id,
+      name:       form.name.trim(),
+      tool:       form.tool.trim() || undefined,
+      appliesWhen: form.appliesWhen.trim() || null,
+      period:     form.period || undefined,
+    })
+    setEditMode(false)
+  }
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirm('¿Eliminar este hito del proceso?')) {
+      deleteTask.mutate({ processId, taskId: task.id })
+    }
+  }
+
+  const handleAddAssignment = async () => {
+    if (!addProfileId) return
+    try {
+      await addAssignment.mutateAsync({ processId, taskId: task.id, profileId: addProfileId, roleType: addRoleType })
+      setAddProfileId('')
+    } catch {}
+  }
+
+  const alreadyAssignedProfileIds = assignments.map(a => `${a.profileId}:${a.roleType}`)
+
+  return (
+    <div className="rounded-lg border border-gray-100 bg-white mb-1.5 overflow-hidden">
+      {/* Fila compacta */}
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="flex-1 flex items-center gap-2 text-left min-w-0"
+        >
+          <span className="text-gray-300">{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
+          <div className="min-w-0">
+            <p className="text-sm text-gray-800 truncate">{task.name}</p>
+            <div className="flex flex-wrap items-center gap-1 mt-0.5">
+              <AutoBadge type={task.automationType} />
+              {task.tool && task.tool.split(',').map(t => t.trim()).filter(Boolean).map(t => (
+                <span key={t} className="text-[10px] px-1 py-0.5 rounded bg-gray-50 text-gray-400 border border-gray-100">{t}</span>
+              ))}
+              {task.appliesWhen && <span className="text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-500 border border-amber-100">{task.appliesWhen}</span>}
+            </div>
+          </div>
+        </button>
+        {assignments.length > 0 && (
+          <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] text-gray-400 px-1.5 py-0.5 bg-gray-50 rounded">
+            <Users size={10} />{assignments.length}
+          </span>
+        )}
+        {canEdit && (
+          <button
+            onClick={handleDelete}
+            className="flex-shrink-0 p-1 rounded text-gray-200 hover:text-red-400 hover:bg-red-50 transition-colors"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+      </div>
+
+      {/* Panel expandido */}
+      {expanded && (
+        <div className="border-t border-gray-50 px-3 pb-3 pt-3 space-y-4">
+
+          {/* Edición de campos */}
+          {editMode ? (
+            <div className="space-y-2">
+              <div>
+                <label className="block text-[10px] font-medium text-gray-500 mb-1">Nombre</label>
+                <input
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-500 mb-1">Herramientas</label>
+                  <ToolsSelect value={form.tool} onChange={v => setForm(f => ({ ...f, tool: v }))} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-gray-500 mb-1">Aplica cuando</label>
+                  <input
+                    value={form.appliesWhen}
+                    onChange={e => setForm(f => ({ ...f, appliesWhen: e.target.value }))}
+                    placeholder="ej. si aplica"
+                    className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-gray-500 mb-1">Período</label>
+                <select
+                  value={form.period}
+                  onChange={e => setForm(f => ({ ...f, period: e.target.value }))}
+                  className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  {PERIOD_ORDER.map(p => (
+                    <option key={p} value={p}>{PERIOD_META[p].label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  onClick={() => { setForm({ name: task.name, tool: task.tool ?? '', appliesWhen: task.appliesWhen ?? '', period: task.period }); setEditMode(false) }}
+                  className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-lg"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={!form.name.trim() || updateTask.isPending}
+                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {updateTask.isPending ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+                  Guardar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-xs text-gray-500 space-y-1.5">
+                {task.tool && (
+                  <div className="flex items-start gap-1.5 flex-wrap">
+                    <span className="text-gray-400 flex-shrink-0">Herramientas:</span>
+                    {task.tool.split(',').map(t => t.trim()).filter(Boolean).map(t => (
+                      <span key={t} className="inline-flex items-center px-1.5 py-0.5 bg-gray-50 text-gray-500 border border-gray-100 rounded text-[10px]">{t}</span>
+                    ))}
+                  </div>
+                )}
+                {task.appliesWhen && <p><span className="text-gray-400">Aplica cuando:</span> {task.appliesWhen}</p>}
+                {!task.tool && !task.appliesWhen && <p className="text-gray-300 italic text-[11px]">Sin detalles adicionales</p>}
+              </div>
+              {canEdit && (
+                <button
+                  onClick={() => setEditMode(true)}
+                  className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                >
+                  <Pencil size={11} /> Editar
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Sección de perfiles */}
+          <div>
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Perfiles asociados</p>
+
+            {assignments.length === 0 && (
+              <p className="text-xs text-gray-300 italic mb-2">Sin perfiles asignados</p>
+            )}
+
+            <div className="flex flex-col gap-1 mb-2.5">
+              {assignments.map(a => (
+                <div key={a.id} className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 rounded-lg border border-gray-100">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-700 truncate">{a.profile.name}</p>
+                    <p className="text-[10px] text-gray-400 truncate">{a.profile.position}</p>
+                  </div>
+                  <span className={`flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${ROLE_COLORS[a.roleType] ?? 'bg-gray-100 text-gray-600'}`}>
+                    {ROLE_LABELS[a.roleType] ?? a.roleType}
+                  </span>
+                  {canEdit && (
+                    <button
+                      onClick={() => deleteAssignment.mutate({ processId, taskId: task.id, assignmentId: a.id })}
+                      className="flex-shrink-0 p-0.5 text-gray-300 hover:text-red-400 transition-colors"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {canEdit && (
+              <div className="flex gap-1.5">
+                <select
+                  value={addProfileId}
+                  onChange={e => setAddProfileId(e.target.value)}
+                  className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-700"
+                >
+                  <option value="">Seleccionar perfil…</option>
+                  {profiles.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={addRoleType}
+                  onChange={e => setAddRoleType(e.target.value)}
+                  className="w-32 flex-shrink-0 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-700"
+                >
+                  {ROLE_TYPES.map(r => (
+                    <option
+                      key={r.value}
+                      value={r.value}
+                      disabled={alreadyAssignedProfileIds.includes(`${addProfileId}:${r.value}`)}
+                    >
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleAddAssignment}
+                  disabled={!addProfileId || addAssignment.isPending}
+                  className="flex-shrink-0 p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                >
+                  {addAssignment.isPending ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Pestaña: Hitos ───────────────────────────────────────────────────────────
+
+function HitosTab({ process, canEdit }: { process: OnboardingProcess; canEdit: boolean }) {
+  const [addingPeriod, setAddingPeriod] = useState<OnboardingPeriod | null>(null)
+
+  const tasks = [...process.tasks].sort((a, b) => {
+    const pi = PERIOD_ORDER.indexOf(a.period) - PERIOD_ORDER.indexOf(b.period)
+    return pi !== 0 ? pi : a.sortOrder - b.sortOrder
+  })
+
+  const tasksByPeriod = PERIOD_ORDER.reduce<Record<OnboardingPeriod, OnboardingTask[]>>(
+    (acc, p) => { acc[p] = tasks.filter(t => t.period === p); return acc },
+    {} as any
+  )
+
+  return (
+    <div className="space-y-5">
+      {PERIOD_ORDER.map(period => {
+        const periodTasks = tasksByPeriod[period]
+        const meta = PERIOD_META[period]
+        const withProfiles = periodTasks.filter(t => t.assignments && t.assignments.length > 0).length
+
+        return (
+          <div key={period}>
+            <div className="flex items-center justify-between mb-2">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${meta.bgClass} ${meta.colorClass}`}>
+                {meta.label}
+                <span className="font-normal opacity-60">{periodTasks.length} hitos</span>
+                {withProfiles > 0 && <span className="font-normal opacity-60">· {withProfiles} con perfiles</span>}
+              </span>
+              {canEdit && (
+                <button
+                  onClick={() => setAddingPeriod(addingPeriod === period ? null : period)}
+                  className="flex items-center gap-1 text-xs text-gray-300 hover:text-blue-500 transition-colors"
+                >
+                  <Plus size={11} /> Agregar
+                </button>
+              )}
+            </div>
+
+            {periodTasks.map(task => (
+              <HitoConfigCard key={task.id} task={task} processId={process.id} canEdit={canEdit} />
+            ))}
+
+            {canEdit && addingPeriod === period && (
+              <AddTaskForm processId={process.id} period={period} onDone={() => setAddingPeriod(null)} />
+            )}
+
+            {periodTasks.length === 0 && addingPeriod !== period && (
+              <p className="text-xs text-gray-300 italic px-2">Sin hitos en este período</p>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Modal: Editar proceso ────────────────────────────────────────────────────
 
 function EditProcessModal({ process, onClose }: { process: OnboardingProcess; onClose: () => void }) {
   const [form, setForm] = useState({
-    collaboratorName:     process.collaboratorName ?? '',
-    collaboratorEmail:    process.collaboratorEmail ?? '',
-    collaboratorPosition: process.collaboratorPosition ?? '',
+    collaboratorName:          process.collaboratorName ?? '',
+    collaboratorEmail:         process.collaboratorEmail ?? '',
+    collaboratorPersonalEmail: process.collaboratorPersonalEmail ?? '',
+    collaboratorPosition:      process.collaboratorPosition ?? '',
     collaboratorPhone:    process.collaboratorPhone ?? '',
     legalEntity:          process.legalEntity ?? '',
     startDate:            process.startDate ? process.startDate.slice(0, 10) : '',
@@ -243,8 +898,9 @@ function EditProcessModal({ process, onClose }: { process: OnboardingProcess; on
     try {
       await updateOnboarding.mutateAsync({
         id:                    process.id,
-        collaboratorName:      form.collaboratorName.trim(),
-        collaboratorEmail:     form.collaboratorEmail.trim() || null,
+        collaboratorName:          form.collaboratorName.trim(),
+        collaboratorEmail:         form.collaboratorEmail.trim() || null,
+        collaboratorPersonalEmail: form.collaboratorPersonalEmail.trim() || null,
         collaboratorPosition:  form.collaboratorPosition.trim() || null,
         collaboratorPhone:     form.collaboratorPhone.trim() || null,
         legalEntity:           form.legalEntity || null,
@@ -290,6 +946,16 @@ function EditProcessModal({ process, onClose }: { process: OnboardingProcess; on
                 value={form.collaboratorEmail}
                 onChange={e => field('collaboratorEmail', e.target.value)}
                 placeholder="juan.perez@surmedia.cl"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Email personal</label>
+              <input
+                type="email"
+                value={form.collaboratorPersonalEmail}
+                onChange={e => field('collaboratorPersonalEmail', e.target.value)}
+                placeholder="juan.perez@gmail.com"
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -377,8 +1043,9 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
   const { data: process, isLoading } = useOnboardingProcess(processId)
   const updateStatus  = useUpdateOnboardingStatus()
   const deleteProcess = useDeleteOnboarding()
+  const [activeTab,    setActiveTab]    = useState<'progreso' | 'hitos'>('progreso')
   const [addingPeriod, setAddingPeriod] = useState<OnboardingPeriod | null>(null)
-  const [showEdit, setShowEdit]         = useState(false)
+  const [showEdit,     setShowEdit]     = useState(false)
 
   if (isLoading || !process) {
     return (
@@ -463,49 +1130,78 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
           </div>
         </div>
 
-        {/* Checklist */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-          {PERIOD_ORDER.map(period => {
-            const periodTasks = tasksByPeriod[period]
-            const meta   = PERIOD_META[period]
-            const done   = periodTasks.filter(t => t.completedAt).length
-            const automated = periodTasks.filter(t => t.automationStatus === 'SUCCESS').length
+        {/* Tabs */}
+        <div className="flex border-b border-gray-100 px-4">
+          <button
+            onClick={() => setActiveTab('progreso')}
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${
+              activeTab === 'progreso'
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <ListChecks size={13} /> Progreso
+          </button>
+          <button
+            onClick={() => setActiveTab('hitos')}
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${
+              activeTab === 'hitos'
+                ? 'border-blue-600 text-blue-700'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <Users size={13} /> Hitos
+          </button>
+        </div>
 
-            return (
-              <div key={period}>
-                {/* Period header */}
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${meta.bgClass} ${meta.colorClass}`}>
-                    {meta.label}
-                    <span className="font-normal opacity-60">{meta.range}</span>
-                  </span>
-                  <div className="flex items-center gap-2 text-xs text-gray-400">
-                    {automated > 0 && <span>{automated} auto</span>}
-                    <span>{done}/{periodTasks.length + (addingPeriod === period ? 0 : 0)}</span>
+        {/* Tab content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {activeTab === 'progreso' && (
+            <div className="space-y-5">
+              {PERIOD_ORDER.map(period => {
+                const periodTasks = tasksByPeriod[period]
+                const meta   = PERIOD_META[period]
+                const done   = periodTasks.filter(t => t.completedAt).length
+                const automated = periodTasks.filter(t => t.automationStatus === 'SUCCESS').length
+
+                return (
+                  <div key={period}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${meta.bgClass} ${meta.colorClass}`}>
+                        {meta.label}
+                        <span className="font-normal opacity-60">{meta.range}</span>
+                      </span>
+                      <div className="flex items-center gap-2 text-xs text-gray-400">
+                        {automated > 0 && <span>{automated} auto</span>}
+                        <span>{done}/{periodTasks.length}</span>
+                      </div>
+                    </div>
+
+                    {periodTasks.map(task => (
+                      <TaskRow key={task.id} task={task} processId={process.id} process={process} canEdit={canEdit} />
+                    ))}
+
+                    {canEdit && (
+                      addingPeriod === period ? (
+                        <AddTaskForm processId={process.id} period={period} onDone={() => setAddingPeriod(null)} />
+                      ) : (
+                        <button
+                          onClick={() => setAddingPeriod(period)}
+                          className="flex items-center gap-1 text-xs text-gray-300 hover:text-blue-400 mt-1 px-2 py-1 transition-colors"
+                        >
+                          <Plus size={11} /> Agregar hito
+                        </button>
+                      )
+                    )}
                   </div>
-                </div>
+                )
+              })}
+            </div>
+          )}
 
-                {/* Tasks */}
-                {periodTasks.map(task => (
-                  <TaskRow key={task.id} task={task} processId={process.id} canEdit={canEdit} />
-                ))}
-
-                {/* Add task */}
-                {canEdit && (
-                  addingPeriod === period ? (
-                    <AddTaskForm processId={process.id} period={period} onDone={() => setAddingPeriod(null)} />
-                  ) : (
-                    <button
-                      onClick={() => setAddingPeriod(period)}
-                      className="flex items-center gap-1 text-xs text-gray-300 hover:text-blue-400 mt-1 px-2 py-1 transition-colors"
-                    >
-                      <Plus size={11} /> Agregar hito
-                    </button>
-                  )
-                )}
-              </div>
-            )
-          })}
+          {activeTab === 'hitos' && (
+            <HitosTab process={process} canEdit={canEdit} />
+          )}
         </div>
 
         {/* Footer */}

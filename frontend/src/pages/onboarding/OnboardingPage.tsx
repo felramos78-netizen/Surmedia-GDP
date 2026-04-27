@@ -82,12 +82,12 @@ function AutoBadge({ type }: { type: TaskAutomationType }) {
 
 function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState({
-    collaboratorName: '', collaboratorEmail: '', collaboratorPosition: '',
-    collaboratorPhone: '', legalEntity: '', startDate: '', notes: '',
+    collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '', collaboratorPosition: '',
+    collaboratorPhone: '', legalEntity: '', costCenter: '', startDate: '', notes: '',
   })
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
-  const { data: template = [], isLoading: templateLoading } = useOnboardingTemplate()
+  const { data: template = [], isLoading: templateLoading, isError: templateError, refetch: refetchTemplate } = useOnboardingTemplate()
   const createOnboarding = useCreateOnboarding()
 
   useEffect(() => {
@@ -112,11 +112,13 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const handleSubmit = async () => {
     try {
       const process = await createOnboarding.mutateAsync({
-        collaboratorName:     form.collaboratorName.trim(),
-        collaboratorEmail:    form.collaboratorEmail.trim() || undefined,
+        collaboratorName:          form.collaboratorName.trim(),
+        collaboratorEmail:         form.collaboratorEmail.trim() || undefined,
+        collaboratorPersonalEmail: form.collaboratorPersonalEmail.trim() || undefined,
         collaboratorPosition: form.collaboratorPosition.trim() || undefined,
         collaboratorPhone:    form.collaboratorPhone.trim() || undefined,
         legalEntity:          form.legalEntity || undefined,
+        costCenter:           form.costCenter.trim() || undefined,
         startDate:            form.startDate || undefined,
         notes:                form.notes.trim() || undefined,
         selectedTaskIds:      Array.from(selected),
@@ -166,6 +168,12 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Email personal</label>
+              <input type="email" placeholder="juan.perez@gmail.com" value={form.collaboratorPersonalEmail}
+                onChange={e => field('collaboratorPersonalEmail', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Teléfono</label>
               <input type="text" placeholder="+56 9 XXXX XXXX" value={form.collaboratorPhone}
                 onChange={e => field('collaboratorPhone', e.target.value)}
@@ -192,6 +200,12 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Centro de costo / Proyecto</label>
+              <input value={form.costCenter} onChange={e => field('costCenter', e.target.value)}
+                placeholder="Ej: Proyecto Expansión 2026"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Notas internas</label>
               <textarea rows={2} placeholder="Información relevante para el proceso..." value={form.notes}
                 onChange={e => field('notes', e.target.value)}
@@ -206,6 +220,11 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
               <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
                 <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                 Cargando hitos…
+              </div>
+            ) : templateError ? (
+              <div className="py-4 text-sm text-red-500 flex items-center gap-2">
+                Error cargando hitos.
+                <button onClick={() => refetchTemplate()} className="underline text-blue-600">Reintentar</button>
               </div>
             ) : (
               <div className="space-y-4">
