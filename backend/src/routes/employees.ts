@@ -18,10 +18,13 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     const now = new Date()
     const thirtyDays = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
 
-    const [total, active, inactive, expiring, inBoth] = await Promise.all([
+    const [total, active, inactive, duplicate, expiring, inBoth,
+           activeComunicaciones, inactiveComunicaciones,
+           activeConsultoria, inactiveConsultoria] = await Promise.all([
       fastify.prisma.employee.count({ where: { deletedAt: null } }),
       fastify.prisma.employee.count({ where: { deletedAt: null, status: 'ACTIVE' } }),
       fastify.prisma.employee.count({ where: { deletedAt: null, status: 'INACTIVE' } }),
+      fastify.prisma.employee.count({ where: { deletedAt: null, status: 'DUPLICATE' } }),
       fastify.prisma.contract.count({
         where: { deletedAt: null, isActive: true, endDate: { gte: now, lte: thirtyDays } },
       }),
@@ -34,9 +37,17 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
           ],
         },
       }),
+      fastify.prisma.employee.count({ where: { deletedAt: null, status: 'ACTIVE',   contracts: { some: { legalEntity: 'COMUNICACIONES_SURMEDIA', deletedAt: null } } } }),
+      fastify.prisma.employee.count({ where: { deletedAt: null, status: 'INACTIVE', contracts: { some: { legalEntity: 'COMUNICACIONES_SURMEDIA', deletedAt: null } } } }),
+      fastify.prisma.employee.count({ where: { deletedAt: null, status: 'ACTIVE',   contracts: { some: { legalEntity: 'SURMEDIA_CONSULTORIA',    deletedAt: null } } } }),
+      fastify.prisma.employee.count({ where: { deletedAt: null, status: 'INACTIVE', contracts: { some: { legalEntity: 'SURMEDIA_CONSULTORIA',    deletedAt: null } } } }),
     ])
 
-    return reply.send({ data: { total, active, inactive, expiring, inBoth } })
+    return reply.send({ data: {
+      total, active, inactive, duplicate, expiring, inBoth,
+      activeComunicaciones, inactiveComunicaciones,
+      activeConsultoria, inactiveConsultoria,
+    } })
   })
 
   fastify.get<{ Querystring: EmployeeListQuery }>('/', async (req, reply) => {

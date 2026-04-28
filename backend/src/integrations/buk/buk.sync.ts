@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client'
-import { LegalEntity } from '@prisma/client'
+import { EmployeeStatus, LegalEntity } from '@prisma/client'
 import { BukClient } from './buk.client'
 import { buildDuplicateSet, mapContractUpsert, mapEmployeeUpsert, normalizeRut } from './buk.mapper'
 import type { BukEmployee, BukLegalEntity, BukSyncEmployeeResult, BukProcessPeriod } from './buk.types'
@@ -35,6 +35,28 @@ export interface SyncResult {
   errors: Array<{ rut: string; error: string }>
 }
 
+// ─── Deduplicación intra-empresa (mismo RUT dos veces en la misma lista) ─────
+// BUK a veces devuelve el mismo RUT como activo e inactivo (contratos históricos).
+// Nos quedamos con el más "vivo": primero el activo, luego el de mayor sueldo.
+
+function deduplicateWithinCompany(employees: BukEmployee[]): BukEmployee[] {
+  const seen = new Map<string, BukEmployee>()
+  for (const emp of employees) {
+    const rut = normalizeRut(emp.rut)
+    const existing = seen.get(rut)
+    if (!existing) { seen.set(rut, emp); continue }
+
+    const existingActive = existing.status?.toLowerCase() === 'activo'
+    const newActive      = emp.status?.toLowerCase()      === 'activo'
+
+    if (newActive && !existingActive) { seen.set(rut, emp); continue }
+    if (newActive === existingActive && (emp.liquid_salary ?? 0) > (existing.liquid_salary ?? 0)) {
+      seen.set(rut, emp)
+    }
+  }
+  return [...seen.values()]
+}
+
 // ─── Sync completo de una sola empresa ────────────────────────────────────────
 
 async function syncCompany(
@@ -67,25 +89,76 @@ async function syncCompany(
     const myEmployees = allEmployeesByEntity.find(e => e.legalEntity === legalEntity)?.employees ?? []
     result.employeesTotal = myEmployees.length
 
-    // Construir set de duplicados considerando ambas empresas
-    const duplicateSet = buildDuplicateSet(allEmployeesByEntity)
+    const { skipSet, duplicateRuts } = buildDuplicateSet(allEmployeesByEntity)
+    const toProcess = myEmployees.filter(emp => !skipSet.has(`${normalizeRut(emp.rut)}::${legalEntity}`))
+    result.duplicatesSkipped = myEmployees.length - toProcess.length
 
-    for (const bukEmp of myEmployees) {
-      const rut = normalizeRut(bukEmp.rut)
-      const duplicateKey = `${rut}::${legalEntity}`
+    if (toProcess.length > 0) {
+      // 1. Pre-resolver todos los depts/cargos en batch (evita N*3 queries)
+      const deptPositionMap = await resolveAllDeptsAndPositions(prisma, toProcess)
 
-      if (duplicateSet.has(duplicateKey)) {
-        result.duplicatesSkipped++
-        continue
+      // 2. Pre-fetch empleados existentes en un solo query
+      const ruts = toProcess.map(emp => normalizeRut(emp.rut))
+      const existingEmployees = await prisma.employee.findMany({
+        where:  { rut: { in: ruts } },
+        select: { id: true, rut: true },
+      })
+      const existingByRut = new Map(existingEmployees.map(e => [e.rut, e.id]))
+
+      const toCreate = toProcess.filter(emp => !existingByRut.has(normalizeRut(emp.rut)))
+      const toUpdate = toProcess.filter(emp =>  existingByRut.has(normalizeRut(emp.rut)))
+
+      // Helper: genera datos del empleado, sobreescribiendo status a DUPLICATE si aplica
+      const empData = (bukEmp: BukEmployee) => {
+        const rut = normalizeRut(bukEmp.rut)
+        const { departmentId, positionId } = deptPositionMap.get(rut) ?? {}
+        const base = mapEmployeeUpsert(bukEmp)
+        if (duplicateRuts.has(rut)) base.status = EmployeeStatus.DUPLICATE
+        return { ...base, ...(departmentId != null && { departmentId }), ...(positionId != null && { positionId }) }
       }
 
-      try {
-        const syncRes = await syncEmployee(prisma, bukEmp, legalEntity)
-        if (syncRes.action === 'created') result.employeesCreated++
-        else if (syncRes.action === 'updated') result.employeesUpdated++
-        result.contractsUpserted++
-      } catch (err) {
-        result.errors.push({ rut, error: String(err) })
+      // 3. Pre-fetch contratos existentes en un solo query
+      const idsToUpdate = toUpdate.map(emp => existingByRut.get(normalizeRut(emp.rut))!)
+      const existingContracts = idsToUpdate.length > 0
+        ? await prisma.contract.findMany({
+            where:  { employeeId: { in: idsToUpdate }, legalEntity: legalEntity as LegalEntity },
+            select: { id: true, employeeId: true, bukEmployeeId: true },
+          })
+        : []
+      const contractMap = new Map(existingContracts.map(c => [`${c.employeeId}::${c.bukEmployeeId}`, c.id]))
+
+      // 4. Crear nuevos — paralelo por empleado (pool de conexiones limita la concurrencia)
+      const createResults = await Promise.allSettled(
+        toCreate.map(async (bukEmp) => {
+          const emp = await prisma.employee.create({ data: empData(bukEmp) })
+          await prisma.contract.create({ data: { ...mapContractUpsert(bukEmp, legalEntity), employeeId: emp.id } })
+        })
+      )
+      for (let i = 0; i < createResults.length; i++) {
+        if (createResults[i].status === 'fulfilled') { result.employeesCreated++; result.contractsUpserted++ }
+        else result.errors.push({ rut: normalizeRut(toCreate[i].rut), error: String((createResults[i] as PromiseRejectedResult).reason) })
+      }
+
+      // 5. Actualizar existentes — paralelo por empleado
+      const updateResults = await Promise.allSettled(
+        toUpdate.map(async (bukEmp) => {
+          const rut        = normalizeRut(bukEmp.rut)
+          const existingId = existingByRut.get(rut)!
+          await prisma.employee.update({
+            where: { id: existingId },
+            data:  empData(bukEmp),
+          })
+          const contractId = contractMap.get(`${existingId}::${bukEmp.id}`)
+          if (contractId) {
+            await prisma.contract.update({ where: { id: contractId }, data: mapContractUpsert(bukEmp, legalEntity) })
+          } else {
+            await prisma.contract.create({ data: { ...mapContractUpsert(bukEmp, legalEntity), employeeId: existingId } })
+          }
+        })
+      )
+      for (let i = 0; i < updateResults.length; i++) {
+        if (updateResults[i].status === 'fulfilled') { result.employeesUpdated++; result.contractsUpserted++ }
+        else result.errors.push({ rut: normalizeRut(toUpdate[i].rut), error: String((updateResults[i] as PromiseRejectedResult).reason) })
       }
     }
 
@@ -120,98 +193,90 @@ async function syncCompany(
   return result
 }
 
-// ─── Resolución de departamento y cargo desde BUK ────────────────────────────
+// ─── Pre-resolución batch de departamentos y cargos ──────────────────────────
 
-async function resolveDeptAndPosition(
+async function resolveAllDeptsAndPositions(
   prisma: PrismaClient,
-  bukEmp: BukEmployee
-): Promise<{ departmentId?: string; positionId?: string }> {
-  const hasDept  = !!bukEmp.department
-  const jobTitle = bukEmp.current_job?.name
-
-  if (!hasDept && !jobTitle) return {}
-
-  // Si BUK provee departamento, usarlo; si solo hay cargo, agruparlo bajo "Sin Área"
-  const deptCode = hasDept ? String(bukEmp.department!.id) : '__sin_area__'
-  const deptName = hasDept ? bukEmp.department!.name       : 'Sin Área'
-
-  const dept = await prisma.department.upsert({
-    where:  { code: deptCode },
-    create: { name: deptName, code: deptCode },
-    update: hasDept ? { name: deptName } : {},
-  })
-
-  if (!jobTitle) return { departmentId: hasDept ? dept.id : undefined }
-
-  let position = await prisma.position.findFirst({
-    where: { departmentId: dept.id, title: jobTitle },
-  })
-  if (!position) {
-    position = await prisma.position.create({
-      data: { title: jobTitle, departmentId: dept.id },
-    })
-  }
-
-  // Solo propagamos departmentId al empleado si BUK entregó un departamento real
-  return {
-    departmentId: hasDept ? dept.id : undefined,
-    positionId:   position.id,
-  }
-}
-
-// ─── Upsert de un colaborador + su contrato ───────────────────────────────────
-
-async function syncEmployee(
-  prisma: PrismaClient,
-  bukEmp: BukEmployee,
-  legalEntity: BukLegalEntity
-): Promise<BukSyncEmployeeResult> {
-  const rut = normalizeRut(bukEmp.rut)
-  const { departmentId, positionId } = await resolveDeptAndPosition(prisma, bukEmp)
-  const employeeData = {
-    ...mapEmployeeUpsert(bukEmp),
-    ...(departmentId != null && { departmentId }),
-    ...(positionId   != null && { positionId }),
-  }
-  const contractData = mapContractUpsert(bukEmp, legalEntity)
-
-  const existing = await prisma.employee.findFirst({ where: { rut } })
-
-  if (!existing) {
-    // Crear colaborador + contrato en una transacción
-    const employee = await prisma.$transaction(async (tx) => {
-      const emp = await tx.employee.create({ data: employeeData })
-      await tx.contract.create({ data: { ...contractData, employeeId: emp.id } })
-      return emp
-    })
-    return { rut, action: 'created', employeeId: employee.id }
-  }
-
-  // Actualizar colaborador y upsert de contrato por (employeeId + legalEntity)
-  await prisma.$transaction(async (tx) => {
-    await tx.employee.update({ where: { id: existing.id }, data: employeeData })
-
-    const existingContract = await tx.contract.findFirst({
-      where: {
-        employeeId:    existing.id,
-        legalEntity:   legalEntity as LegalEntity,
-        bukEmployeeId: bukEmp.id,
-      },
-    })
-
-    if (existingContract) {
-      await tx.contract.update({
-        where: { id: existingContract.id },
-        data:  contractData,
-      })
-    } else {
-      await tx.contract.create({
-        data: { ...contractData, employeeId: existing.id },
-      })
+  bukEmployees: BukEmployee[]
+): Promise<Map<string, { departmentId?: string; positionId?: string }>> {
+  // Recolectar departamentos únicos
+  const deptMeta = new Map<string, string>() // code → name
+  for (const emp of bukEmployees) {
+    if (emp.department) {
+      deptMeta.set(String(emp.department.id), emp.department.name)
+    } else if (emp.role?.name) {
+      deptMeta.set('__sin_area__', 'Sin Área')
     }
-  })
+  }
 
-  return { rut, action: 'updated', employeeId: existing.id }
+  // Upsert todos los departamentos en una sola transacción
+  const upsertedDepts = new Map<string, string>() // code → id
+  if (deptMeta.size > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const [code, name] of deptMeta) {
+        const dept = await tx.department.upsert({
+          where:  { code },
+          create: { name, code },
+          update: code !== '__sin_area__' ? { name } : {},
+        })
+        upsertedDepts.set(code, dept.id)
+      }
+    }, { timeout: 30_000 })
+  }
+
+  // Recolectar posiciones únicas por dept — el cargo viene en role.name
+  const positionsByDept = new Map<string, Set<string>>() // deptCode → Set<title>
+  for (const emp of bukEmployees) {
+    const title = emp.role?.name
+    if (!title) continue
+    const deptCode = emp.department ? String(emp.department.id) : '__sin_area__'
+    if (!positionsByDept.has(deptCode)) positionsByDept.set(deptCode, new Set())
+    positionsByDept.get(deptCode)!.add(title)
+  }
+
+  // Fetch posiciones existentes en un solo query
+  const deptIds = [...upsertedDepts.values()]
+  const existingPositions = deptIds.length > 0
+    ? await prisma.position.findMany({
+        where:  { departmentId: { in: deptIds } },
+        select: { id: true, title: true, departmentId: true },
+      })
+    : []
+  const posMap = new Map<string, string>() // `${deptId}::${title}` → id
+  for (const pos of existingPositions) posMap.set(`${pos.departmentId}::${pos.title}`, pos.id)
+
+  // Crear posiciones faltantes en una sola transacción
+  const missing: Array<{ title: string; departmentId: string }> = []
+  for (const [deptCode, titles] of positionsByDept) {
+    const deptId = upsertedDepts.get(deptCode)
+    if (!deptId) continue
+    for (const title of titles) {
+      if (!posMap.has(`${deptId}::${title}`)) missing.push({ title, departmentId: deptId })
+    }
+  }
+  if (missing.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const pos of missing) {
+        const created = await tx.position.create({ data: pos })
+        posMap.set(`${created.departmentId}::${created.title}`, created.id)
+      }
+    }, { timeout: 30_000 })
+  }
+
+  // Construir mapa final rut → { departmentId, positionId }
+  const result = new Map<string, { departmentId?: string; positionId?: string }>()
+  for (const emp of bukEmployees) {
+    const rut     = normalizeRut(emp.rut)
+    const hasDept = !!emp.department
+    const title   = emp.role?.name   // cargo viene en role.name
+    if (!hasDept && !title) { result.set(rut, {}); continue }
+
+    const deptCode = hasDept ? String(emp.department!.id) : '__sin_area__'
+    const deptId   = upsertedDepts.get(deptCode)
+    const positionId = (title && deptId) ? posMap.get(`${deptId}::${title}`) : undefined
+    result.set(rut, { departmentId: hasDept ? deptId : undefined, positionId })
+  }
+  return result
 }
 
 // ─── Sync completo de ambas empresas (punto de entrada principal) ─────────────
@@ -225,8 +290,8 @@ export async function syncBukAll(prisma: PrismaClient): Promise<SyncResult[]> {
     clientConsultoria.fetchAllEmployees(),
   ])
 
-  const empsComunicaciones = resComunicaciones.status === 'fulfilled' ? resComunicaciones.value : []
-  const empsConsultoria    = resConsultoria.status    === 'fulfilled' ? resConsultoria.value    : []
+  const empsComunicaciones = resComunicaciones.status === 'fulfilled' ? deduplicateWithinCompany(resComunicaciones.value) : []
+  const empsConsultoria    = resConsultoria.status    === 'fulfilled' ? deduplicateWithinCompany(resConsultoria.value)    : []
 
   const allByEntity: Array<{ legalEntity: BukLegalEntity; employees: BukEmployee[] }> = [
     { legalEntity: 'COMUNICACIONES_SURMEDIA', employees: empsComunicaciones },
@@ -281,22 +346,22 @@ export async function previewBukAll(prisma: PrismaClient): Promise<PreviewResult
     clientConsultoria.fetchAllEmployees(),
   ])
 
-  const empsComunicaciones = resComunicaciones.status === 'fulfilled' ? resComunicaciones.value : []
-  const empsConsultoria    = resConsultoria.status    === 'fulfilled' ? resConsultoria.value    : []
+  const empsComunicaciones = resComunicaciones.status === 'fulfilled' ? deduplicateWithinCompany(resComunicaciones.value) : []
+  const empsConsultoria    = resConsultoria.status    === 'fulfilled' ? deduplicateWithinCompany(resConsultoria.value)    : []
 
   const allByEntity: Array<{ legalEntity: BukLegalEntity; employees: BukEmployee[] }> = [
     { legalEntity: 'COMUNICACIONES_SURMEDIA', employees: empsComunicaciones },
     { legalEntity: 'SURMEDIA_CONSULTORIA',   employees: empsConsultoria },
   ]
 
-  const duplicateSet = buildDuplicateSet(allByEntity)
+  const { skipSet } = buildDuplicateSet(allByEntity)
 
   // Fetch all existing RUTs in a single query to avoid N+1
   const allRutsToCheck = new Set<string>()
   for (const { legalEntity, employees } of allByEntity) {
     for (const bukEmp of employees) {
       const rut = normalizeRut(bukEmp.rut)
-      if (!duplicateSet.has(`${rut}::${legalEntity}`)) allRutsToCheck.add(rut)
+      if (!skipSet.has(`${rut}::${legalEntity}`)) allRutsToCheck.add(rut)
     }
   }
   const existingRows = await prisma.employee.findMany({
@@ -322,7 +387,7 @@ export async function previewBukAll(prisma: PrismaClient): Promise<PreviewResult
 
     for (const bukEmp of employees) {
       const rut = normalizeRut(bukEmp.rut)
-      if (duplicateSet.has(`${rut}::${legalEntity}`)) {
+      if (skipSet.has(`${rut}::${legalEntity}`)) {
         result.duplicatesSkipped++
         continue
       }
@@ -339,7 +404,7 @@ export async function previewBukAll(prisma: PrismaClient): Promise<PreviewResult
           firstName: bukEmp.first_name,
           lastName: fullLastName,
           department: bukEmp.department?.name,
-          position: bukEmp.current_job?.name,
+          position: bukEmp.role?.name,
           startDate: rawStartDate,
           endDate: bukEmp.end_date ?? null,
         })
@@ -374,10 +439,12 @@ export async function syncBukCompany(
     : clientComunicaciones
 
   // Necesitamos los empleados de ambas para la deduplicación
-  const [targetEmps, otherEmps] = await Promise.all([
+  const [rawTargetEmps, rawOtherEmps] = await Promise.all([
     targetClient.fetchAllEmployees(),
     otherClient.fetchAllEmployees(),
   ])
+  const targetEmps = deduplicateWithinCompany(rawTargetEmps)
+  const otherEmps  = deduplicateWithinCompany(rawOtherEmps)
 
   const otherEntity: BukLegalEntity = legalEntity === 'COMUNICACIONES_SURMEDIA'
     ? 'SURMEDIA_CONSULTORIA'

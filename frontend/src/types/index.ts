@@ -1,5 +1,5 @@
 export type UserRole = 'ADMIN' | 'RRHH_MANAGER' | 'RRHH_ANALYST' | 'MANAGER' | 'EMPLOYEE'
-export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'ON_LEAVE'
+export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'ON_LEAVE' | 'DUPLICATE'
 export type ContractType = 'INDEFINIDO' | 'PLAZO_FIJO' | 'HONORARIOS' | 'PRACTICA'
 export type LegalEntity = 'COMUNICACIONES_SURMEDIA' | 'SURMEDIA_CONSULTORIA'
 export type SyncStatus = 'RUNNING' | 'SUCCESS' | 'ERROR'
@@ -78,6 +78,9 @@ export interface Employee {
   supervisorName?: string | null
   supervisorTitle?: string | null
   jobFamily?: string | null
+  jobTitle?: string | null
+  costCenter?: string | null
+  exclusive?: boolean | null
   contracts?: Contract[]
   createdAt: string
   updatedAt: string
@@ -102,8 +105,25 @@ export interface EmployeeStats {
   total: number
   active: number
   inactive: number
+  duplicate: number
   expiring: number
   inBoth: number
+  activeComunicaciones: number
+  inactiveComunicaciones: number
+  activeConsultoria: number
+  inactiveConsultoria: number
+}
+
+export interface PayrollRawEntry {
+  id: string
+  employeeId: string
+  legalEntity: string
+  year: number
+  month: number
+  grossSalary: number
+  liquidSalary: number
+  items: PayrollItem[]
+  employee: { id: string; firstName: string; lastName: string; rut: string; status: EmployeeStatus }
 }
 
 export interface SyncPreviewEntry {

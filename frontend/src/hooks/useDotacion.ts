@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Employee, EmployeeStats, PayrollEntry, SyncLog, SyncPreviewResult, ApiResponse } from '@/types'
+import type { Employee, EmployeeStats, PayrollEntry, PayrollRawEntry, SyncLog, SyncPreviewResult, ApiResponse } from '@/types'
 
 export interface DotacionFilters {
   search?: string
@@ -88,6 +88,30 @@ export function useSyncBuk() {
       queryClient.invalidateQueries({ queryKey: ['employees'] })
       queryClient.invalidateQueries({ queryKey: ['employeeStats'] })
       queryClient.invalidateQueries({ queryKey: ['syncLogs'] })
+    },
+  })
+}
+
+export function usePayrollTable(filters: { year: string; month?: string; legalEntity?: string }) {
+  return useQuery({
+    queryKey: ['payrollTable', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams({ year: filters.year })
+      if (filters.month)       params.set('month',       filters.month)
+      if (filters.legalEntity) params.set('legalEntity', filters.legalEntity)
+      const { data } = await api.get<ApiResponse<PayrollRawEntry[]>>(`/payroll?${params}`)
+      return data.data
+    },
+    enabled: !!filters.year,
+  })
+}
+
+export function usePayrollYears() {
+  return useQuery({
+    queryKey: ['payrollYears'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<number[]>>('/payroll/years')
+      return data.data
     },
   })
 }

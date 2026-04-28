@@ -87,6 +87,7 @@ enum EmployeeStatus {
   ACTIVE
   INACTIVE
   ON_LEAVE
+  DUPLICATE
 }
 
 enum ContractType {
@@ -130,7 +131,10 @@ model Employee {
   workSchedule   String?
   supervisorName  String?
   supervisorTitle String?
-  jobFamily      String?   // Trabajo - Familia de Cargo
+  jobFamily      String?   // Familia de Cargo (role_family)
+  jobTitle       String?   // Cargo directo (role.name)
+  costCenter     String?   // Centro / proyecto (current_job.cost_center)
+  exclusive      Boolean?  // Exclusividad laboral
 
   user           User?
   contracts      Contract[]

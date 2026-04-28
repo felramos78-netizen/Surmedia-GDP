@@ -42,6 +42,10 @@ function extractName(value: string | { id: number; name: string } | undefined): 
 //        end_date pasada (contrato terminado = inactivo).
 
 export function resolveEmployeeStatus(emp: BukEmployee): EmployeeStatus {
+  const s = emp.status?.toLowerCase().trim()
+  if (s === 'activo')   return EmployeeStatus.ACTIVE
+  if (s === 'inactivo') return EmployeeStatus.INACTIVE
+  // Sin status explícito: usar end_date como fallback
   if (!emp.end_date) return EmployeeStatus.ACTIVE
   return new Date(emp.end_date) > new Date() ? EmployeeStatus.ACTIVE : EmployeeStatus.INACTIVE
 }
@@ -78,11 +82,17 @@ export function mapEmployeeUpsert(emp: BukEmployee) {
     afp:            extractName(emp.afp) ?? null,
     isapre:         extractName(emp.health_institution) ?? null,
     // Campos extendidos
-    city:           emp.city ?? null,
-    commune:        emp.district ?? null,
-    personalEmail:  emp.personal_email ?? null,
-    workSchedule:   emp.current_job?.working_schedule ?? null,
-    jobFamily:      emp.department?.name ?? null,
+    city:            emp.city ?? null,
+    commune:         emp.district ?? null,
+    personalEmail:   emp.personal_email ?? null,
+    workSchedule:    emp.current_job?.working_schedule_type ?? null,
+    jobFamily:       emp.role?.role_family?.name ?? emp.department?.name ?? null,
+    jobTitle:        emp.role?.name ?? null,
+    costCenter:      emp.current_job?.cost_center ?? null,
+    exclusive:       emp.exclusive ?? null,
+    // Supervisor: BUK solo expone el RUT del jefe en current_job.boss
+    supervisorName:  emp.current_job?.boss?.rut ?? null,
+    supervisorTitle: null,
   }
 }
 
@@ -92,7 +102,7 @@ export function mapContractUpsert(emp: BukEmployee, legalEntity: BukLegalEntity)
   const rawStartDate = emp.start_date ?? emp.current_job?.start_date
   const startDate    = rawStartDate ? new Date(rawStartDate) : new Date()
   const endDate      = emp.end_date ? new Date(emp.end_date) : null
-  const contractType = emp.contract_type ?? emp.current_job?.contract_type
+  const contractType = emp.current_job?.contract_type ?? emp.contract_type
 
   return {
     type:          mapContractType(contractType),
@@ -109,9 +119,14 @@ export function mapContractUpsert(emp: BukEmployee, legalEntity: BukLegalEntity)
 
 // ─── Deduplicación cross-empresa ─────────────────────────────────────────────
 
+export interface DuplicateSetResult {
+  skipSet:       Set<string> // rut::legalEntity a omitir completamente
+  duplicateRuts: Set<string> // ruts a sincronizar pero marcados como DUPLICATE
+}
+
 export function buildDuplicateSet(
   empleadosPorEmpresa: Array<{ legalEntity: BukLegalEntity; employees: BukEmployee[] }>
-): Set<string> {
+): DuplicateSetResult {
   const rutMap = new Map<string, Array<{ legalEntity: BukLegalEntity; liquid: number | null }>>()
 
   for (const { legalEntity, employees } of empleadosPorEmpresa) {
@@ -122,7 +137,8 @@ export function buildDuplicateSet(
     }
   }
 
-  const duplicates = new Set<string>()
+  const skipSet       = new Set<string>()
+  const duplicateRuts = new Set<string>()
 
   for (const [rut, entries] of rutMap) {
     if (entries.length < 2) continue
@@ -130,12 +146,19 @@ export function buildDuplicateSet(
     const withSalary    = entries.filter(e => e.liquid !== null && e.liquid > 0)
     const withoutSalary = entries.filter(e => !e.liquid || e.liquid === 0)
 
-    if (withSalary.length === 2) continue
+    if (withoutSalary.length === 0) continue // todos tienen sueldo → legítimos
 
+    if (withSalary.length === 0) {
+      // Nadie tiene sueldo → aparecen en ambas empresas como phantoms → sincronizar como DUPLICATE
+      duplicateRuts.add(rut)
+      continue
+    }
+
+    // Uno tiene sueldo, el otro no → omitir el de sueldo 0
     for (const dup of withoutSalary) {
-      duplicates.add(`${rut}::${dup.legalEntity}`)
+      skipSet.add(`${rut}::${dup.legalEntity}`)
     }
   }
 
-  return duplicates
+  return { skipSet, duplicateRuts }
 }

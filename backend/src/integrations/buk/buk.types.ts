@@ -33,8 +33,8 @@ export interface BukEmployee {
   full_name?: string
   email?: string
   personal_email?: string
-  active: boolean
-  status?: string           // 'active' | 'inactive' | 'pending'
+  status?: string           // 'activo' | 'inactivo' (español)
+  active_since?: string
   start_date?: string
   end_date?: string | null
   gender?: string
@@ -44,30 +44,53 @@ export interface BukEmployee {
   phone?: string
   city?: string
   district?: string         // comuna
+  termination_reason?: string | null
+
+  // Cargo/rol — en BUK viene como campo raíz separado de current_job
+  role?: {
+    id: number
+    code?: string
+    name: string            // título del cargo (e.g. "Realizador Audiovisual")
+    description?: string
+    role_family?: {
+      id: number
+      name: string          // familia de cargo (e.g. "Audiovisual")
+    }
+  }
 
   current_job?: {
     id: number
-    name: string
     contract_type?: string
     start_date?: string
     end_date?: string | null
+    active_until?: string | null
     area_id?: number
     area_name?: string
-    working_schedule?: string
+    working_schedule_type?: string  // e.g. "ordinaria_art_22"
     base_wage?: number
+    cost_center?: string            // string simple (e.g. "Otros", "Santiago")
+    project?: string | null
+    boss?: {
+      id: number
+      document_type?: string
+      document_number?: string
+      rut?: string
+    }
+    days?: string[]
+    periodicity?: string
+    frequency?: string
   }
+
   department?: {
-    id: number
-    name: string
-  }
-  cost_center?: {
     id: number
     name: string
   }
 
   contract_type?: string
+  exclusive?: boolean
   afp?: string | { id: number; name: string }
   health_institution?: string | { id: number; name: string }
+  health_company?: string         // también puede venir como string directo
 
   gross_salary?: number | null
   liquid_salary?: number | null

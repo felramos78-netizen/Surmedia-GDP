@@ -92,6 +92,30 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: logs })
   })
 
+  // ─── GET /api/sync/buk/debug-status — status BUK de todos los empleados ───────
+  fastify.get('/buk/debug-status', async (_req, reply) => {
+    const { BukClient } = await import('../integrations/buk/buk.client')
+    const { normalizeRut } = await import('../integrations/buk/buk.mapper')
+    const [clientCom, clientCon] = BukClient.fromEnv()
+
+    const [resCom, resCon] = await Promise.allSettled([
+      clientCom.fetchAllEmployees(),
+      clientCon.fetchAllEmployees(),
+    ])
+
+    const toSummary = (emps: any[]) => emps.map(e => ({
+      rut:        normalizeRut(e.rut),
+      name:       `${e.first_name} ${e.surname}`,
+      status:     e.status,
+      end_date:   e.end_date,
+    }))
+
+    return reply.send({
+      comunicaciones: resCom.status === 'fulfilled' ? toSummary(resCom.value) : { error: String(resCom.reason) },
+      consultoria:    resCon.status === 'fulfilled' ? toSummary(resCon.value) : { error: String(resCon.reason) },
+    })
+  })
+
   // ─── POST /api/webhooks/buk — receptor de webhooks de BUK ───────────────────
   // BUK notifica cambios en tiempo real (bajas, cambios de cargo, etc.)
   fastify.post('/webhook/buk', async (req, reply) => {
