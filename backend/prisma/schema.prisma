@@ -97,6 +97,39 @@ enum ContractType {
   PRACTICA
 }
 
+// ─────────────────────────────────────────────
+// Centros de Trabajo
+// ─────────────────────────────────────────────
+
+enum CostType {
+  DIRECTO
+  INDIRECTO
+}
+
+model WorkCenter {
+  id          String               @id @default(uuid())
+  name        String               @unique
+  costType    CostType             @default(DIRECTO)
+  assignments EmployeeWorkCenter[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@map("work_centers")
+}
+
+model EmployeeWorkCenter {
+  id           String      @id @default(uuid())
+  employee     Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId   String
+  workCenter   WorkCenter  @relation(fields: [workCenterId], references: [id], onDelete: Cascade)
+  workCenterId String
+  legalEntity  LegalEntity
+  createdAt    DateTime    @default(now())
+
+  @@unique([employeeId, workCenterId, legalEntity])
+  @@map("employee_work_centers")
+}
+
 model Employee {
   id           String         @id @default(uuid())
   rut          String         @unique
@@ -141,7 +174,8 @@ model Employee {
   leaves         Leave[]
   documents      Document[]
   payrollEntries      PayrollEntry[]
-  onboardingProcesses OnboardingProcess[] // vinculados después del ingreso en BUK
+  onboardingProcesses OnboardingProcess[]
+  workCenters    EmployeeWorkCenter[]
 
   deletedAt    DateTime?
   createdAt    DateTime       @default(now())

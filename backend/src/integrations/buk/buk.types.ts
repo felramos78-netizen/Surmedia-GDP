@@ -101,10 +101,11 @@ export interface BukEmployee {
 export interface BukProcessPeriod {
   id: number
   name?: string
-  start_date: string
+  month: string        // primer día del período, e.g. "2026-04-01"
   end_date: string
+  start_date?: string  // alias alternativo que BUK puede devolver
+  status?: string      // "abierto" | "cerrado"
   year?: number
-  month?: number
   closed?: boolean
 }
 

@@ -5,6 +5,7 @@ import DashboardPage from '@/pages/dashboard/DashboardPage'
 import EmployeesPage from '@/pages/employees/EmployeesPage'
 import OnboardingPage from '@/pages/onboarding/OnboardingPage'
 import ProfilesPage from '@/pages/profiles/ProfilesPage'
+import WorkCentersPage from '@/pages/workCenters/WorkCentersPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -21,7 +22,8 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/employees" element={<EmployeesPage />} />
             <Route path="/onboarding" element={<OnboardingPage />} />
-            <Route path="/perfiles"   element={<ProfilesPage />} />
+            <Route path="/perfiles"         element={<ProfilesPage />} />
+            <Route path="/centros-trabajo"  element={<WorkCentersPage />} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

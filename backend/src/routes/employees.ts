@@ -55,7 +55,11 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
 
     const where: Prisma.EmployeeWhereInput = { deletedAt: null }
 
-    if (status) where.status = status as Prisma.EnumEmployeeStatusFilter
+    if (status) {
+      const statuses = status.split(',').filter(Boolean)
+      if (statuses.length === 1) where.status = statuses[0] as any
+      else if (statuses.length > 1) where.status = { in: statuses as any }
+    }
 
     if (departmentId) where.departmentId = departmentId
 
@@ -71,8 +75,14 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Filtros que aplican sobre contratos
     const contractWhere: Prisma.ContractWhereInput = { deletedAt: null }
-    if (legalEntity) contractWhere.legalEntity = legalEntity as Prisma.EnumLegalEntityNullableFilter
-    if (contractType) contractWhere.type = contractType as Prisma.EnumContractTypeFilter
+    if (legalEntity) {
+      const entities = legalEntity.split(',').filter(Boolean)
+      contractWhere.legalEntity = entities.length === 1 ? entities[0] as any : { in: entities as any }
+    }
+    if (contractType) {
+      const types = contractType.split(',').filter(Boolean)
+      contractWhere.type = types.length === 1 ? types[0] as any : { in: types as any }
+    }
 
     if (legalEntity || contractType) {
       where.contracts = { some: contractWhere }
@@ -90,6 +100,9 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
             where:   { deletedAt: null, isActive: true },
             orderBy: { startDate: 'desc' },
             take:    5,
+          },
+          workCenters: {
+            include: { workCenter: { select: { id: true, name: true, costType: true } } },
           },
         },
         orderBy: { lastName: 'asc' },

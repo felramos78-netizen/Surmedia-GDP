@@ -505,7 +505,7 @@ export async function syncPayrollAll(
         try {
           const settlements = await client.fetchPayrollSettlements(period.id)
 
-          const periodDate = new Date(period.start_date)
+          const periodDate = new Date(period.month ?? period.start_date ?? '')
           const year  = periodDate.getFullYear()
           const month = periodDate.getMonth() + 1
 
@@ -543,7 +543,7 @@ export async function syncPayrollAll(
             result.entriesUpserted++
           }
         } catch (err) {
-          result.errors.push({ period: period.start_date, error: String(err) })
+          result.errors.push({ period: period.month ?? period.start_date ?? String(period.id), error: String(err) })
         }
       }
     } catch (err) {

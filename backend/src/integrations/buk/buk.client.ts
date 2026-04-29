@@ -102,33 +102,90 @@ export class BukClient {
     return body.data
   }
 
-  // Obtiene los períodos de proceso de remuneraciones en un rango de fechas
+  private _periodsEndpointBase: string | null = null
+
+  // Obtiene los períodos de proceso de remuneraciones, filtrando por rango de fechas.
+  // BUK no acepta start_date/end_date como parámetros — se descargan todos y se filtra localmente.
   async fetchProcessPeriods(startDate: string, endDate: string): Promise<BukProcessPeriod[]> {
-    const periods: BukProcessPeriod[] = []
+    const base = `${this.config.baseUrl}${BUK_API_PATH}/process_periods`
+
+    const all: BukProcessPeriod[] = []
     let page = 1
     let totalPages = 1
 
     do {
-      const url = `${this.config.baseUrl}${BUK_API_PATH}/process_periods?start_date=${startDate}&end_date=${endDate}&page_size=${PER_PAGE}&page=${page}`
-      const res = await this.fetchWithRetry(url)
+      const url = `${base}?page_size=${PER_PAGE}&page=${page}`
+      const res  = await this.fetchWithRetry(url)
       const body = await res.json() as BukPaginatedResponse<BukProcessPeriod>
-      periods.push(...(body.data ?? []))
+      all.push(...(body.data ?? []))
       totalPages = body.pagination?.total_pages ?? 1
       page++
     } while (page <= totalPages)
 
-    return periods
+    this._periodsEndpointBase = base
+
+    // Filtrar por rango de fechas usando el campo "month" (primer día del período)
+    const from = new Date(startDate).getTime()
+    const to   = new Date(endDate).getTime()
+    return all.filter(p => {
+      const d = new Date(p.month ?? p.start_date ?? '').getTime()
+      return !isNaN(d) && d >= from && d <= to
+    })
   }
 
-  // Obtiene las liquidaciones de todos los empleados en un período dado
+  private _settlementsUrlTemplate: string | null = null
+
+  // Obtiene las liquidaciones de todos los empleados en un período dado.
+  // Auto-detecta el sub-endpoint correcto en el primer llamado y lo reutiliza.
   async fetchPayrollSettlements(periodId: number): Promise<BukEmployeeSettlement[]> {
+    const base = this._periodsEndpointBase ?? `${this.config.baseUrl}${BUK_API_PATH}/process_periods`
+
+    // Si ya encontramos el patrón que funciona, usarlo directamente
+    if (this._settlementsUrlTemplate) {
+      return this._fetchSettlementPages(this._settlementsUrlTemplate.replace('{id}', String(periodId)))
+    }
+
+    // Auto-descubrir el sub-endpoint correcto
+    const candidates = [
+      `${base}/{id}/employee_payroll_processes`,
+      `${base}/{id}/payroll_settlements`,
+      `${base}/{id}/payrolls`,
+      `${base}/{id}/settlements`,
+      `${this.config.baseUrl}${BUK_API_PATH}/employee_payroll_processes?process_period_id={id}`,
+      `${this.config.baseUrl}${BUK_API_PATH}/payroll_settlements?process_period_id={id}`,
+    ]
+
+    for (const template of candidates) {
+      const url = `${template.replace('{id}', String(periodId))}${template.includes('?') ? '&' : '?'}page_size=1&page=1`
+      try {
+        const res = await fetch(url, {
+          headers: { auth_token: this.config.apiKey, Accept: 'application/json' },
+        })
+        if (!res.ok) continue
+        const body = await res.json() as BukPaginatedResponse<BukEmployeeSettlement>
+        if (Array.isArray(body.data)) {
+          this._settlementsUrlTemplate = template
+          break
+        }
+      } catch { /* try next */ }
+    }
+
+    if (!this._settlementsUrlTemplate) {
+      throw new Error(`Ningún endpoint de liquidaciones disponible para período ${periodId} en ${base}`)
+    }
+
+    return this._fetchSettlementPages(this._settlementsUrlTemplate.replace('{id}', String(periodId)))
+  }
+
+  private async _fetchSettlementPages(baseUrl: string): Promise<BukEmployeeSettlement[]> {
+    const sep = baseUrl.includes('?') ? '&' : '?'
     const settlements: BukEmployeeSettlement[] = []
     let page = 1
     let totalPages = 1
 
     do {
-      const url = `${this.config.baseUrl}${BUK_API_PATH}/process_periods/${periodId}/employee_payroll_processes?page_size=${PER_PAGE}&page=${page}`
-      const res = await this.fetchWithRetry(url)
+      const url = `${baseUrl}${sep}page_size=${PER_PAGE}&page=${page}`
+      const res  = await this.fetchWithRetry(url)
       const body = await res.json() as BukPaginatedResponse<BukEmployeeSettlement>
       settlements.push(...(body.data ?? []))
       totalPages = body.pagination?.total_pages ?? 1

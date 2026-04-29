@@ -4,9 +4,9 @@ import type { Employee, EmployeeStats, PayrollEntry, PayrollRawEntry, SyncLog, S
 
 export interface DotacionFilters {
   search?: string
-  status?: string
-  legalEntity?: string
-  contractType?: string
+  status?: string[]
+  legalEntity?: string[]
+  contractType?: string[]
   departmentId?: string
 }
 
@@ -22,11 +22,12 @@ export function useEmployees(filters: DotacionFilters = {}) {
     queryKey: ['employees', filters],
     queryFn: async () => {
       const params = new URLSearchParams()
-      if (filters.search)       params.set('search',       filters.search)
-      if (filters.status)       params.set('status',       filters.status)
-      if (filters.legalEntity)  params.set('legalEntity',  filters.legalEntity)
-      if (filters.contractType) params.set('contractType', filters.contractType)
-      if (filters.departmentId) params.set('departmentId', filters.departmentId)
+      params.set('limit', '1000')
+      if (filters.search)              params.set('search',       filters.search)
+      if (filters.status?.length)      params.set('status',       filters.status.join(','))
+      if (filters.legalEntity?.length) params.set('legalEntity',  filters.legalEntity.join(','))
+      if (filters.contractType?.length)params.set('contractType', filters.contractType.join(','))
+      if (filters.departmentId)        params.set('departmentId', filters.departmentId)
 
       const { data } = await api.get<EmployeeListResponse>(`/employees?${params}`)
       return data
@@ -92,13 +93,13 @@ export function useSyncBuk() {
   })
 }
 
-export function usePayrollTable(filters: { year: string; month?: string; legalEntity?: string }) {
+export function usePayrollTable(filters: { year: string; month?: string; legalEntity?: string[] }) {
   return useQuery({
     queryKey: ['payrollTable', filters],
     queryFn: async () => {
       const params = new URLSearchParams({ year: filters.year })
-      if (filters.month)       params.set('month',       filters.month)
-      if (filters.legalEntity) params.set('legalEntity', filters.legalEntity)
+      if (filters.month)              params.set('month',       filters.month)
+      if (filters.legalEntity?.length)params.set('legalEntity', filters.legalEntity.join(','))
       const { data } = await api.get<ApiResponse<PayrollRawEntry[]>>(`/payroll?${params}`)
       return data.data
     },
@@ -112,6 +113,34 @@ export function usePayrollYears() {
     queryFn: async () => {
       const { data } = await api.get<ApiResponse<number[]>>('/payroll/years')
       return data.data
+    },
+  })
+}
+
+export function useImportPayroll() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: { legalEntity: string; rows: unknown[] }) => {
+      const { data } = await api.post<{ ok: boolean; upserted: number; skipped: number; skippedSample: string[]; errors: string[] }>('/payroll/import', payload)
+      return data
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['payrollTable'] })
+      queryClient.invalidateQueries({ queryKey: ['payrollYears'] })
+    },
+  })
+}
+
+export function useSyncPayroll() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (params: { startDate: string; endDate: string }) => {
+      const { data } = await api.post('/sync/buk/payroll', params)
+      return data
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['payrollTable'] })
+      queryClient.invalidateQueries({ queryKey: ['payrollYears'] })
     },
   })
 }

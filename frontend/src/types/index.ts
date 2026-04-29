@@ -1,4 +1,23 @@
 export type UserRole = 'ADMIN' | 'RRHH_MANAGER' | 'RRHH_ANALYST' | 'MANAGER' | 'EMPLOYEE'
+
+export type CostType = 'DIRECTO' | 'INDIRECTO'
+
+export interface WorkCenter {
+  id: string
+  name: string
+  costType: CostType
+  totalPersonnel?: number
+  positions?: { title: string; count: number }[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EmployeeWorkCenter {
+  id: string
+  workCenterId: string
+  legalEntity: LegalEntity
+  workCenter: { id: string; name: string; costType: CostType }
+}
 export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'ON_LEAVE' | 'DUPLICATE'
 export type ContractType = 'INDEFINIDO' | 'PLAZO_FIJO' | 'HONORARIOS' | 'PRACTICA'
 export type LegalEntity = 'COMUNICACIONES_SURMEDIA' | 'SURMEDIA_CONSULTORIA'
@@ -82,6 +101,7 @@ export interface Employee {
   costCenter?: string | null
   exclusive?: boolean | null
   contracts?: Contract[]
+  workCenters?: EmployeeWorkCenter[]
   createdAt: string
   updatedAt: string
 }
@@ -123,7 +143,10 @@ export interface PayrollRawEntry {
   grossSalary: number
   liquidSalary: number
   items: PayrollItem[]
-  employee: { id: string; firstName: string; lastName: string; rut: string; status: EmployeeStatus }
+  employee: {
+    id: string; firstName: string; lastName: string; rut: string; status: EmployeeStatus
+    workCenters?: { legalEntity: string; workCenter: { name: string } }[]
+  }
 }
 
 export interface SyncPreviewEntry {

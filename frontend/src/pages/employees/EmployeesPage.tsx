@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react'
-import { Search, RefreshCw, ChevronDown, Users, UserX, GitMerge, AlertTriangle, CheckCircle2, X, Eye, Save, Calendar, ChevronsUpDown, ChevronUp, DollarSign, List } from 'lucide-react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { Search, RefreshCw, ChevronDown, Users, UserX, GitMerge, AlertTriangle, CheckCircle2, X, Eye, Save, Calendar, ChevronsUpDown, ChevronUp, DollarSign, List, Plus } from 'lucide-react'
 import { useEmployees, useEmployeeStats, useSyncBuk, useSyncLogs, usePreviewSync, type DotacionFilters } from '@/hooks/useDotacion'
+import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
 import { formatDate } from '@/lib/utils'
 import type { Employee, Contract, LegalEntity, SyncPreviewResult } from '@/types'
 import EmployeeDrawer from './EmployeeDrawer'
@@ -77,7 +78,7 @@ function StatCard({ label, value, sub, icon: Icon, color, detail, onClick, activ
   )
 }
 
-// ─── FilterSelect ─────────────────────────────────────────────────────────────
+// ─── FilterSelect (single) ────────────────────────────────────────────────────
 
 function FilterSelect({ value, onChange, options, placeholder }: {
   value: string; onChange: (v: string) => void
@@ -94,6 +95,64 @@ function FilterSelect({ value, onChange, options, placeholder }: {
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
       <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+    </div>
+  )
+}
+
+// ─── MultiFilterSelect (múltiple) ────────────────────────────────────────────
+
+function MultiFilterSelect({ values, onChange, options, placeholder }: {
+  values: string[]
+  onChange: (v: string[]) => void
+  options: { value: string; label: string }[]
+  placeholder: string
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const toggle = (v: string) =>
+    onChange(values.includes(v) ? values.filter(x => x !== v) : [...values, v])
+
+  const label = values.length === 0
+    ? placeholder
+    : values.length === 1
+    ? (options.find(o => o.value === values[0])?.label ?? values[0])
+    : `${values.length} seleccionados`
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`relative flex items-center pl-3 pr-8 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer whitespace-nowrap ${values.length > 0 ? 'border-blue-300 text-blue-700' : 'border-gray-200 text-gray-700'}`}
+      >
+        {label}
+        <ChevronDown size={14} className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-full py-1">
+          {options.map(o => (
+            <label key={o.value} className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm text-gray-700 select-none">
+              <input
+                type="checkbox"
+                checked={values.includes(o.value)}
+                onChange={() => toggle(o.value)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              {o.label}
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -297,60 +356,183 @@ function SortTh({ label, col, sortKey, sortDir, onSort }: {
   )
 }
 
+// ─── Asignador de centros de trabajo ─────────────────────────────────────────
+
+function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => void }) {
+  const { data: allCenters = [] } = useWorkCenters()
+  const assign = useAssignWorkCenter()
+  const unassign = useUnassignWorkCenter()
+
+  const contracts = emp.contracts ?? []
+  const legalEntities = Array.from(new Set(contracts.map(c => c.legalEntity).filter(Boolean))) as LegalEntity[]
+  const [selectedEntity, setSelectedEntity] = useState<LegalEntity>(legalEntities[0] ?? 'COMUNICACIONES_SURMEDIA')
+  const [selectedCenter, setSelectedCenter] = useState('')
+
+  const assignedForEntity = (emp.workCenters ?? []).filter(wc => wc.legalEntity === selectedEntity)
+
+  async function handleAssign() {
+    if (!selectedCenter) return
+    await assign.mutateAsync({ workCenterId: selectedCenter, employeeId: emp.id, legalEntity: selectedEntity })
+    setSelectedCenter('')
+  }
+
+  async function handleUnassign(workCenterId: string) {
+    await unassign.mutateAsync({ workCenterId, employeeId: emp.id, legalEntity: selectedEntity })
+  }
+
+  const assignedIds = new Set(assignedForEntity.map(a => a.workCenterId))
+  const available = allCenters.filter(c => !assignedIds.has(c.id))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={e => e.stopPropagation()}>
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="font-semibold text-gray-900">{emp.firstName} {emp.lastName}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Asignar centros de trabajo</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} className="text-gray-400" /></button>
+        </div>
+        <div className="px-6 py-4 space-y-4">
+          {legalEntities.length > 1 && (
+            <div className="flex gap-2">
+              {legalEntities.map(le => (
+                <button key={le} onClick={() => setSelectedEntity(le)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    selectedEntity === le ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}>
+                  {LEGAL_ENTITY_LABEL[le]}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">Centros asignados</p>
+            {assignedForEntity.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">Sin centros asignados</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {assignedForEntity.map(a => (
+                  <span key={a.id} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">
+                    {a.workCenter.name}
+                    <button onClick={() => handleUnassign(a.workCenterId)} className="hover:text-red-500 transition-colors ml-0.5">
+                      <X size={11} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">Agregar centro</p>
+            <div className="flex gap-2">
+              <select
+                value={selectedCenter}
+                onChange={e => setSelectedCenter(e.target.value)}
+                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Seleccionar centro…</option>
+                {available.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={handleAssign}
+                disabled={!selectedCenter || assign.isPending}
+                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                <Plus size={15} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Fila ─────────────────────────────────────────────────────────────────────
 
 function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
+  const [assigning, setAssigning] = useState(false)
   const contract = primaryContract(emp.contracts)
 
+  const empCenters = emp.workCenters ?? []
+  const centerNames = Array.from(new Set(empCenters.map(wc => wc.workCenter.name)))
+
   return (
-    <tr onClick={onClick} className="hover:bg-gray-50 cursor-pointer transition-colors">
-      {/* Colaborador */}
-      <td className="px-4 py-3 sticky left-0 bg-white group-hover:bg-gray-50">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{initials(emp)}</div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${emp.status === 'ACTIVE' ? 'bg-green-500' : emp.status === 'ON_LEAVE' ? 'bg-amber-400' : emp.status === 'DUPLICATE' ? 'bg-orange-400' : 'bg-gray-300'}`} />
-              <p className="text-sm font-medium text-gray-900 whitespace-nowrap">{emp.firstName} {emp.lastName}</p>
+    <>
+      <tr onClick={onClick} className="hover:bg-gray-50 cursor-pointer transition-colors">
+        {/* Colaborador */}
+        <td className="px-4 py-3 sticky left-0 bg-white group-hover:bg-gray-50">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{initials(emp)}</div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${emp.status === 'ACTIVE' ? 'bg-green-500' : emp.status === 'ON_LEAVE' ? 'bg-amber-400' : emp.status === 'DUPLICATE' ? 'bg-orange-400' : 'bg-gray-300'}`} />
+                <p className="text-sm font-medium text-gray-900 whitespace-nowrap">{emp.firstName} {emp.lastName}</p>
+              </div>
+              <p className="text-xs text-gray-400">{emp.email}</p>
             </div>
-            <p className="text-xs text-gray-400">{emp.email}</p>
           </div>
-        </div>
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-600 font-mono whitespace-nowrap">{emp.rut}</td>
-      <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{dash(emp.jobTitle)}</td>
-      <td className="px-4 py-3">
-        {contract?.legalEntity ? (
-          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${LEGAL_ENTITY_COLOR[contract.legalEntity]}`}>
-            {LEGAL_ENTITY_LABEL[contract.legalEntity]}
+        </td>
+        <td className="px-4 py-3 text-sm text-gray-600 font-mono whitespace-nowrap">{emp.rut}</td>
+        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{dash(emp.jobTitle)}</td>
+        <td className="px-4 py-3">
+          {contract?.legalEntity ? (
+            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${LEGAL_ENTITY_COLOR[contract.legalEntity]}`}>
+              {LEGAL_ENTITY_LABEL[contract.legalEntity]}
+            </span>
+          ) : emp.contracts && emp.contracts.length > 1 ? (
+            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">Ambas</span>
+          ) : <span className="text-gray-300 text-xs">—</span>}
+        </td>
+        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.city)}</td>
+        {/* Centros de trabajo */}
+        <td className="px-4 py-3" onClick={e => { e.stopPropagation(); setAssigning(true) }}>
+          <div className="flex flex-wrap gap-1 items-center min-w-[120px] cursor-pointer group/center">
+            {centerNames.length > 0 ? (
+              <>
+                {centerNames.slice(0, 2).map(name => (
+                  <span key={name} className="inline-block px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs font-medium whitespace-nowrap">
+                    {name}
+                  </span>
+                ))}
+                {centerNames.length > 2 && (
+                  <span className="text-xs text-gray-400">+{centerNames.length - 2}</span>
+                )}
+              </>
+            ) : (
+              <span className="text-xs text-gray-300 group-hover/center:text-blue-400 transition-colors">+ asignar</span>
+            )}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+          {emp.exclusive != null ? (emp.exclusive ? 'Sí' : 'No') : <span className="text-gray-300">—</span>}
+        </td>
+        <td className="px-4 py-3">
+          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_COLOR[emp.status]}`}>
+            {STATUS_LABEL[emp.status]}
           </span>
-        ) : emp.contracts && emp.contracts.length > 1 ? (
-          <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">Ambas</span>
-        ) : <span className="text-gray-300 text-xs">—</span>}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.city)}</td>
-      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.costCenter)}</td>
-      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-        {emp.exclusive != null ? (emp.exclusive ? 'Sí' : 'No') : <span className="text-gray-300">—</span>}
-      </td>
-      <td className="px-4 py-3">
-        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_COLOR[emp.status]}`}>
-          {STATUS_LABEL[emp.status]}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.workSchedule)}</td>
-      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-        {contract ? CONTRACT_LABEL[contract.type] ?? contract.type : <span className="text-gray-300">—</span>}
-      </td>
-      <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{formatDate(emp.startDate)}</td>
-      <td className="px-4 py-3 text-xs whitespace-nowrap">
-        {emp.endDate ? <span className="text-amber-600">{formatDate(emp.endDate)}</span> : <span className="text-gray-300">—</span>}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-        {emp.gender ? (GENDER_LABEL[emp.gender] ?? emp.gender) : <span className="text-gray-300">—</span>}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.supervisorName)}</td>
-    </tr>
+        </td>
+        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.workSchedule)}</td>
+        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+          {contract ? CONTRACT_LABEL[contract.type] ?? contract.type : <span className="text-gray-300">—</span>}
+        </td>
+        <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{formatDate(emp.startDate)}</td>
+        <td className="px-4 py-3 text-xs whitespace-nowrap">
+          {emp.endDate ? <span className="text-amber-600">{formatDate(emp.endDate)}</span> : <span className="text-gray-300">—</span>}
+        </td>
+        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+          {emp.gender ? (GENDER_LABEL[emp.gender] ?? emp.gender) : <span className="text-gray-300">—</span>}
+        </td>
+        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.supervisorName)}</td>
+      </tr>
+      {assigning && <WorkCenterAssigner emp={emp} onClose={() => setAssigning(false)} />}
+    </>
   )
 }
 
@@ -378,8 +560,12 @@ export default function EmployeesPage() {
   const { data: stats, refetch: refetchStats } = useEmployeeStats()
   const allEmployees = data?.data ?? []
 
-  function setFilter(key: keyof DotacionFilters, value: string) {
+  function setFilter(key: 'search' | 'departmentId', value: string) {
     setFilters(prev => ({ ...prev, [key]: value || undefined }))
+  }
+
+  function setArrayFilter(key: 'status' | 'legalEntity' | 'contractType', values: string[]) {
+    setFilters(prev => ({ ...prev, [key]: values.length > 0 ? values : undefined }))
   }
 
   function handleSort(col: SortKey) {
@@ -414,7 +600,7 @@ export default function EmployeesPage() {
       else if (sortKey === 'jobTitle')      { va = a.jobTitle ?? '';                    vb = b.jobTitle ?? '' }
       else if (sortKey === 'legalEntity')   { va = pc(a)?.legalEntity ?? '';            vb = pc(b)?.legalEntity ?? '' }
       else if (sortKey === 'city')          { va = a.city ?? '';                         vb = b.city ?? '' }
-      else if (sortKey === 'costCenter')    { va = a.costCenter ?? '';                   vb = b.costCenter ?? '' }
+      else if (sortKey === 'costCenter')    { va = a.workCenters?.[0]?.workCenter?.name ?? ''; vb = b.workCenters?.[0]?.workCenter?.name ?? '' }
       else if (sortKey === 'exclusive')     { va = a.exclusive == null ? '' : a.exclusive ? 'Sí' : 'No'; vb = b.exclusive == null ? '' : b.exclusive ? 'Sí' : 'No' }
       else if (sortKey === 'status')        { va = a.status;                              vb = b.status }
       else if (sortKey === 'workSchedule')  { va = a.workSchedule ?? '';                  vb = b.workSchedule ?? '' }
@@ -430,7 +616,15 @@ export default function EmployeesPage() {
     return list
   }, [allEmployees, yearFilter, monthFilter, sortKey, sortDir])
 
-  const hasFilters = Object.values(filters).some(Boolean) || yearFilter || monthFilter
+  const hasFilters = !!(
+    filters.search ||
+    filters.status?.length ||
+    filters.legalEntity?.length ||
+    filters.contractType?.length ||
+    filters.departmentId ||
+    yearFilter ||
+    monthFilter
+  )
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -470,8 +664,11 @@ export default function EmployeesPage() {
             { label: 'Comunicaciones', value: stats?.activeComunicaciones ?? '—', color: 'text-blue-600' },
             { label: 'Consultoría',    value: stats?.activeConsultoria    ?? '—', color: 'text-violet-600' },
           ]}
-          active={filters.status === 'ACTIVE'}
-          onClick={() => setFilter('status', filters.status === 'ACTIVE' ? '' : 'ACTIVE')}
+          active={(filters.status ?? []).includes('ACTIVE')}
+          onClick={() => {
+            const curr = filters.status ?? []
+            setArrayFilter('status', curr.includes('ACTIVE') ? curr.filter(s => s !== 'ACTIVE') : [...curr, 'ACTIVE'])
+          }}
         />
         <StatCard
           label="Inactivos" value={stats?.inactive ?? '—'} icon={UserX} color="text-gray-500 bg-gray-100"
@@ -479,8 +676,11 @@ export default function EmployeesPage() {
             { label: 'Comunicaciones', value: stats?.inactiveComunicaciones ?? '—', color: 'text-blue-400' },
             { label: 'Consultoría',    value: stats?.inactiveConsultoria    ?? '—', color: 'text-violet-400' },
           ]}
-          active={filters.status === 'INACTIVE'}
-          onClick={() => setFilter('status', filters.status === 'INACTIVE' ? '' : 'INACTIVE')}
+          active={(filters.status ?? []).includes('INACTIVE')}
+          onClick={() => {
+            const curr = filters.status ?? []
+            setArrayFilter('status', curr.includes('INACTIVE') ? curr.filter(s => s !== 'INACTIVE') : [...curr, 'INACTIVE'])
+          }}
         />
         <StatCard label="En ambas empresas" value={stats?.inBoth ?? '—'} icon={GitMerge} color="text-indigo-600 bg-indigo-50" sub="Comunicaciones y Consultoría" />
         <StatCard label="Contratos por vencer" value={stats?.expiring ?? '—'} icon={AlertTriangle} color="text-amber-600 bg-amber-50" sub="próximos 30 días" />
@@ -499,15 +699,21 @@ export default function EmployeesPage() {
               className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <FilterSelect value={filters.legalEntity ?? ''} onChange={v => setFilter('legalEntity', v)}
+          <MultiFilterSelect
+            values={filters.legalEntity ?? []}
+            onChange={v => setArrayFilter('legalEntity', v)}
             placeholder="Todas las empresas"
             options={[{ value: 'COMUNICACIONES_SURMEDIA', label: 'Comunicaciones' }, { value: 'SURMEDIA_CONSULTORIA', label: 'Consultoría' }]}
           />
-          <FilterSelect value={filters.status ?? ''} onChange={v => setFilter('status', v)}
+          <MultiFilterSelect
+            values={filters.status ?? []}
+            onChange={v => setArrayFilter('status', v)}
             placeholder="Todos los estados"
             options={[{ value: 'ACTIVE', label: 'Activos' }, { value: 'INACTIVE', label: 'Inactivos' }, { value: 'ON_LEAVE', label: 'Con permiso' }, { value: 'DUPLICATE', label: 'Duplicados' }]}
           />
-          <FilterSelect value={filters.contractType ?? ''} onChange={v => setFilter('contractType', v)}
+          <MultiFilterSelect
+            values={filters.contractType ?? []}
+            onChange={v => setArrayFilter('contractType', v)}
             placeholder="Tipo de contrato"
             options={[{ value: 'INDEFINIDO', label: 'Indefinido' }, { value: 'PLAZO_FIJO', label: 'Plazo fijo' }, { value: 'HONORARIOS', label: 'Honorarios' }, { value: 'PRACTICA', label: 'Práctica' }]}
           />
@@ -550,7 +756,7 @@ export default function EmployeesPage() {
                   <SortTh label="Cargo"          col="jobTitle"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortTh label="Razón Social"   col="legalEntity"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortTh label="Ciudad"         col="city"          sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Centro/Proyecto" col="costCenter"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Centros"        col="costCenter"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortTh label="Exclusividad"   col="exclusive"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortTh label="Estado"         col="status"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortTh label="Jornada"        col="workSchedule"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
