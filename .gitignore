@@ -56,3 +56,6 @@ temp/
 
 # Uploads locales (en producción van a Drive)
 uploads/
+
+# Reportes exportados (datos sensibles de RRHH — no commitear)
+backend/reportes/

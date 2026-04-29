@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown, Users, DollarSign, TrendingUp, BarChart2, Search, Upload, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
-import { usePayrollTable, usePayrollYears, useSyncPayroll, useImportPayroll } from '@/hooks/useDotacion'
+import { usePayrollTable, usePayrollYears, useImportPayroll } from '@/hooks/useDotacion'
 import type { PayrollItem, PayrollRawEntry, LegalEntity, EmployeeStatus } from '@/types'
 
 // ─── Formateo ─────────────────────────────────────────────────────────────────
@@ -612,20 +612,10 @@ export default function PayrollView() {
   const [sortDir,       setSortDir]       = useState<SortDir>('asc')
 
   const { data: years = [], refetch: refetchYears } = usePayrollYears()
-  const { mutate: doSyncPayroll, isPending: isSyncing, data: syncResult, error: syncError } = useSyncPayroll()
-  const syncDone = !!syncResult || !!syncError
-
   // Seleccionar automáticamente el año más reciente con datos
   useEffect(() => {
     if (years.length > 0 && !year) setYear(String(years[0]))
   }, [years, year])
-
-  function handleSyncPayroll() {
-    const today     = new Date()
-    const twoYrsAgo = new Date(today.getFullYear() - 2, 0, 1)
-    const fmt = (d: Date) => d.toISOString().slice(0, 10)
-    doSyncPayroll({ startDate: fmt(twoYrsAgo), endDate: fmt(today) })
-  }
 
   const { data: entries = [], isLoading, isError } = usePayrollTable({
     year,
@@ -768,30 +758,7 @@ export default function PayrollView() {
                 <Upload size={13} />
                 Importar Excel
               </button>
-              <button
-                onClick={handleSyncPayroll}
-                disabled={isSyncing}
-                className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
-              >
-              <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
-              {isSyncing ? 'Sincronizando…' : 'Sincronizar BUK'}
-            </button>
             </div>
-            {syncDone && !isSyncing && (syncResult as any)?.results?.map((r: any) => {
-              const hasErrors = r.errors?.length > 0
-              const errMsg    = r.errors?.[0]?.error ?? ''
-              return (
-                <p key={r.legalEntity} className={`text-xs ${hasErrors ? 'text-red-500' : r.entriesUpserted > 0 ? 'text-green-600' : 'text-amber-500'}`}>
-                  {r.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'COM' : 'CON'}:&nbsp;
-                  {hasErrors
-                    ? `Error: ${errMsg.slice(0, 200)}`
-                    : `${r.periodsProcessed} períodos, ${r.entriesUpserted} entradas`}
-                </p>
-              )
-            })}
-            {syncError && (
-              <p className="text-xs text-red-500">Error de conexión: {String(syncError).slice(0, 80)}</p>
-            )}
           </div>
         </div>
 
@@ -810,7 +777,7 @@ export default function PayrollView() {
           <div className="p-16 text-center">
             <DollarSign size={36} className="text-gray-200 mx-auto mb-3" />
             <p className="text-sm text-gray-500">Sin datos de remuneraciones.</p>
-            <p className="text-xs text-gray-400 mt-1">Usa el botón <strong>Sincronizar BUK</strong> para importar los datos de nómina.</p>
+            <p className="text-xs text-gray-400 mt-1">Usa el botón <strong>Importar Excel</strong> para cargar los datos de nómina.</p>
           </div>
         ) : !year ? (
           <div className="p-16 text-center">
