@@ -21,7 +21,6 @@ export interface EmployeeWorkCenter {
 export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'ON_LEAVE' | 'DUPLICATE'
 export type ContractType = 'INDEFINIDO' | 'PLAZO_FIJO' | 'HONORARIOS' | 'PRACTICA'
 export type LegalEntity = 'COMUNICACIONES_SURMEDIA' | 'SURMEDIA_CONSULTORIA'
-export type SyncStatus = 'RUNNING' | 'SUCCESS' | 'ERROR'
 
 export interface User {
   id: string
@@ -106,20 +105,6 @@ export interface Employee {
   updatedAt: string
 }
 
-export interface SyncLog {
-  id: string
-  source: string
-  legalEntity: LegalEntity
-  status: SyncStatus
-  startedAt: string
-  completedAt?: string | null
-  employeesTotal: number
-  employeesCreated: number
-  employeesUpdated: number
-  contractsUpserted: number
-  duplicatesSkipped: number
-  errorMessage?: string | null
-}
 
 export interface EmployeeStats {
   total: number
@@ -149,45 +134,6 @@ export interface PayrollRawEntry {
   }
 }
 
-export interface SyncChange {
-  rut:    string
-  name:   string
-  action: 'created' | 'status_changed'
-  before?: { status: string }
-  after?:  { status: string; jobTitle?: string }
-}
-
-export interface SyncResult {
-  legalEntity:       string
-  employeesTotal:    number
-  employeesCreated:  number
-  employeesUpdated:  number
-  contractsUpserted: number
-  duplicatesSkipped: number
-  durationMs:        number
-  errors:            Array<{ rut: string; error: string }>
-  changes:           SyncChange[]
-}
-
-export interface SyncPreviewEntry {
-  rut: string
-  firstName: string
-  lastName: string
-  department?: string
-  position?: string
-  startDate?: string | null
-  endDate?: string | null
-}
-
-export interface SyncPreviewResult {
-  legalEntity: string
-  employeesTotal: number
-  toCreate: number
-  toUpdate: number
-  duplicatesSkipped: number
-  newEntries: SyncPreviewEntry[]
-  dateRange: { min: string | null; max: string | null }
-}
 
 export interface PayrollItem {
   name: string

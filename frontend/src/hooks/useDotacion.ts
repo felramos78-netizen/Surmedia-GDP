@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { Employee, EmployeeStats, PayrollEntry, PayrollRawEntry, SyncLog, SyncPreviewResult, ApiResponse } from '@/types'
+import type { Employee, EmployeeStats, PayrollEntry, PayrollRawEntry, ApiResponse } from '@/types'
 
 export interface DotacionFilters {
   search?: string
@@ -50,15 +50,6 @@ export function useEmployeeStats() {
   })
 }
 
-export function usePreviewSync() {
-  return useMutation({
-    mutationFn: async () => {
-      const { data } = await api.post<{ ok: boolean; results: SyncPreviewResult[] }>('/sync/buk/preview')
-      return data
-    },
-  })
-}
-
 export function useEmployeePayroll(id: string | null) {
   return useQuery({
     queryKey: ['employeePayroll', id],
@@ -78,23 +69,6 @@ export function useEmployee(id: string | null) {
       return data.data
     },
     enabled: !!id,
-  })
-}
-
-export function useSyncBuk() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async (legalEntity?: string) => {
-      const path = legalEntity ? `/sync/buk/${legalEntity}` : '/sync/buk'
-      const { data } = await api.post(path)
-      return data
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['employees'] })
-      queryClient.invalidateQueries({ queryKey: ['employeeStats'] })
-      queryClient.invalidateQueries({ queryKey: ['syncLogs'] })
-    },
   })
 }
 
@@ -136,41 +110,16 @@ export function useImportPayroll() {
   })
 }
 
-export function useSyncPayroll() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async (params: { startDate: string; endDate: string }) => {
-      const { data } = await api.post('/sync/buk/payroll', params)
-      return data
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['payrollTable'] })
-      queryClient.invalidateQueries({ queryKey: ['payrollYears'] })
-    },
-  })
-}
-
 export function useMovements(filters: { year: string; month?: string; legalEntity?: string }) {
   return useQuery({
     queryKey: ['movements', filters],
     queryFn: async () => {
       const params = new URLSearchParams({ year: filters.year })
-      if (filters.month)      params.set('month',       filters.month)
+      if (filters.month)       params.set('month',       filters.month)
       if (filters.legalEntity) params.set('legalEntity', filters.legalEntity)
       const { data } = await api.get<ApiResponse<{ ingresos: any[]; salidas: any[]; vacaciones: any[] }>>(`/employees/movements?${params}`)
       return data.data
     },
     enabled: !!filters.year,
-  })
-}
-
-export function useSyncLogs() {
-  return useQuery({
-    queryKey: ['syncLogs'],
-    queryFn: async () => {
-      const { data } = await api.get<ApiResponse<SyncLog[]>>('/sync/logs')
-      return data.data
-    },
-    refetchInterval: 10_000,
   })
 }

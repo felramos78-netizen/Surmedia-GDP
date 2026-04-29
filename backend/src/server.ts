@@ -7,7 +7,6 @@ import prismaPlugin from './plugins/prisma'
 import authenticatePlugin from './middleware/authenticate'
 import authRoutes from './routes/auth'
 import employeeRoutes from './routes/employees'
-import syncRoutes from './routes/sync'
 import onboardingRoutes from './routes/onboarding'
 import profileRoutes from './routes/profiles'
 import payrollRoutes from './routes/payroll'
@@ -33,7 +32,6 @@ async function bootstrap() {
 
   await app.register(authRoutes, { prefix: '/api/auth' })
   await app.register(employeeRoutes, { prefix: '/api/employees' })
-  await app.register(syncRoutes, { prefix: '/api/sync' })
   await app.register(onboardingRoutes, { prefix: '/api/onboarding' })
   await app.register(profileRoutes,    { prefix: '/api/profiles' })
   await app.register(payrollRoutes,    { prefix: '/api/payroll' })
