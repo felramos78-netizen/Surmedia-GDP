@@ -149,6 +149,26 @@ export interface PayrollRawEntry {
   }
 }
 
+export interface SyncChange {
+  rut:    string
+  name:   string
+  action: 'created' | 'status_changed'
+  before?: { status: string }
+  after?:  { status: string; jobTitle?: string }
+}
+
+export interface SyncResult {
+  legalEntity:       string
+  employeesTotal:    number
+  employeesCreated:  number
+  employeesUpdated:  number
+  contractsUpserted: number
+  duplicatesSkipped: number
+  durationMs:        number
+  errors:            Array<{ rut: string; error: string }>
+  changes:           SyncChange[]
+}
+
 export interface SyncPreviewEntry {
   rut: string
   firstName: string

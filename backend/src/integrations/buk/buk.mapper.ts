@@ -120,45 +120,55 @@ export function mapContractUpsert(emp: BukEmployee, legalEntity: BukLegalEntity)
 // ─── Deduplicación cross-empresa ─────────────────────────────────────────────
 
 export interface DuplicateSetResult {
-  skipSet:       Set<string> // rut::legalEntity a omitir completamente
-  duplicateRuts: Set<string> // ruts a sincronizar pero marcados como DUPLICATE
+  skipSet:           Set<string> // rut::legalEntity a omitir completamente (reservado, actualmente vacío)
+  duplicateRuts:     Set<string> // ruts donde NADIE tiene sueldo en ninguna empresa → INACTIVE en ambas
+  forceInactiveKeys: Set<string> // rut::legalEntity: activo en BUK pero sin trabajo en esa empresa → INACTIVE
 }
 
 export function buildDuplicateSet(
   empleadosPorEmpresa: Array<{ legalEntity: BukLegalEntity; employees: BukEmployee[] }>
 ): DuplicateSetResult {
-  const rutMap = new Map<string, Array<{ legalEntity: BukLegalEntity; liquid: number | null }>>()
+  const rutMap = new Map<string, Array<{ legalEntity: BukLegalEntity; liquid: number | null; bukActive: boolean }>>()
 
   for (const { legalEntity, employees } of empleadosPorEmpresa) {
     for (const emp of employees) {
       const rut = normalizeRut(emp.rut)
       if (!rutMap.has(rut)) rutMap.set(rut, [])
-      rutMap.get(rut)!.push({ legalEntity, liquid: emp.liquid_salary ?? null })
+      rutMap.get(rut)!.push({
+        legalEntity,
+        liquid:    emp.liquid_salary ?? null,
+        bukActive: emp.status?.toLowerCase().trim() === 'activo',
+      })
     }
   }
 
-  const skipSet       = new Set<string>()
-  const duplicateRuts = new Set<string>()
+  const skipSet           = new Set<string>()
+  const duplicateRuts     = new Set<string>()
+  const forceInactiveKeys = new Set<string>()
 
   for (const [rut, entries] of rutMap) {
     if (entries.length < 2) continue
 
-    const withSalary    = entries.filter(e => e.liquid !== null && e.liquid > 0)
-    const withoutSalary = entries.filter(e => !e.liquid || e.liquid === 0)
+    // Solo aplica lógica de deduplicación a entradas ACTIVAS en BUK.
+    const activeEntries = entries.filter(e => e.bukActive)
+    if (activeEntries.length < 2) continue
 
-    if (withoutSalary.length === 0) continue // todos tienen sueldo → legítimos
+    const withSalary    = activeEntries.filter(e => e.liquid !== null && e.liquid > 0)
+    const withoutSalary = activeEntries.filter(e => !e.liquid || e.liquid === 0)
+
+    if (withoutSalary.length === 0) continue // todas tienen sueldo → ACTIVE en todas (ej: Alcayaga)
 
     if (withSalary.length === 0) {
-      // Nadie tiene sueldo → aparecen en ambas empresas como phantoms → sincronizar como DUPLICATE
+      // Ninguna tiene sueldo en ninguna empresa → phantom en ambas → INACTIVE
       duplicateRuts.add(rut)
       continue
     }
 
-    // Uno tiene sueldo, el otro no → omitir el de sueldo 0
-    for (const dup of withoutSalary) {
-      skipSet.add(`${rut}::${dup.legalEntity}`)
+    // Una empresa tiene sueldo y la otra no → la sin sueldo es "sin trabajo" → INACTIVE (pero se sincroniza)
+    for (const noWork of withoutSalary) {
+      forceInactiveKeys.add(`${rut}::${noWork.legalEntity}`)
     }
   }
 
-  return { skipSet, duplicateRuts }
+  return { skipSet, duplicateRuts, forceInactiveKeys }
 }

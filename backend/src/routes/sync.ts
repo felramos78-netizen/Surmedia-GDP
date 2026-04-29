@@ -228,10 +228,12 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
     ])
 
     const toSummary = (emps: any[]) => emps.map(e => ({
-      rut:        normalizeRut(e.rut),
-      name:       `${e.first_name} ${e.surname}`,
-      status:     e.status,
-      end_date:   e.end_date,
+      rut:           normalizeRut(e.rut),
+      name:          `${e.first_name} ${e.surname}`,
+      status:        e.status,
+      end_date:      e.end_date,
+      liquid_salary: e.liquid_salary ?? null,
+      has_job:       !!e.current_job,
     }))
 
     return reply.send({

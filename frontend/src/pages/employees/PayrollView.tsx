@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { RefreshCw, AlertTriangle, ChevronDown, Users, DollarSign, TrendingUp, BarChart2, Search, Upload, X } from 'lucide-react'
+import { RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown, Users, DollarSign, TrendingUp, BarChart2, Search, Upload, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { usePayrollTable, usePayrollYears, useSyncPayroll, useImportPayroll } from '@/hooks/useDotacion'
 import type { PayrollItem, PayrollRawEntry, LegalEntity, EmployeeStatus } from '@/types'
@@ -144,9 +144,9 @@ function MultiFilterSelect({ values, onChange, options, placeholder }: {
 
 const SUELDO_BASE_RE   = /sueldo[\s_-]?base/i
 const GRATIFICACION_RE = /gratificaci[oó]n/i
-const HH_ANY_RE        = /hora[\s_-]?extra|hh[\s_-]?extra/i
-const HH_50_RE         = /(hora[\s_-]?extra|h\.?e\.?|hh[\s_-]?extra).*50|50.*hora[\s_-]?extra/i
-const HH_100_RE        = /(hora[\s_-]?extra|h\.?e\.?|hh[\s_-]?extra).*100|100.*hora[\s_-]?extra/i
+const HH_ANY_RE        = /horas?\s?extras?|hh[\s_-]?extra/i
+const HH_50_RE         = /(horas?\s?extras?|h\.?e\.?|hh[\s_-]?extra).*50|50.*(horas?\s?extras?)/i
+const HH_100_RE        = /(horas?\s?extras?|h\.?e\.?|hh[\s_-]?extra).*100|100.*(horas?\s?extras?)/i
 
 interface ParsedItems {
   sueldoBase:        number
@@ -168,7 +168,7 @@ function extractHours(items: PayrollItem[]): number {
   }, 0)
 }
 
-function parseItems(items: PayrollItem[]): ParsedItems {
+function parseItems(items: PayrollItem[], grossSalary = 0): ParsedItems {
   let sueldoBase = 0, gratificacion = 0
   const hh50: PayrollItem[] = [], hh100: PayrollItem[] = []
   const bonos: PayrollItem[] = [], noImponibles: PayrollItem[] = []
@@ -184,13 +184,29 @@ function parseItems(items: PayrollItem[]): ParsedItems {
     if (item.taxable === false) { noImponibles.push(item) } else { bonos.push(item) }
   }
 
-  const hhTotal    = [...hh50, ...hh100].reduce((s, i) => s + i.amount, 0)
-  const hh50Hours  = extractHours(hh50)
-  const hh100Hours = extractHours(hh100)
+  const hhTotal = [...hh50, ...hh100].reduce((s, i) => s + i.amount, 0)
+
+  // Intentar extraer horas del nombre; si no hay, estimar desde el monto
+  // Fórmula: valor hora normal = grossSalary / 30 días / 8 horas = grossSalary / 240
+  // HH 50%: × 1.5  →  horas = monto × 160 / grossSalary
+  // HH 100%: × 2.0 →  horas = monto × 120 / grossSalary
+  let hh50Hours  = extractHours(hh50)
+  let hh100Hours = extractHours(hh100)
+  const valorHora = grossSalary > 0 ? grossSalary / 240 : 0
+  if (hh50Hours  === 0 && hh50.length  > 0 && valorHora > 0)
+    hh50Hours  = Math.round(hh50.reduce((s, i)  => s + i.amount, 0) / (valorHora * 1.5) * 10) / 10
+  if (hh100Hours === 0 && hh100.length > 0 && valorHora > 0)
+    hh100Hours = Math.round(hh100.reduce((s, i) => s + i.amount, 0) / (valorHora * 2.0) * 10) / 10
 
   const parts: string[] = []
-  if (hh50.length)  parts.push(hh50Hours  > 0 ? `${hh50Hours} a 50%`   : `${hh50.length} ítem 50%`)
-  if (hh100.length) parts.push(hh100Hours > 0 ? `${hh100Hours} a 100%` : `${hh100.length} ítem 100%`)
+  if (hh50.length) {
+    const names = [...new Set(hh50.map(i => i.name))].join(', ')
+    parts.push(hh50Hours > 0 ? `${names} (~${hh50Hours.toFixed(1)}h)` : names)
+  }
+  if (hh100.length) {
+    const names = [...new Set(hh100.map(i => i.name))].join(', ')
+    parts.push(hh100Hours > 0 ? `${names} (~${hh100Hours.toFixed(1)}h)` : names)
+  }
 
   return {
     sueldoBase,
@@ -198,7 +214,7 @@ function parseItems(items: PayrollItem[]): ParsedItems {
     hhTotal,
     hh50Hours,
     hh100Hours,
-    hhDetail:          parts.join(' y ') || '—',
+    hhDetail:          parts.join('; ') || '—',
     bonosTotal:        bonos.reduce((s, i) => s + i.amount, 0),
     bonosNames:        [...new Set(bonos.map(i => i.name))].join(', ') || '—',
     noImponiblesTotal: noImponibles.reduce((s, i) => s + i.amount, 0),
@@ -222,6 +238,32 @@ function getCenters(wcs: { legalEntity: string; workCenter: { name: string } }[]
   if (!wcs?.length) return '—'
   const names = wcs.filter(w => w.legalEntity === le).map(w => w.workCenter.name)
   return names.length > 0 ? names.join(', ') : '—'
+}
+
+// ─── Sort ─────────────────────────────────────────────────────────────────────
+
+type PayrollSortKey = 'employeeName' | 'legalEntity' | 'status' | 'period' | 'liquidSalary' | 'grossSalary' | 'sueldoBase' | 'gratificacion' | 'bonosTotal' | 'hhTotal' | 'noImponiblesTotal'
+type SortDir = 'asc' | 'desc'
+
+function SortIcon({ col, sortKey, sortDir }: { col: PayrollSortKey; sortKey: PayrollSortKey; sortDir: SortDir }) {
+  if (col !== sortKey) return <ChevronsUpDown size={12} className="text-gray-300 ml-1 inline" />
+  return sortDir === 'asc'
+    ? <ChevronUp size={12} className="text-blue-500 ml-1 inline" />
+    : <ChevronDown size={12} className="text-blue-500 ml-1 inline" />
+}
+
+function SortTh({ label, col, sortKey, sortDir, onSort, right }: {
+  label: string; col: PayrollSortKey; sortKey: PayrollSortKey; sortDir: SortDir
+  onSort: (c: PayrollSortKey) => void; right?: boolean
+}) {
+  return (
+    <th
+      className={`px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700 ${right ? 'text-right' : ''}`}
+      onClick={() => onSort(col)}
+    >
+      {label}<SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+    </th>
+  )
 }
 
 // ─── Tipos y agregación ───────────────────────────────────────────────────────
@@ -251,7 +293,7 @@ interface AggRow {
 function aggregateRows(entries: PayrollRawEntry[], monthly: boolean): AggRow[] {
   if (monthly) {
     return entries.map(e => {
-      const parsed = parseItems(e.items ?? [])
+      const parsed = parseItems(e.items ?? [], e.grossSalary)
       return {
         employeeId:   e.employeeId,
         employeeName: `${e.employee.firstName} ${e.employee.lastName}`,
@@ -270,7 +312,7 @@ function aggregateRows(entries: PayrollRawEntry[], monthly: boolean): AggRow[] {
   const map = new Map<string, AggRow>()
   for (const e of entries) {
     const key    = `${e.employeeId}::${e.legalEntity}`
-    const parsed = parseItems(e.items ?? [])
+    const parsed = parseItems(e.items ?? [], e.grossSalary)
     const existing = map.get(key)
     if (!existing) {
       map.set(key, {
@@ -298,9 +340,9 @@ function aggregateRows(entries: PayrollRawEntry[], monthly: boolean): AggRow[] {
 
       // Reconstruir detalle de HH desde horas acumuladas
       const parts: string[] = []
-      if (existing.hh50Hours  > 0) parts.push(`${existing.hh50Hours} a 50%`)
-      if (existing.hh100Hours > 0) parts.push(`${existing.hh100Hours} a 100%`)
-      existing.hhDetail = parts.join(' y ') || '—'
+      if (existing.hh50Hours  > 0) parts.push(`~${existing.hh50Hours.toFixed(1)}h a 50%`)
+      if (existing.hh100Hours > 0) parts.push(`~${existing.hh100Hours.toFixed(1)}h a 100%`)
+      existing.hhDetail = parts.join('; ') || '—'
 
       // Unir nombres únicos de bonos imponibles
       const allBonos = new Set([
@@ -339,6 +381,14 @@ function detectLegalEntityFromFilename(name: string): string {
   if (n.includes('consultor')) return 'SURMEDIA_CONSULTORIA'
   if (n.includes('comunicac')) return 'COMUNICACIONES_SURMEDIA'
   return ''
+}
+
+function detectYearFromFilename(name: string): string {
+  // "Sueldos 2026-01-01 - 2026-04-01" → "2026"
+  const mSueldos = name.match(/[Ss]ueldos[^\d]*(20\d{2})/i)
+  if (mSueldos) return mSueldos[1]
+  const mAny = name.match(/20\d{2}/)
+  return mAny ? mAny[0] : ''
 }
 
 interface BukExcelRow {
@@ -432,9 +482,10 @@ function ImportModal({ onClose }: { onClose: () => void }) {
   function handleFile(f: File) {
     setFile(f)
     setPreview(null)
-    // Auto-detectar empresa desde nombre del archivo
     const detected = detectLegalEntityFromFilename(f.name)
     if (detected) setLegalEntity(detected)
+    const year = detectYearFromFilename(f.name)
+    if (year) setStartYear(year)
   }
 
   async function handlePreview() {
@@ -554,8 +605,11 @@ export default function PayrollView() {
   const [year,          setYear]          = useState('')
   const [month,         setMonth]         = useState('')
   const [legalEntities, setLegalEntities] = useState<string[]>([])
+  const [statusFilter,  setStatusFilter]  = useState<string[]>([])
   const [search,        setSearch]        = useState('')
   const [showImport,    setShowImport]    = useState(false)
+  const [sortKey,       setSortKey]       = useState<PayrollSortKey>('employeeName')
+  const [sortDir,       setSortDir]       = useState<SortDir>('asc')
 
   const { data: years = [], refetch: refetchYears } = usePayrollYears()
   const { mutate: doSyncPayroll, isPending: isSyncing, data: syncResult, error: syncError } = useSyncPayroll()
@@ -581,12 +635,36 @@ export default function PayrollView() {
 
   const isMonthly = !!month
 
+  function handleSort(col: PayrollSortKey) {
+    if (col === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(col); setSortDir('asc') }
+  }
+
+  const NUMERIC_KEYS = new Set<PayrollSortKey>(['liquidSalary', 'grossSalary', 'sueldoBase', 'gratificacion', 'bonosTotal', 'hhTotal', 'noImponiblesTotal'])
+
   const rows = useMemo(() => {
-    const agg = aggregateRows(entries, isMonthly)
-    if (!search) return agg
-    const q = search.toLowerCase()
-    return agg.filter(r => r.employeeName.toLowerCase().includes(q) || r.rut.includes(q))
-  }, [entries, isMonthly, search])
+    let agg = aggregateRows(entries, isMonthly)
+
+    if (statusFilter.length > 0) agg = agg.filter(r => statusFilter.includes(r.status))
+
+    if (search) {
+      const q = search.toLowerCase()
+      agg = agg.filter(r => r.employeeName.toLowerCase().includes(q) || r.rut.includes(q))
+    }
+
+    agg = [...agg].sort((a, b) => {
+      if (NUMERIC_KEYS.has(sortKey)) {
+        const diff = (a[sortKey] as number) - (b[sortKey] as number)
+        return sortDir === 'asc' ? diff : -diff
+      }
+      const va = String(a[sortKey] ?? '')
+      const vb = String(b[sortKey] ?? '')
+      const cmp = va.localeCompare(vb, 'es')
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+
+    return agg
+  }, [entries, isMonthly, search, statusFilter, sortKey, sortDir])
 
   const stats = useMemo(() => {
     const byCom = rows.filter(r => r.legalEntity === 'COMUNICACIONES_SURMEDIA')
@@ -603,7 +681,7 @@ export default function PayrollView() {
     }
   }, [rows])
 
-  const hasFilters   = !!(month || legalEntities.length || search)
+  const hasFilters   = !!(month || legalEntities.length || statusFilter.length || search)
   const periodoLabel = isMonthly ? `${MONTHS_LABEL[Number(month)]} ${year}` : `${year} (anual)`
 
   return (
@@ -665,8 +743,18 @@ export default function PayrollView() {
               { value: 'SURMEDIA_CONSULTORIA',    label: 'Consultoría' },
             ]}
           />
+          <MultiFilterSelect
+            values={statusFilter}
+            onChange={setStatusFilter}
+            placeholder="Todos los estados"
+            options={[
+              { value: 'ACTIVE',   label: 'Activos' },
+              { value: 'INACTIVE', label: 'Inactivos' },
+              { value: 'ON_LEAVE', label: 'Con permiso' },
+            ]}
+          />
           {hasFilters && (
-            <button onClick={() => { setMonth(''); setLegalEntities([]); setSearch('') }}
+            <button onClick={() => { setMonth(''); setLegalEntities([]); setStatusFilter([]); setSearch('') }}
               className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-2">
               Limpiar filtros
             </button>
@@ -737,20 +825,23 @@ export default function PayrollView() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left border-b border-gray-100">
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap sticky left-0 bg-white">Colaborador</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Razón Social</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap sticky left-0 bg-white cursor-pointer select-none hover:text-gray-700"
+                      onClick={() => handleSort('employeeName')}>
+                    Colaborador<SortIcon col="employeeName" sortKey={sortKey} sortDir={sortDir} />
+                  </th>
+                  <SortTh label="Razón Social"              col="legalEntity"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Centros</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Estado</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Período</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap text-right">Sueldo líquido</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap text-right">Sueldo bruto</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap text-right">Sueldo base</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap text-right">Gratificación</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap text-right">Total bonos</th>
+                  <SortTh label="Estado"                    col="status"            sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Período"                   col="period"            sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Sueldo líquido"            col="liquidSalary"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
+                  <SortTh label="Sueldo bruto"              col="grossSalary"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
+                  <SortTh label="Sueldo base"               col="sueldoBase"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
+                  <SortTh label="Gratificación"             col="gratificacion"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
+                  <SortTh label="Total bonos"               col="bonosTotal"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Bonos identificados</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap text-right">Total horas extras</th>
+                  <SortTh label="Total horas extras"        col="hhTotal"           sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Horas extras identificadas</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap text-right">Total hab. no imponibles</th>
+                  <SortTh label="Total hab. no imponibles"  col="noImponiblesTotal" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
                   <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Hab. no imponibles identificados</th>
                 </tr>
               </thead>
@@ -758,8 +849,13 @@ export default function PayrollView() {
                 {rows.map((row, i) => (
                   <tr key={`${row.employeeId}-${row.legalEntity}-${i}`} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap sticky left-0 bg-white">
-                      <p className="font-medium text-gray-900">{row.employeeName}</p>
-                      <p className="text-xs text-gray-400 font-mono">{row.rut}</p>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${row.status === 'ACTIVE' ? 'bg-green-500' : row.status === 'ON_LEAVE' ? 'bg-amber-400' : 'bg-gray-300'}`} />
+                        <div>
+                          <p className="font-medium text-gray-900">{row.employeeName}</p>
+                          <p className="text-xs text-gray-400 font-mono">{row.rut}</p>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${LEGAL_ENTITY_COLOR[row.legalEntity as LegalEntity] ?? 'bg-gray-100 text-gray-700'}`}>

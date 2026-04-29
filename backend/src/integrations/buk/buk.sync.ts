@@ -1,8 +1,12 @@
 import type { PrismaClient } from '@prisma/client'
 import { EmployeeStatus, LegalEntity } from '@prisma/client'
 import { BukClient } from './buk.client'
-import { buildDuplicateSet, mapContractUpsert, mapEmployeeUpsert, normalizeRut } from './buk.mapper'
+import { buildDuplicateSet, mapContractUpsert, mapEmployeeUpsert, normalizeRut, resolveEmployeeStatus } from './buk.mapper'
 import type { BukEmployee, BukLegalEntity, BukSyncEmployeeResult, BukProcessPeriod } from './buk.types'
+
+// Campos que el usuario puede editar manualmente y el sync no debe sobreescribir
+const PROTECTED_FIELDS = ['jobTitle', 'supervisorName', 'supervisorTitle'] as const
+type ProtectedField = typeof PROTECTED_FIELDS[number]
 
 export interface PreviewEntry {
   rut: string
@@ -24,6 +28,14 @@ export interface PreviewResult {
   dateRange: { min: string | null; max: string | null }
 }
 
+export interface SyncChange {
+  rut:    string
+  name:   string
+  action: 'created' | 'status_changed'
+  before?: { status: string }
+  after?:  { status: string; jobTitle?: string }
+}
+
 export interface SyncResult {
   legalEntity: BukLegalEntity
   employeesTotal: number
@@ -33,6 +45,7 @@ export interface SyncResult {
   duplicatesSkipped: number
   durationMs: number
   errors: Array<{ rut: string; error: string }>
+  changes: SyncChange[]
 }
 
 // ─── Deduplicación intra-empresa (mismo RUT dos veces en la misma lista) ─────
@@ -75,6 +88,7 @@ async function syncCompany(
     duplicatesSkipped: 0,
     durationMs: 0,
     errors: [],
+    changes: [],
   }
 
   const log = await prisma.syncLog.create({
@@ -89,7 +103,7 @@ async function syncCompany(
     const myEmployees = allEmployeesByEntity.find(e => e.legalEntity === legalEntity)?.employees ?? []
     result.employeesTotal = myEmployees.length
 
-    const { skipSet, duplicateRuts } = buildDuplicateSet(allEmployeesByEntity)
+    const { skipSet, duplicateRuts, forceInactiveKeys } = buildDuplicateSet(allEmployeesByEntity)
     const toProcess = myEmployees.filter(emp => !skipSet.has(`${normalizeRut(emp.rut)}::${legalEntity}`))
     result.duplicatesSkipped = myEmployees.length - toProcess.length
 
@@ -97,28 +111,52 @@ async function syncCompany(
       // 1. Pre-resolver todos los depts/cargos en batch (evita N*3 queries)
       const deptPositionMap = await resolveAllDeptsAndPositions(prisma, toProcess)
 
-      // 2. Pre-fetch empleados existentes en un solo query
+      // 2. Pre-fetch empleados existentes en un solo query (incluye campos protegidos y nombre para log de cambios)
       const ruts = toProcess.map(emp => normalizeRut(emp.rut))
       const existingEmployees = await prisma.employee.findMany({
         where:  { rut: { in: ruts } },
-        select: { id: true, rut: true },
+        select: { id: true, rut: true, status: true, firstName: true, lastName: true, jobTitle: true, supervisorName: true, supervisorTitle: true },
       })
-      const existingByRut = new Map(existingEmployees.map(e => [e.rut, e.id]))
+      type ExistingEmployee = typeof existingEmployees[number]
+      const existingByRut = new Map<string, ExistingEmployee>(existingEmployees.map(e => [e.rut, e]))
 
       const toCreate = toProcess.filter(emp => !existingByRut.has(normalizeRut(emp.rut)))
       const toUpdate = toProcess.filter(emp =>  existingByRut.has(normalizeRut(emp.rut)))
 
-      // Helper: genera datos del empleado, sobreescribiendo status a DUPLICATE si aplica
-      const empData = (bukEmp: BukEmployee) => {
+      // Resuelve el status final que tendrá un empleado según BUK + reglas de negocio
+      const resolveTargetStatus = (bukEmp: BukEmployee): EmployeeStatus => {
+        const rut = normalizeRut(bukEmp.rut)
+        if (duplicateRuts.has(rut))                           return EmployeeStatus.INACTIVE // phantom en ambas empresas
+        if (forceInactiveKeys.has(`${rut}::${legalEntity}`)) return EmployeeStatus.INACTIVE // activo en BUK pero sin trabajo aquí
+        return resolveEmployeeStatus(bukEmp)                                                  // BUK como fuente de verdad
+      }
+
+      // Helper para CREACIÓN
+      const empCreateData = (bukEmp: BukEmployee) => {
         const rut = normalizeRut(bukEmp.rut)
         const { departmentId, positionId } = deptPositionMap.get(rut) ?? {}
         const base = mapEmployeeUpsert(bukEmp)
-        if (duplicateRuts.has(rut)) base.status = EmployeeStatus.DUPLICATE
+        base.status = resolveTargetStatus(bukEmp)
+        return { ...base, ...(departmentId != null && { departmentId }), ...(positionId != null && { positionId }) }
+      }
+
+      // Helper para ACTUALIZACIÓN: BUK como fuente de verdad para status + preserva campos manuales
+      const empUpdateData = (bukEmp: BukEmployee, existing: ExistingEmployee) => {
+        const rut = normalizeRut(bukEmp.rut)
+        const { departmentId, positionId } = deptPositionMap.get(rut) ?? {}
+        const base = mapEmployeeUpsert(bukEmp)
+        base.status = resolveTargetStatus(bukEmp)
+
+        // Preservar campos editados manualmente si tienen valor en la BD
+        for (const field of PROTECTED_FIELDS) {
+          if (existing[field]) delete (base as any)[field]
+        }
+
         return { ...base, ...(departmentId != null && { departmentId }), ...(positionId != null && { positionId }) }
       }
 
       // 3. Pre-fetch contratos existentes en un solo query
-      const idsToUpdate = toUpdate.map(emp => existingByRut.get(normalizeRut(emp.rut))!)
+      const idsToUpdate = toUpdate.map(emp => existingByRut.get(normalizeRut(emp.rut))!.id)
       const existingContracts = idsToUpdate.length > 0
         ? await prisma.contract.findMany({
             where:  { employeeId: { in: idsToUpdate }, legalEntity: legalEntity as LegalEntity },
@@ -127,38 +165,61 @@ async function syncCompany(
         : []
       const contractMap = new Map(existingContracts.map(c => [`${c.employeeId}::${c.bukEmployeeId}`, c.id]))
 
-      // 4. Crear nuevos — paralelo por empleado (pool de conexiones limita la concurrencia)
+      // 4. Crear nuevos — paralelo por empleado
       const createResults = await Promise.allSettled(
         toCreate.map(async (bukEmp) => {
-          const emp = await prisma.employee.create({ data: empData(bukEmp) })
+          const data = empCreateData(bukEmp)
+          const emp  = await prisma.employee.create({ data })
           await prisma.contract.create({ data: { ...mapContractUpsert(bukEmp, legalEntity), employeeId: emp.id } })
+          return { status: data.status, jobTitle: data.jobTitle as string | null | undefined }
         })
       )
       for (let i = 0; i < createResults.length; i++) {
-        if (createResults[i].status === 'fulfilled') { result.employeesCreated++; result.contractsUpserted++ }
-        else result.errors.push({ rut: normalizeRut(toCreate[i].rut), error: String((createResults[i] as PromiseRejectedResult).reason) })
+        const r = createResults[i]
+        if (r.status === 'fulfilled') {
+          result.employeesCreated++
+          result.contractsUpserted++
+          const buk  = toCreate[i]
+          const rut  = normalizeRut(buk.rut)
+          const name = `${buk.first_name} ${[buk.surname, buk.second_surname].filter(Boolean).join(' ')}`.trim()
+          result.changes.push({ rut, name, action: 'created', after: { status: r.value.status, jobTitle: r.value.jobTitle ?? undefined } })
+        } else {
+          result.errors.push({ rut: normalizeRut(toCreate[i].rut), error: String(r.reason) })
+        }
       }
 
       // 5. Actualizar existentes — paralelo por empleado
       const updateResults = await Promise.allSettled(
         toUpdate.map(async (bukEmp) => {
-          const rut        = normalizeRut(bukEmp.rut)
-          const existingId = existingByRut.get(rut)!
-          await prisma.employee.update({
-            where: { id: existingId },
-            data:  empData(bukEmp),
-          })
-          const contractId = contractMap.get(`${existingId}::${bukEmp.id}`)
+          const rut      = normalizeRut(bukEmp.rut)
+          const existing = existingByRut.get(rut)!
+          const data     = empUpdateData(bukEmp, existing)
+          await prisma.employee.update({ where: { id: existing.id }, data })
+          const contractId = contractMap.get(`${existing.id}::${bukEmp.id}`)
           if (contractId) {
             await prisma.contract.update({ where: { id: contractId }, data: mapContractUpsert(bukEmp, legalEntity) })
           } else {
-            await prisma.contract.create({ data: { ...mapContractUpsert(bukEmp, legalEntity), employeeId: existingId } })
+            await prisma.contract.create({ data: { ...mapContractUpsert(bukEmp, legalEntity), employeeId: existing.id } })
           }
+          return { prevStatus: existing.status, newStatus: data.status }
         })
       )
       for (let i = 0; i < updateResults.length; i++) {
-        if (updateResults[i].status === 'fulfilled') { result.employeesUpdated++; result.contractsUpserted++ }
-        else result.errors.push({ rut: normalizeRut(toUpdate[i].rut), error: String((updateResults[i] as PromiseRejectedResult).reason) })
+        const r = updateResults[i]
+        if (r.status === 'fulfilled') {
+          result.employeesUpdated++
+          result.contractsUpserted++
+          if (r.value.prevStatus !== r.value.newStatus) {
+            const rut      = normalizeRut(toUpdate[i].rut)
+            const existing = existingByRut.get(rut)!
+            result.changes.push({
+              rut, name: `${existing.firstName} ${existing.lastName}`, action: 'status_changed',
+              before: { status: r.value.prevStatus }, after: { status: r.value.newStatus },
+            })
+          }
+        } else {
+          result.errors.push({ rut: normalizeRut(toUpdate[i].rut), error: String(r.reason) })
+        }
       }
     }
 
@@ -325,7 +386,8 @@ export async function syncBukAll(prisma: PrismaClient): Promise<SyncResult[]> {
         contractsUpserted: 0,
         duplicatesSkipped: 0,
         durationMs:        0,
-        errors: [{ rut: '*', error: errMsg }],
+        errors:  [{ rut: '*', error: errMsg }],
+        changes: [],
       })
       continue
     }

@@ -7,6 +7,8 @@ interface EmployeeListQuery {
   legalEntity?: string
   contractType?: string
   departmentId?: string
+  activeYear?: string
+  activeMonth?: string
   page?: string
   limit?: string
 }
@@ -50,8 +52,59 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     } })
   })
 
+  // GET /api/employees/movements?year=2026&month=4&legalEntity=
+  fastify.get<{ Querystring: { year: string; month?: string; legalEntity?: string } }>('/movements', async (req, reply) => {
+    const { year, month, legalEntity } = req.query
+    if (!year) return reply.status(400).send({ message: 'year es requerido' })
+
+    const y = Number(year)
+    const m = month ? Number(month) : null
+    const startOfPeriod = m ? new Date(y, m - 1, 1)              : new Date(y, 0, 1)
+    const endOfPeriod   = m ? new Date(y, m, 0, 23, 59, 59, 999) : new Date(y, 11, 31, 23, 59, 59, 999)
+
+    const entityContractFilter = legalEntity
+      ? { contracts: { some: { legalEntity: legalEntity as any, deletedAt: null } } }
+      : {}
+
+    const empSelect = {
+      id: true, firstName: true, lastName: true, rut: true, startDate: true, endDate: true, status: true,
+      contracts: { where: { deletedAt: null, isActive: true }, select: { legalEntity: true } },
+      workCenters: { select: { legalEntity: true, workCenter: { select: { name: true } } } },
+    } as const
+
+    const [ingresos, salidas, vacaciones] = await Promise.all([
+      fastify.prisma.employee.findMany({
+        where: { deletedAt: null, startDate: { gte: startOfPeriod, lte: endOfPeriod }, ...entityContractFilter },
+        select: empSelect,
+        orderBy: { startDate: 'asc' },
+      }),
+      fastify.prisma.employee.findMany({
+        where: { deletedAt: null, endDate: { gte: startOfPeriod, lte: endOfPeriod }, ...entityContractFilter },
+        select: empSelect,
+        orderBy: { endDate: 'asc' },
+      }),
+      fastify.prisma.leave.findMany({
+        where: {
+          startDate: { lte: endOfPeriod },
+          endDate:   { gte: startOfPeriod },
+          status:    { in: ['APPROVED', 'PENDING'] },
+        },
+        select: {
+          id: true, type: true, startDate: true, endDate: true, days: true, reason: true, status: true,
+          employee: { select: { id: true, firstName: true, lastName: true, rut: true,
+            contracts: { where: { deletedAt: null, isActive: true }, select: { legalEntity: true } },
+            workCenters: { select: { legalEntity: true, workCenter: { select: { name: true } } } },
+          }},
+        },
+        orderBy: { startDate: 'asc' },
+      }),
+    ])
+
+    return reply.send({ data: { ingresos, salidas, vacaciones } })
+  })
+
   fastify.get<{ Querystring: EmployeeListQuery }>('/', async (req, reply) => {
-    const { search, status, legalEntity, contractType, departmentId, page = '1', limit = '100' } = req.query
+    const { search, status, legalEntity, contractType, departmentId, activeYear, activeMonth, page = '1', limit = '100' } = req.query
 
     const where: Prisma.EmployeeWhereInput = { deletedAt: null }
 
@@ -86,6 +139,18 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (legalEntity || contractType) {
       where.contracts = { some: contractWhere }
+    }
+
+    // Filtro de período activo: muestra empleados que estaban activos durante el año/mes indicado
+    if (activeYear) {
+      const y = Number(activeYear)
+      const m = activeMonth ? Number(activeMonth) : null
+      const periodStart = m ? new Date(y, m - 1, 1)              : new Date(y, 0, 1)
+      const periodEnd   = m ? new Date(y, m, 0, 23, 59, 59, 999) : new Date(y, 11, 31, 23, 59, 59, 999)
+      where.AND = [
+        { startDate: { lte: periodEnd } },
+        { OR: [{ endDate: null }, { endDate: { gte: periodStart } }] },
+      ]
     }
 
     const skip = (Number(page) - 1) * Number(limit)

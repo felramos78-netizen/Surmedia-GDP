@@ -8,6 +8,8 @@ export interface DotacionFilters {
   legalEntity?: string[]
   contractType?: string[]
   departmentId?: string
+  activeYear?: string
+  activeMonth?: string
 }
 
 interface EmployeeListResponse {
@@ -23,11 +25,14 @@ export function useEmployees(filters: DotacionFilters = {}) {
     queryFn: async () => {
       const params = new URLSearchParams()
       params.set('limit', '1000')
-      if (filters.search)              params.set('search',       filters.search)
-      if (filters.status?.length)      params.set('status',       filters.status.join(','))
-      if (filters.legalEntity?.length) params.set('legalEntity',  filters.legalEntity.join(','))
-      if (filters.contractType?.length)params.set('contractType', filters.contractType.join(','))
-      if (filters.departmentId)        params.set('departmentId', filters.departmentId)
+      if (filters.search)               params.set('search',       filters.search)
+      if (filters.status?.length)       params.set('status',       filters.status.join(','))
+      if (filters.legalEntity?.length)  params.set('legalEntity',  filters.legalEntity.join(','))
+      if (filters.contractType?.length) params.set('contractType', filters.contractType.join(','))
+      if (filters.departmentId)         params.set('departmentId', filters.departmentId)
+      if (filters.activeYear)  {        params.set('activeYear',   filters.activeYear)
+        if (filters.activeMonth)        params.set('activeMonth',  filters.activeMonth)
+      }
 
       const { data } = await api.get<EmployeeListResponse>(`/employees?${params}`)
       return data
@@ -142,6 +147,20 @@ export function useSyncPayroll() {
       queryClient.invalidateQueries({ queryKey: ['payrollTable'] })
       queryClient.invalidateQueries({ queryKey: ['payrollYears'] })
     },
+  })
+}
+
+export function useMovements(filters: { year: string; month?: string; legalEntity?: string }) {
+  return useQuery({
+    queryKey: ['movements', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams({ year: filters.year })
+      if (filters.month)      params.set('month',       filters.month)
+      if (filters.legalEntity) params.set('legalEntity', filters.legalEntity)
+      const { data } = await api.get<ApiResponse<{ ingresos: any[]; salidas: any[]; vacaciones: any[] }>>(`/employees/movements?${params}`)
+      return data.data
+    },
+    enabled: !!filters.year,
   })
 }
 

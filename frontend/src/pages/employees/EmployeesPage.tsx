@@ -1,9 +1,9 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { Search, RefreshCw, ChevronDown, Users, UserX, GitMerge, AlertTriangle, CheckCircle2, X, Eye, Save, Calendar, ChevronsUpDown, ChevronUp, DollarSign, List, Plus } from 'lucide-react'
-import { useEmployees, useEmployeeStats, useSyncBuk, useSyncLogs, usePreviewSync, type DotacionFilters } from '@/hooks/useDotacion'
+import { useEmployees, useEmployeeStats, useSyncBuk, useSyncLogs, usePreviewSync, useMovements, type DotacionFilters } from '@/hooks/useDotacion'
 import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
 import { formatDate } from '@/lib/utils'
-import type { Employee, Contract, LegalEntity, SyncPreviewResult } from '@/types'
+import type { Employee, Contract, LegalEntity, SyncPreviewResult, SyncResult, SyncChange } from '@/types'
 import EmployeeDrawer from './EmployeeDrawer'
 import PayrollView from './PayrollView'
 
@@ -29,8 +29,14 @@ const CONTRACT_LABEL: Record<string, string> = {
 }
 const GENDER_LABEL: Record<string, string> = { M: 'Masculino', F: 'Femenino', male: 'Masculino', female: 'Femenino' }
 
-function primaryContract(contracts?: Contract[]): Contract | undefined {
+function primaryContract(contracts?: Contract[], preferLegalEntity?: string): Contract | undefined {
   if (!contracts?.length) return undefined
+  if (preferLegalEntity) {
+    const preferred =
+      contracts.find(c => c.isActive && c.legalEntity === preferLegalEntity && c.salary > 0) ??
+      contracts.find(c => c.isActive && c.legalEntity === preferLegalEntity)
+    if (preferred) return preferred
+  }
   return contracts.find(c => c.isActive && c.salary > 0) ?? contracts[0]
 }
 function initials(emp: Employee) {
@@ -157,6 +163,127 @@ function MultiFilterSelect({ values, onChange, options, placeholder }: {
   )
 }
 
+// ─── Modal de resultados del sync (antes/después) ────────────────────────────
+
+const STATUS_TEXT_COLOR: Record<string, string> = {
+  ACTIVE:    'text-green-600',
+  INACTIVE:  'text-gray-400',
+  ON_LEAVE:  'text-yellow-600',
+  DUPLICATE: 'text-orange-500',
+}
+
+function SyncResultModal({ results, onClose }: { results: SyncResult[]; onClose: () => void }) {
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
+
+  const toggle = (key: string) => setOpenSections(s => ({ ...s, [key]: !s[key] }))
+
+  const totalChanges   = results.reduce((s, r) => s + r.changes.length, 0)
+  const totalCreated   = results.reduce((s, r) => s + r.employeesCreated, 0)
+  const totalStatusChg = results.reduce((s, r) => s + r.changes.filter(c => c.action === 'status_changed').length, 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-end p-4 pt-16" onClick={onClose}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Cambios del sync</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {totalCreated} nuevo{totalCreated !== 1 ? 's' : ''} · {totalStatusChg} cambio{totalStatusChg !== 1 ? 's' : ''} de estado · {totalChanges} total
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-4 space-y-4">
+          {results.map(r => {
+            const label     = LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity
+            const fatal     = r.errors?.find(e => e.rut === '*')?.error
+            const created   = r.changes.filter(c => c.action === 'created')
+            const statusChg = r.changes.filter(c => c.action === 'status_changed')
+
+            return (
+              <div key={r.legalEntity} className="rounded-xl border border-gray-100 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 bg-gray-50">
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${LEGAL_ENTITY_COLOR[r.legalEntity as LegalEntity] ?? 'bg-gray-100 text-gray-600'}`}>
+                    {label}
+                  </span>
+                  {fatal
+                    ? <span className="text-xs text-red-500">{fatal}</span>
+                    : <span className="text-xs text-gray-500">{r.employeesCreated + r.employeesUpdated} sincronizados</span>
+                  }
+                </div>
+
+                {!fatal && r.changes.length === 0 && (
+                  <p className="px-4 py-3 text-xs text-gray-400">Sin cambios relevantes</p>
+                )}
+
+                {statusChg.length > 0 && (
+                  <div className="border-t border-gray-50">
+                    <button
+                      onClick={() => toggle(`${r.legalEntity}:status`)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
+                    >
+                      <span className="text-xs font-medium text-gray-600">Cambios de estado ({statusChg.length})</span>
+                      <ChevronDown size={13} className={`text-gray-400 transition-transform ${openSections[`${r.legalEntity}:status`] ? 'rotate-180' : ''}`} />
+                    </button>
+                    {openSections[`${r.legalEntity}:status`] && (
+                      <div className="px-4 pb-3 space-y-1.5">
+                        {statusChg.map(c => (
+                          <div key={c.rut} className="flex items-center justify-between text-xs">
+                            <span className="text-gray-700 font-medium truncate max-w-[200px]">{c.name}</span>
+                            <span className="flex items-center gap-1.5 shrink-0">
+                              <span className={`${STATUS_TEXT_COLOR[c.before?.status ?? ''] ?? 'text-gray-400'}`}>
+                                {STATUS_LABEL[c.before?.status ?? ''] ?? c.before?.status}
+                              </span>
+                              <span className="text-gray-300">→</span>
+                              <span className={`font-semibold ${STATUS_TEXT_COLOR[c.after?.status ?? ''] ?? 'text-gray-600'}`}>
+                                {STATUS_LABEL[c.after?.status ?? ''] ?? c.after?.status}
+                              </span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {created.length > 0 && (
+                  <div className="border-t border-gray-50">
+                    <button
+                      onClick={() => toggle(`${r.legalEntity}:created`)}
+                      className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
+                    >
+                      <span className="text-xs font-medium text-gray-600">Nuevos ingresos ({created.length})</span>
+                      <ChevronDown size={13} className={`text-gray-400 transition-transform ${openSections[`${r.legalEntity}:created`] ? 'rotate-180' : ''}`} />
+                    </button>
+                    {openSections[`${r.legalEntity}:created`] && (
+                      <div className="px-4 pb-3 space-y-1.5">
+                        {created.map(c => (
+                          <div key={c.rut} className="flex items-center justify-between text-xs">
+                            <span className="text-gray-700 font-medium truncate max-w-[200px]">{c.name}</span>
+                            <span className="flex items-center gap-2 shrink-0">
+                              {c.after?.jobTitle && <span className="text-gray-400 truncate max-w-[140px]">{c.after.jobTitle}</span>}
+                              <span className={`font-semibold ${STATUS_TEXT_COLOR[c.after?.status ?? ''] ?? 'text-gray-600'}`}>
+                                {STATUS_LABEL[c.after?.status ?? ''] ?? c.after?.status}
+                              </span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Modal de vista previa ────────────────────────────────────────────────────
 
 function PreviewModal({ results, onConfirm, onCancel, isSaving }: {
@@ -263,16 +390,18 @@ function PreviewModal({ results, onConfirm, onCancel, isSaving }: {
 type SyncLine = { ok: boolean; label: string; msg: string }
 
 function SyncButton({ onSaved }: { onSaved: () => void }) {
-  const [phase, setPhase]     = useState<'idle' | 'previewing' | 'modal' | 'saving'>('idle')
-  const [preview, setPreview] = useState<SyncPreviewResult[] | null>(null)
-  const [lines, setLines]     = useState<SyncLine[] | null>(null)
-  const { data: logs }        = useSyncLogs()
-  const lastSync              = logs?.[0]
-  const { mutate: doPreview } = usePreviewSync()
-  const { mutate: doSync }    = useSyncBuk()
+  const [phase, setPhase]           = useState<'idle' | 'previewing' | 'modal' | 'saving'>('idle')
+  const [preview, setPreview]       = useState<SyncPreviewResult[] | null>(null)
+  const [lines, setLines]           = useState<SyncLine[] | null>(null)
+  const [syncResults, setSyncResults] = useState<SyncResult[] | null>(null)
+  const [showChanges, setShowChanges] = useState(false)
+  const { data: logs }              = useSyncLogs()
+  const lastSync                    = logs?.[0]
+  const { mutate: doPreview }       = usePreviewSync()
+  const { mutate: doSync }          = useSyncBuk()
 
   function handleClickSync() {
-    setLines(null); setPhase('previewing')
+    setLines(null); setSyncResults(null); setPhase('previewing')
     doPreview(undefined, {
       onSuccess: (data: any) => { setPreview(data.results ?? []); setPhase('modal') },
       onError:   (err: any)  => { setLines([{ ok: false, label: '', msg: err?.response?.data?.error ?? err?.message ?? 'Error al consultar BUK' }]); setPhase('idle') },
@@ -282,13 +411,17 @@ function SyncButton({ onSaved }: { onSaved: () => void }) {
     setPhase('saving')
     doSync(undefined, {
       onSuccess: (data: any) => {
-        const parsed: SyncLine[] = (data?.results ?? []).map((r: any) => {
+        const results: SyncResult[] = data?.results ?? []
+        const parsed: SyncLine[] = results.map(r => {
           const label = LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity
           const fatal = r.errors?.find((e: any) => e.rut === '*')?.error
           if (fatal) return { ok: false, label, msg: fatal }
-          return { ok: true, label, msg: `${(r.employeesCreated ?? 0) + (r.employeesUpdated ?? 0)} sincronizados` }
+          const changed = (r.changes ?? []).length
+          const synced  = (r.employeesCreated ?? 0) + (r.employeesUpdated ?? 0)
+          return { ok: true, label, msg: `${synced} sincronizados${changed > 0 ? ` · ${changed} cambio${changed !== 1 ? 's' : ''}` : ''}` }
         })
         setLines(parsed.length ? parsed : [{ ok: true, label: '', msg: 'Sin cambios' }])
+        setSyncResults(results.some(r => (r.changes ?? []).length > 0) ? results : null)
         setPhase('idle'); setPreview(null); onSaved()
       },
       onError: (err: any) => {
@@ -300,6 +433,8 @@ function SyncButton({ onSaved }: { onSaved: () => void }) {
 
   const isPreviewing = phase === 'previewing'
   const isSaving     = phase === 'saving'
+  const totalChanges = syncResults?.reduce((s, r) => s + (r.changes ?? []).length, 0) ?? 0
+
   return (
     <>
       <div className="flex flex-col items-end gap-1">
@@ -313,7 +448,7 @@ function SyncButton({ onSaved }: { onSaved: () => void }) {
           <button onClick={handleClickSync} disabled={isPreviewing || isSaving}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors">
             <RefreshCw size={15} className={(isPreviewing || isSaving) ? 'animate-spin' : ''} />
-            {isPreviewing ? 'Consultando BUK…' : 'Sincronizar BUK'}
+            {isPreviewing ? 'Consultando BUK…' : isSaving ? 'Sincronizando…' : 'Sincronizar BUK'}
           </button>
         </div>
         {lines && (
@@ -323,11 +458,22 @@ function SyncButton({ onSaved }: { onSaved: () => void }) {
                 {l.ok ? '✓' : '✗'} {l.label ? `${l.label}: ` : ''}{l.msg}
               </p>
             ))}
+            {syncResults && totalChanges > 0 && (
+              <button
+                onClick={() => setShowChanges(true)}
+                className="text-xs text-blue-500 hover:text-blue-700 underline underline-offset-2 transition-colors"
+              >
+                Ver {totalChanges} cambio{totalChanges !== 1 ? 's' : ''} en detalle ▾
+              </button>
+            )}
           </div>
         )}
       </div>
       {(phase === 'modal' || phase === 'saving') && preview && (
         <PreviewModal results={preview} onConfirm={handleConfirm} onCancel={() => { setPhase('idle'); setPreview(null) }} isSaving={isSaving} />
+      )}
+      {showChanges && syncResults && (
+        <SyncResultModal results={syncResults} onClose={() => setShowChanges(false)} />
       )}
     </>
   )
@@ -456,9 +602,9 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
 
 // ─── Fila ─────────────────────────────────────────────────────────────────────
 
-function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
+function EmployeeRow({ emp, onClick, preferLegalEntity }: { emp: Employee; onClick: () => void; preferLegalEntity?: string }) {
   const [assigning, setAssigning] = useState(false)
-  const contract = primaryContract(emp.contracts)
+  const contract = primaryContract(emp.contracts, preferLegalEntity)
 
   const empCenters = emp.workCenters ?? []
   const centerNames = Array.from(new Set(empCenters.map(wc => wc.workCenter.name)))
@@ -479,8 +625,7 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
             </div>
           </div>
         </td>
-        <td className="px-4 py-3 text-sm text-gray-600 font-mono whitespace-nowrap">{emp.rut}</td>
-        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{dash(emp.jobTitle)}</td>
+        {/* Razón Social */}
         <td className="px-4 py-3">
           {contract?.legalEntity ? (
             <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${LEGAL_ENTITY_COLOR[contract.legalEntity]}`}>
@@ -490,7 +635,6 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
             <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">Ambas</span>
           ) : <span className="text-gray-300 text-xs">—</span>}
         </td>
-        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.city)}</td>
         {/* Centros de trabajo */}
         <td className="px-4 py-3" onClick={e => { e.stopPropagation(); setAssigning(true) }}>
           <div className="flex flex-wrap gap-1 items-center min-w-[120px] cursor-pointer group/center">
@@ -510,14 +654,14 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
             )}
           </div>
         </td>
-        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-          {emp.exclusive != null ? (emp.exclusive ? 'Sí' : 'No') : <span className="text-gray-300">—</span>}
-        </td>
+        {/* Estado */}
         <td className="px-4 py-3">
           <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_COLOR[emp.status]}`}>
             {STATUS_LABEL[emp.status]}
           </span>
         </td>
+        <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{dash(emp.jobTitle)}</td>
+        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.city)}</td>
         <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.workSchedule)}</td>
         <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
           {contract ? CONTRACT_LABEL[contract.type] ?? contract.type : <span className="text-gray-300">—</span>}
@@ -526,6 +670,10 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
         <td className="px-4 py-3 text-xs whitespace-nowrap">
           {emp.endDate ? <span className="text-amber-600">{formatDate(emp.endDate)}</span> : <span className="text-gray-300">—</span>}
         </td>
+        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+          {emp.exclusive != null ? (emp.exclusive ? 'Sí' : 'No') : <span className="text-gray-300">—</span>}
+        </td>
+        <td className="px-4 py-3 text-sm text-gray-600 font-mono whitespace-nowrap">{emp.rut}</td>
         <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
           {emp.gender ? (GENDER_LABEL[emp.gender] ?? emp.gender) : <span className="text-gray-300">—</span>}
         </td>
@@ -551,13 +699,18 @@ export default function EmployeesPage() {
   const [view, setView]         = useState<'dotacion' | 'remuneraciones'>('dotacion')
   const [filters, setFilters]   = useState<DotacionFilters>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [yearFilter, setYearFilter]   = useState('')
-  const [monthFilter, setMonthFilter] = useState('')
   const [sortKey, setSortKey]   = useState<SortKey>('firstName')
   const [sortDir, setSortDir]   = useState<SortDir>('asc')
+  const [movYear,  setMovYear]  = useState(String(new Date().getFullYear()))
+  const [movMonth, setMovMonth] = useState(String(new Date().getMonth() + 1))
+
+  const tableWrapperRef    = useRef<HTMLDivElement>(null)
+  const topScrollRef       = useRef<HTMLDivElement>(null)
+  const topScrollInnerRef  = useRef<HTMLDivElement>(null)
 
   const { data, isLoading, isError } = useEmployees(filters)
   const { data: stats, refetch: refetchStats } = useEmployeeStats()
+  const { data: movements } = useMovements({ year: movYear, month: movMonth })
   const allEmployees = data?.data ?? []
 
   function setFilter(key: 'search' | 'departmentId', value: string) {
@@ -568,6 +721,27 @@ export default function EmployeesPage() {
     setFilters(prev => ({ ...prev, [key]: values.length > 0 ? values : undefined }))
   }
 
+  function setScalarFilter(key: 'activeYear' | 'activeMonth', value: string) {
+    setFilters(prev => ({ ...prev, [key]: value || undefined }))
+  }
+
+  // Dual-scroll sync: top scrollbar mirrors table horizontal scroll
+  useEffect(() => {
+    const wrapper  = tableWrapperRef.current
+    const topScroll = topScrollRef.current
+    const topInner  = topScrollInnerRef.current
+    if (!wrapper || !topScroll || !topInner) return
+    const updateWidth = () => { topInner.style.width = `${wrapper.scrollWidth}px` }
+    updateWidth()
+    const ro = new ResizeObserver(updateWidth)
+    ro.observe(wrapper)
+    const syncTop     = () => { topScroll.scrollLeft = wrapper.scrollLeft }
+    const syncWrapper = () => { wrapper.scrollLeft   = topScroll.scrollLeft }
+    wrapper.addEventListener('scroll', syncTop)
+    topScroll.addEventListener('scroll', syncWrapper)
+    return () => { ro.disconnect(); wrapper.removeEventListener('scroll', syncTop); topScroll.removeEventListener('scroll', syncWrapper) }
+  }, [])
+
   function handleSort(col: SortKey) {
     if (col === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(col); setSortDir('asc') }
@@ -575,14 +749,6 @@ export default function EmployeesPage() {
 
   const employees = useMemo(() => {
     let list = allEmployees
-
-    // Filtro por año/mes de ingreso (client-side)
-    if (yearFilter) {
-      list = list.filter(e => new Date(e.startDate).getFullYear() === Number(yearFilter))
-    }
-    if (monthFilter) {
-      list = list.filter(e => new Date(e.startDate).getMonth() + 1 === Number(monthFilter))
-    }
 
     // Sort
     list = [...list].sort((a, b) => {
@@ -614,7 +780,7 @@ export default function EmployeesPage() {
     })
 
     return list
-  }, [allEmployees, yearFilter, monthFilter, sortKey, sortDir])
+  }, [allEmployees, sortKey, sortDir])
 
   const hasFilters = !!(
     filters.search ||
@@ -622,8 +788,8 @@ export default function EmployeesPage() {
     filters.legalEntity?.length ||
     filters.contractType?.length ||
     filters.departmentId ||
-    yearFilter ||
-    monthFilter
+    filters.activeYear ||
+    filters.activeMonth
   )
 
   return (
@@ -657,7 +823,7 @@ export default function EmployeesPage() {
 
       {view === 'dotacion' && <>
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
           label="Activos" value={stats?.active ?? '—'} icon={Users} color="text-green-600 bg-green-50"
           detail={[
@@ -670,20 +836,94 @@ export default function EmployeesPage() {
             setArrayFilter('status', curr.includes('ACTIVE') ? curr.filter(s => s !== 'ACTIVE') : [...curr, 'ACTIVE'])
           }}
         />
-        <StatCard
-          label="Inactivos" value={stats?.inactive ?? '—'} icon={UserX} color="text-gray-500 bg-gray-100"
-          detail={[
-            { label: 'Comunicaciones', value: stats?.inactiveComunicaciones ?? '—', color: 'text-blue-400' },
-            { label: 'Consultoría',    value: stats?.inactiveConsultoria    ?? '—', color: 'text-violet-400' },
-          ]}
-          active={(filters.status ?? []).includes('INACTIVE')}
-          onClick={() => {
-            const curr = filters.status ?? []
-            setArrayFilter('status', curr.includes('INACTIVE') ? curr.filter(s => s !== 'INACTIVE') : [...curr, 'INACTIVE'])
-          }}
-        />
-        <StatCard label="En ambas empresas" value={stats?.inBoth ?? '—'} icon={GitMerge} color="text-indigo-600 bg-indigo-50" sub="Comunicaciones y Consultoría" />
-        <StatCard label="Contratos por vencer" value={stats?.expiring ?? '—'} icon={AlertTriangle} color="text-amber-600 bg-amber-50" sub="próximos 30 días" />
+        <StatCard label="Activos Comunicaciones" value={stats?.activeComunicaciones ?? '—'} icon={Users} color="text-blue-600 bg-blue-50" sub="Comunicaciones Surmedia Spa" />
+        <StatCard label="Activos Consultoría"    value={stats?.activeConsultoria    ?? '—'} icon={Users} color="text-violet-600 bg-violet-50" sub="Surmedia Consultoría Spa" />
+      </div>
+
+      {/* Movimientos e Ingresos/Salidas */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h3 className="text-sm font-semibold text-gray-800">Ingresos y Salidas</h3>
+          <div className="flex items-center gap-2">
+            <FilterSelect value={movMonth} onChange={setMovMonth} placeholder="Mes"
+              options={MONTHS} />
+            <FilterSelect value={movYear} onChange={setMovYear} placeholder="Año"
+              options={YEARS.map(y => ({ value: String(y), label: String(y) }))} />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Ingresos */}
+          <div>
+            <p className="text-xs font-medium text-green-700 mb-2">
+              Ingresos — {movements?.ingresos?.length ?? 0} colaboradores
+            </p>
+            {(movements?.ingresos?.length ?? 0) === 0
+              ? <p className="text-xs text-gray-400">Sin ingresos en el período</p>
+              : <div className="space-y-1.5">
+                  {movements!.ingresos.map((e: any) => {
+                    const le = e.contracts?.[0]?.legalEntity
+                    const centers = e.workCenters?.filter((w: any) => !le || w.legalEntity === le).map((w: any) => w.workCenter.name).join(', ')
+                    return (
+                      <div key={e.id} className="flex items-start justify-between gap-2 text-xs">
+                        <div>
+                          <span className="font-medium text-gray-800">{e.firstName} {e.lastName}</span>
+                          {centers && <span className="text-gray-400 ml-1">· {centers}</span>}
+                        </div>
+                        <span className="text-gray-400 whitespace-nowrap">{e.startDate ? formatDate(e.startDate) : '—'}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+            }
+          </div>
+          {/* Salidas */}
+          <div>
+            <p className="text-xs font-medium text-red-600 mb-2">
+              Salidas — {movements?.salidas?.length ?? 0} colaboradores
+            </p>
+            {(movements?.salidas?.length ?? 0) === 0
+              ? <p className="text-xs text-gray-400">Sin salidas en el período</p>
+              : <div className="space-y-1.5">
+                  {movements!.salidas.map((e: any) => {
+                    const le = e.contracts?.[0]?.legalEntity
+                    const centers = e.workCenters?.filter((w: any) => !le || w.legalEntity === le).map((w: any) => w.workCenter.name).join(', ')
+                    return (
+                      <div key={e.id} className="flex items-start justify-between gap-2 text-xs">
+                        <div>
+                          <span className="font-medium text-gray-800">{e.firstName} {e.lastName}</span>
+                          {centers && <span className="text-gray-400 ml-1">· {centers}</span>}
+                        </div>
+                        <span className="text-gray-400 whitespace-nowrap">{e.endDate ? formatDate(e.endDate) : '—'}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+            }
+          </div>
+        </div>
+      </div>
+
+      {/* Vacaciones y Reemplazos */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-800">
+          Vacaciones y Reemplazos — {MONTHS.find(m => m.value === movMonth)?.label} {movYear}
+        </h3>
+        {(movements?.vacaciones?.length ?? 0) === 0
+          ? <p className="text-xs text-gray-400">Sin vacaciones registradas en el período</p>
+          : <div className="divide-y divide-gray-50">
+              <div className="grid grid-cols-4 gap-3 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                <span>Colaborador</span><span>Desde</span><span>Hasta</span><span>Reemplazo</span>
+              </div>
+              {movements!.vacaciones.map((leave: any) => (
+                <div key={leave.id} className="grid grid-cols-4 gap-3 py-2 text-xs text-gray-700">
+                  <span className="font-medium">{leave.employee.firstName} {leave.employee.lastName}</span>
+                  <span>{formatDate(leave.startDate)}</span>
+                  <span>{formatDate(leave.endDate)}</span>
+                  <span className="text-gray-400 italic">Sin reemplazo asignado</span>
+                </div>
+              ))}
+            </div>
+        }
       </div>
 
       {/* Tabla */}
@@ -709,7 +949,7 @@ export default function EmployeesPage() {
             values={filters.status ?? []}
             onChange={v => setArrayFilter('status', v)}
             placeholder="Todos los estados"
-            options={[{ value: 'ACTIVE', label: 'Activos' }, { value: 'INACTIVE', label: 'Inactivos' }, { value: 'ON_LEAVE', label: 'Con permiso' }, { value: 'DUPLICATE', label: 'Duplicados' }]}
+            options={[{ value: 'ACTIVE', label: 'Activos' }, { value: 'INACTIVE', label: 'Inactivos' }, { value: 'DUPLICATE', label: 'Duplicados' }]}
           />
           <MultiFilterSelect
             values={filters.contractType ?? []}
@@ -717,16 +957,16 @@ export default function EmployeesPage() {
             placeholder="Tipo de contrato"
             options={[{ value: 'INDEFINIDO', label: 'Indefinido' }, { value: 'PLAZO_FIJO', label: 'Plazo fijo' }, { value: 'HONORARIOS', label: 'Honorarios' }, { value: 'PRACTICA', label: 'Práctica' }]}
           />
-          <FilterSelect value={yearFilter} onChange={setYearFilter}
-            placeholder="Año ingreso"
+          <FilterSelect value={filters.activeYear ?? ''} onChange={v => setScalarFilter('activeYear', v)}
+            placeholder="Año activo"
             options={YEARS.map(y => ({ value: String(y), label: String(y) }))}
           />
-          <FilterSelect value={monthFilter} onChange={setMonthFilter}
-            placeholder="Mes ingreso"
+          <FilterSelect value={filters.activeMonth ?? ''} onChange={v => setScalarFilter('activeMonth', v)}
+            placeholder="Mes activo"
             options={MONTHS}
           />
           {hasFilters && (
-            <button onClick={() => { setFilters({}); setYearFilter(''); setMonthFilter('') }}
+            <button onClick={() => setFilters({})}
               className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-2">
               Limpiar filtros
             </button>
@@ -751,25 +991,26 @@ export default function EmployeesPage() {
             <table className="w-full">
               <thead>
                 <tr className="text-left border-b border-gray-100">
-                  <SortTh label="Colaborador"    col="firstName"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="RUT"            col="rut"           sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Cargo"          col="jobTitle"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Razón Social"   col="legalEntity"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Ciudad"         col="city"          sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Centros"        col="costCenter"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Exclusividad"   col="exclusive"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Estado"         col="status"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Jornada"        col="workSchedule"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Vínculo"        col="contractType"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Ingreso"        col="startDate"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Término"        col="endDate"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Género"         col="gender"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Colaborador"    col="firstName"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Razón Social"   col="legalEntity"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Centros"        col="costCenter"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Estado"         col="status"         sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Cargo"          col="jobTitle"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Ciudad"         col="city"           sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Jornada"        col="workSchedule"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Vínculo"        col="contractType"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Ingreso"        col="startDate"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Término"        col="endDate"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Exclusividad"   col="exclusive"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="RUT"            col="rut"            sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Género"         col="gender"         sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortTh label="Supervisor"     col="supervisorName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {employees.map(emp => (
-                  <EmployeeRow key={emp.id} emp={emp} onClick={() => setSelectedId(emp.id)} />
+                  <EmployeeRow key={emp.id} emp={emp} onClick={() => setSelectedId(emp.id)}
+                    preferLegalEntity={filters.legalEntity?.length === 1 ? filters.legalEntity[0] : undefined} />
                 ))}
               </tbody>
             </table>
