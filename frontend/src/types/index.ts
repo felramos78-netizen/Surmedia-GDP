@@ -99,6 +99,8 @@ export interface Employee {
   jobTitle?: string | null
   costCenter?: string | null
   exclusive?: boolean | null
+  vinculo?: string | null
+  reemplazaA?: string | null
   contracts?: Contract[]
   workCenters?: EmployeeWorkCenter[]
   createdAt: string

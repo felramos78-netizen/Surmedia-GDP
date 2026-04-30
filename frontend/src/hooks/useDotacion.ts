@@ -123,3 +123,12 @@ export function useMovements(filters: { year: string; month?: string; legalEntit
     enabled: !!filters.year,
   })
 }
+
+export function useUpdateEmployee() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; vinculo?: string | null; reemplazaA?: string | null }) =>
+      api.patch(`/employees/${id}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['employees'] }),
+  })
+}

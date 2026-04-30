@@ -168,6 +168,8 @@ model Employee {
   jobTitle       String?   // Cargo directo (role.name)
   costCenter     String?   // Centro / proyecto (current_job.cost_center)
   exclusive      Boolean?  // Exclusividad laboral
+  vinculo        String?   // Planta, Reemplazo, etc.
+  reemplazaA     String?   // Nombre del colaborador que reemplaza (solo si vínculo=Reemplazo)
 
   user           User?
   contracts      Contract[]

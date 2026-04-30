@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { Search, RefreshCw, ChevronDown, Users, UserX, GitMerge, AlertTriangle, CheckCircle2, X, Eye, Save, Calendar, ChevronsUpDown, ChevronUp, DollarSign, List, Plus } from 'lucide-react'
-import { useEmployees, useEmployeeStats, useMovements, type DotacionFilters } from '@/hooks/useDotacion'
+import { useEmployees, useEmployeeStats, useMovements, useUpdateEmployee, type DotacionFilters } from '@/hooks/useDotacion'
 import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
 import { formatDate } from '@/lib/utils'
 import type { Employee, Contract, LegalEntity } from '@/types'
@@ -165,7 +165,7 @@ function MultiFilterSelect({ values, onChange, options, placeholder }: {
 
 // ─── Sort ─────────────────────────────────────────────────────────────────────
 
-type SortKey = 'firstName' | 'rut' | 'jobTitle' | 'legalEntity' | 'city' | 'costCenter' | 'exclusive' | 'status' | 'workSchedule' | 'contractType' | 'startDate' | 'endDate' | 'gender' | 'supervisorName'
+type SortKey = 'firstName' | 'rut' | 'jobTitle' | 'legalEntity' | 'city' | 'costCenter' | 'exclusive' | 'vinculo' | 'status' | 'workSchedule' | 'contractType' | 'startDate' | 'endDate' | 'gender' | 'supervisorName'
 type SortDir = 'asc' | 'desc'
 
 function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
@@ -286,6 +286,63 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
 
 // ─── Fila ─────────────────────────────────────────────────────────────────────
 
+function VinculoCell({ emp }: { emp: Employee }) {
+  const [editing, setEditing] = useState(false)
+  const [editingReemplazo, setEditingReemplazo] = useState(false)
+  const [reemplazoText, setReemplazoText] = useState(emp.reemplazaA ?? '')
+  const update = useUpdateEmployee()
+
+  const setVinculo = (v: string | null) => {
+    update.mutate({ id: emp.id, vinculo: v, reemplazaA: v !== 'Reemplazo' ? null : emp.reemplazaA })
+    setEditing(false)
+  }
+
+  const saveReemplazo = () => {
+    update.mutate({ id: emp.id, reemplazaA: reemplazoText || null })
+    setEditingReemplazo(false)
+  }
+
+  return (
+    <td className="px-4 py-3 text-sm whitespace-nowrap" onClick={e => e.stopPropagation()}>
+      {editing ? (
+        <div className="flex gap-1">
+          {['Planta', 'Reemplazo'].map(v => (
+            <button key={v} onClick={() => setVinculo(v)}
+              className="px-2 py-0.5 rounded text-xs border border-blue-300 text-blue-700 hover:bg-blue-50">{v}</button>
+          ))}
+          <button onClick={() => setVinculo(null)} className="px-2 py-0.5 rounded text-xs border border-gray-200 text-gray-400 hover:bg-gray-50">Quitar</button>
+          <button onClick={() => setEditing(false)} className="text-gray-300 hover:text-gray-500 text-xs ml-1">✕</button>
+        </div>
+      ) : emp.vinculo ? (
+        <div className="flex flex-col gap-0.5">
+          <button onClick={() => setEditing(true)} className="text-left text-gray-700 hover:text-blue-600 transition-colors">
+            {emp.vinculo}
+          </button>
+          {emp.vinculo === 'Reemplazo' && (
+            editingReemplazo ? (
+              <div className="flex gap-1 items-center">
+                <input autoFocus value={reemplazoText} onChange={e => setReemplazoText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveReemplazo(); if (e.key === 'Escape') setEditingReemplazo(false) }}
+                  placeholder="Nombre a quien reemplaza"
+                  className="text-xs border border-blue-300 rounded px-1.5 py-0.5 w-44 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                <button onClick={saveReemplazo} className="text-xs text-blue-600 hover:text-blue-800">✓</button>
+                <button onClick={() => setEditingReemplazo(false)} className="text-xs text-gray-300 hover:text-gray-500">✕</button>
+              </div>
+            ) : (
+              <button onClick={() => { setReemplazoText(emp.reemplazaA ?? ''); setEditingReemplazo(true) }}
+                className="text-xs text-left text-gray-400 hover:text-blue-500 transition-colors">
+                {emp.reemplazaA ? `↳ ${emp.reemplazaA}` : '+ reemplaza a'}
+              </button>
+            )
+          )}
+        </div>
+      ) : (
+        <button onClick={() => setEditing(true)} className="text-xs text-gray-300 hover:text-blue-400 transition-colors">+ asignar</button>
+      )}
+    </td>
+  )
+}
+
 function EmployeeRow({ emp, onClick, preferLegalEntity }: { emp: Employee; onClick: () => void; preferLegalEntity?: string }) {
   const [assigning, setAssigning] = useState(false)
   const contract = primaryContract(emp.contracts, preferLegalEntity)
@@ -309,15 +366,16 @@ function EmployeeRow({ emp, onClick, preferLegalEntity }: { emp: Employee; onCli
             </div>
           </div>
         </td>
+        {/* Vínculo */}
+        <VinculoCell emp={emp} />
         {/* Razón Social */}
         <td className="px-4 py-3">
-          {contract?.legalEntity ? (
-            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${LEGAL_ENTITY_COLOR[contract.legalEntity]}`}>
-              {LEGAL_ENTITY_LABEL[contract.legalEntity]}
-            </span>
-          ) : emp.contracts && emp.contracts.length > 1 ? (
-            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">Ambas</span>
-          ) : <span className="text-gray-300 text-xs">—</span>}
+          {(() => {
+            const le = contract?.legalEntity ?? emp.workCenters?.[0]?.legalEntity
+            if (le) return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${LEGAL_ENTITY_COLOR[le]}`}>{LEGAL_ENTITY_LABEL[le]}</span>
+            if (emp.contracts && emp.contracts.length > 1) return <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">Ambas</span>
+            return <span className="text-gray-300 text-xs">—</span>
+          })()}
         </td>
         {/* Centros de trabajo */}
         <td className="px-4 py-3" onClick={e => { e.stopPropagation(); setAssigning(true) }}>
@@ -452,6 +510,7 @@ export default function EmployeesPage() {
       else if (sortKey === 'city')          { va = a.city ?? '';                         vb = b.city ?? '' }
       else if (sortKey === 'costCenter')    { va = a.workCenters?.[0]?.workCenter?.name ?? ''; vb = b.workCenters?.[0]?.workCenter?.name ?? '' }
       else if (sortKey === 'exclusive')     { va = a.exclusive == null ? '' : a.exclusive ? 'Sí' : 'No'; vb = b.exclusive == null ? '' : b.exclusive ? 'Sí' : 'No' }
+      else if (sortKey === 'vinculo')       { va = a.vinculo ?? '';                      vb = b.vinculo ?? '' }
       else if (sortKey === 'status')        { va = a.status;                              vb = b.status }
       else if (sortKey === 'workSchedule')  { va = a.workSchedule ?? '';                  vb = b.workSchedule ?? '' }
       else if (sortKey === 'contractType')  { va = pc(a)?.type ?? '';                     vb = pc(b)?.type ?? '' }
@@ -544,13 +603,13 @@ export default function EmployeesPage() {
               ? <p className="text-xs text-gray-400">Sin ingresos en el período</p>
               : <div className="space-y-1.5">
                   {movements!.ingresos.map((e: any) => {
-                    const le = e.contracts?.[0]?.legalEntity
-                    const centers = e.workCenters?.filter((w: any) => !le || w.legalEntity === le).map((w: any) => w.workCenter.name).join(', ')
+                    const le = e.contracts?.[0]?.legalEntity ?? e.workCenters?.[0]?.legalEntity
+                    const leLabel = le === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : le === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : null
                     return (
                       <div key={e.id} className="flex items-start justify-between gap-2 text-xs">
                         <div>
                           <span className="font-medium text-gray-800">{e.firstName} {e.lastName}</span>
-                          {centers && <span className="text-gray-400 ml-1">· {centers}</span>}
+                          {leLabel && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600">{leLabel}</span>}
                         </div>
                         <span className="text-gray-400 whitespace-nowrap">{e.startDate ? formatDate(e.startDate) : '—'}</span>
                       </div>
@@ -568,13 +627,13 @@ export default function EmployeesPage() {
               ? <p className="text-xs text-gray-400">Sin salidas en el período</p>
               : <div className="space-y-1.5">
                   {movements!.salidas.map((e: any) => {
-                    const le = e.contracts?.[0]?.legalEntity
-                    const centers = e.workCenters?.filter((w: any) => !le || w.legalEntity === le).map((w: any) => w.workCenter.name).join(', ')
+                    const le = e.contracts?.[0]?.legalEntity ?? e.workCenters?.[0]?.legalEntity
+                    const leLabel = le === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : le === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : null
                     return (
                       <div key={e.id} className="flex items-start justify-between gap-2 text-xs">
                         <div>
                           <span className="font-medium text-gray-800">{e.firstName} {e.lastName}</span>
-                          {centers && <span className="text-gray-400 ml-1">· {centers}</span>}
+                          {leLabel && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600">{leLabel}</span>}
                         </div>
                         <span className="text-gray-400 whitespace-nowrap">{e.endDate ? formatDate(e.endDate) : '—'}</span>
                       </div>
@@ -586,25 +645,31 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {/* Vacaciones y Reemplazos */}
+      {/* Vacaciones tomadas */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
         <h3 className="text-sm font-semibold text-gray-800">
-          Vacaciones y Reemplazos — {MONTHS.find(m => m.value === movMonth)?.label} {movYear}
+          Vacaciones tomadas — {MONTHS.find(m => m.value === movMonth)?.label} {movYear}
         </h3>
         {(movements?.vacaciones?.length ?? 0) === 0
-          ? <p className="text-xs text-gray-400">Sin vacaciones registradas en el período</p>
+          ? <p className="text-xs text-gray-400">Sin vacaciones en el período</p>
           : <div className="divide-y divide-gray-50">
-              <div className="grid grid-cols-4 gap-3 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                <span>Colaborador</span><span>Desde</span><span>Hasta</span><span>Reemplazo</span>
+              <div className="grid grid-cols-5 gap-3 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                <span className="col-span-2">Colaborador</span><span>Desde</span><span>Hasta</span><span>Días</span>
               </div>
-              {movements!.vacaciones.map((leave: any) => (
-                <div key={leave.id} className="grid grid-cols-4 gap-3 py-2 text-xs text-gray-700">
-                  <span className="font-medium">{leave.employee.firstName} {leave.employee.lastName}</span>
-                  <span>{formatDate(leave.startDate)}</span>
-                  <span>{formatDate(leave.endDate)}</span>
-                  <span className="text-gray-400 italic">Sin reemplazo asignado</span>
-                </div>
-              ))}
+              {movements!.vacaciones.map((leave: any) => {
+                const leLabel = leave.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : leave.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : null
+                return (
+                  <div key={leave.id} className="grid grid-cols-5 gap-3 py-2 text-xs text-gray-700">
+                    <div className="col-span-2">
+                      <span className="font-medium">{leave.employee.firstName} {leave.employee.lastName}</span>
+                      {leLabel && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600">{leLabel}</span>}
+                    </div>
+                    <span>{formatDate(leave.startDate)}</span>
+                    <span>{formatDate(leave.endDate)}</span>
+                    <span>{leave.days} día{leave.days !== 1 ? 's' : ''}</span>
+                  </div>
+                )
+              })}
             </div>
         }
       </div>
@@ -675,6 +740,7 @@ export default function EmployeesPage() {
               <thead>
                 <tr className="text-left border-b border-gray-100">
                   <SortTh label="Colaborador"    col="firstName"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh label="Vínculo"        col="vinculo"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortTh label="Razón Social"   col="legalEntity"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortTh label="Centros"        col="costCenter"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   <SortTh label="Estado"         col="status"         sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />

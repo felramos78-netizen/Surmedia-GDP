@@ -1,5 +1,51 @@
 import type { FastifyPluginAsync } from 'fastify'
 import type { Prisma } from '@prisma/client'
+import * as XLSX from 'xlsx'
+import * as fs from 'fs'
+import * as path from 'path'
+
+const REPORTES_DIR = path.join(process.cwd(), 'reportes')
+
+// Normaliza a medianoche UTC para evitar desfases de zona horaria
+const toUTCDay = (d: Date): Date =>
+  new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+
+function readVacacionesExcel(legalEntityFilter?: string) {
+  const folders: Array<{ dir: string; entity: string }> = [
+    { dir: 'Comunicaciones', entity: 'COMUNICACIONES_SURMEDIA' },
+    { dir: 'Consultoría',    entity: 'SURMEDIA_CONSULTORIA' },
+  ]
+  const result: Array<{ id: string; rut: string; nombre: string; startDate: Date; endDate: Date; legalEntity: string }> = []
+
+  for (const { dir, entity } of folders) {
+    if (legalEntityFilter && legalEntityFilter !== entity) continue
+    const folderPath = path.join(REPORTES_DIR, dir)
+    if (!fs.existsSync(folderPath)) continue
+
+    const file = fs.readdirSync(folderPath).filter(f => f.includes('Vacaciones tomadas')).sort().reverse()[0]
+    if (!file) continue
+
+    const wb = XLSX.readFile(path.join(folderPath, file), { cellDates: true })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1 })
+
+    for (let i = 6; i < rows.length; i++) {
+      const row = rows[i]
+      if (!row || row.length < 5) continue
+      const [, rut, nombre, inicio, termino] = row
+      if (!rut || !inicio || !termino) continue
+      result.push({
+        id:        `${entity}-${rut}-${i}`,
+        rut:       rut as string,
+        nombre:    nombre as string,
+        startDate: toUTCDay(new Date(inicio)),
+        endDate:   toUTCDay(new Date(termino)),
+        legalEntity: entity,
+      })
+    }
+  }
+  return result
+}
 
 interface EmployeeListQuery {
   search?: string
@@ -72,7 +118,12 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
       workCenters: { select: { legalEntity: true, workCenter: { select: { name: true } } } },
     } as const
 
-    const [ingresos, salidas, vacaciones] = await Promise.all([
+    const rawVacaciones = readVacacionesExcel(legalEntity)
+      .filter(v => v.startDate >= startOfPeriod && v.startDate <= endOfPeriod)
+      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
+
+    const ruts = [...new Set(rawVacaciones.map(v => v.rut))]
+    const [ingresos, salidas, empByRut] = await Promise.all([
       fastify.prisma.employee.findMany({
         where: { deletedAt: null, startDate: { gte: startOfPeriod, lte: endOfPeriod }, ...entityContractFilter },
         select: empSelect,
@@ -83,22 +134,25 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
         select: empSelect,
         orderBy: { endDate: 'asc' },
       }),
-      fastify.prisma.leave.findMany({
-        where: {
-          startDate: { lte: endOfPeriod },
-          endDate:   { gte: startOfPeriod },
-          status:    { in: ['APPROVED', 'PENDING'] },
-        },
-        select: {
-          id: true, type: true, startDate: true, endDate: true, days: true, reason: true, status: true,
-          employee: { select: { id: true, firstName: true, lastName: true, rut: true,
-            contracts: { where: { deletedAt: null, isActive: true }, select: { legalEntity: true } },
-            workCenters: { select: { legalEntity: true, workCenter: { select: { name: true } } } },
-          }},
-        },
-        orderBy: { startDate: 'asc' },
+      fastify.prisma.employee.findMany({
+        where: { rut: { in: ruts } },
+        select: { rut: true, firstName: true, lastName: true },
       }),
     ])
+
+    const empMap = new Map(empByRut.map(e => [e.rut, e]))
+    const vacaciones = rawVacaciones.map(v => {
+      const emp = empMap.get(v.rut)
+      const days = Math.round((v.endDate.getTime() - v.startDate.getTime()) / 86400000) + 1
+      return {
+        id:         v.id,
+        employee:   emp ? { firstName: emp.firstName, lastName: emp.lastName } : { firstName: v.nombre, lastName: '' },
+        startDate:  v.startDate,
+        endDate:    v.endDate,
+        days,
+        legalEntity: v.legalEntity,
+      }
+    })
 
     return reply.send({ data: { ingresos, salidas, vacaciones } })
   })
@@ -178,6 +232,16 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     ])
 
     return reply.send({ data: employees, total, page: Number(page), limit: Number(limit) })
+  })
+
+  fastify.patch<{ Params: { id: string }; Body: { vinculo?: string | null; reemplazaA?: string | null } }>('/:id', async (req, reply) => {
+    const { id } = req.params
+    const { vinculo, reemplazaA } = req.body
+    const data: Record<string, unknown> = {}
+    if ('vinculo'    in req.body) data.vinculo    = vinculo    ?? null
+    if ('reemplazaA' in req.body) data.reemplazaA = reemplazaA ?? null
+    const emp = await fastify.prisma.employee.update({ where: { id }, data, select: { id: true, vinculo: true, reemplazaA: true } })
+    return reply.send({ data: emp })
   })
 
   fastify.get<{ Params: { id: string } }>('/:id/payroll', async (req, reply) => {
