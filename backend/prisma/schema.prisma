@@ -107,17 +107,29 @@ enum CostType {
 }
 
 model WorkCenter {
-  id                 String               @id @default(uuid())
-  name               String               @unique
-  costType           CostType             @default(DIRECTO)
-  presupuesto        Float?
-  ingresosMensuales  Float?
-  ubicacion          String?
-  assignments        EmployeeWorkCenter[]
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  id          String               @id @default(uuid())
+  name        String               @unique
+  costType    CostType             @default(DIRECTO)
+  presupuesto Float?
+  ubicacion   String?
+  assignments EmployeeWorkCenter[]
+  ingresos    WorkCenterIngreso[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   @@map("work_centers")
+}
+
+model WorkCenterIngreso {
+  id           String     @id @default(uuid())
+  workCenter   WorkCenter @relation(fields: [workCenterId], references: [id], onDelete: Cascade)
+  workCenterId String
+  name         String
+  amount       Float
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("work_center_ingresos")
 }
 
 model EmployeeWorkCenter {

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { WorkCenter, CostType, ApiResponse } from '@/types'
+import type { WorkCenter, WorkCenterIngreso, CostType, ApiResponse } from '@/types'
 
 export function useWorkCenters() {
   return useQuery({
@@ -26,7 +26,7 @@ export function useCreateWorkCenter() {
 export function useUpdateWorkCenter() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, ...body }: { id: string; name?: string; costType?: CostType; presupuesto?: number | null; ingresosMensuales?: number | null; ubicacion?: string | null }) => {
+    mutationFn: async ({ id, ...body }: { id: string; name?: string; costType?: CostType; presupuesto?: number | null; ubicacion?: string | null }) => {
       const { data } = await api.patch<ApiResponse<WorkCenter>>(`/work-centers/${id}`, body)
       return data.data
     },
@@ -39,6 +39,38 @@ export function useDeleteWorkCenter() {
   return useMutation({
     mutationFn: async (id: string) => {
       await api.delete(`/work-centers/${id}`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workCenters'] }),
+  })
+}
+
+export function useAddIngreso() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ workCenterId, name, amount }: { workCenterId: string; name: string; amount: number }) => {
+      const { data } = await api.post<ApiResponse<WorkCenterIngreso>>(`/work-centers/${workCenterId}/ingresos`, { name, amount })
+      return data.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workCenters'] }),
+  })
+}
+
+export function useUpdateIngreso() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ workCenterId, ingresoId, name, amount }: { workCenterId: string; ingresoId: string; name: string; amount: number }) => {
+      const { data } = await api.patch<ApiResponse<WorkCenterIngreso>>(`/work-centers/${workCenterId}/ingresos/${ingresoId}`, { name, amount })
+      return data.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workCenters'] }),
+  })
+}
+
+export function useDeleteIngreso() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ workCenterId, ingresoId }: { workCenterId: string; ingresoId: string }) => {
+      await api.delete(`/work-centers/${workCenterId}/ingresos/${ingresoId}`)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['workCenters'] }),
   })

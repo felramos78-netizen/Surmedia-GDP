@@ -1,16 +1,18 @@
-import { useState, useMemo, useEffect, Fragment } from 'react'
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
+import * as XLSX from 'xlsx'
 import type { LucideIcon } from 'lucide-react'
 import {
   Plus, Pencil, Trash2, X, Save, Building2, Users, Briefcase,
   ChevronDown, ChevronUp, ChevronsUpDown, DollarSign, TrendingUp,
   TrendingDown, BarChart2, Search, Wallet, Percent, UserPlus,
-  UserMinus, Stethoscope, Repeat, RefreshCw,
+  UserMinus, Stethoscope, Repeat, RefreshCw, FileDown,
 } from 'lucide-react'
 import {
   useWorkCenters, useCreateWorkCenter, useUpdateWorkCenter, useDeleteWorkCenter,
+  useAddIngreso, useUpdateIngreso, useDeleteIngreso,
 } from '@/hooks/useWorkCenters'
 import { usePayrollTable, usePayrollYears, useMovements } from '@/hooks/useDotacion'
-import type { WorkCenter, CostType, LegalEntity, PayrollRawEntry, PayrollItem, EmployeeStatus } from '@/types'
+import type { WorkCenter, WorkCenterIngreso, CostType, LegalEntity, PayrollRawEntry, PayrollItem, EmployeeStatus } from '@/types'
 
 // ─── Formatting ───────────────────────────────────────────────────────────────
 
@@ -210,6 +212,7 @@ function sumPayrollStats(entries: PayrollRawEntry[]) {
 // ─── Sort ─────────────────────────────────────────────────────────────────────
 
 type SortKey = 'employeeName' | 'legalEntity' | 'period' | 'liquidSalary' | 'grossSalary' | 'sueldoEstandar' | 'sueldoBase' | 'gratificacion' | 'bonosTotal' | 'hhTotal' | 'noImponiblesTotal'
+type CenterSortKey = 'name' | 'ubicacion' | 'costType' | 'personal' | 'cargos' | 'ingresos' | 'gasto' | 'diferencia'
 type SortDir = 'asc' | 'desc'
 const NUMERIC_KEYS = new Set<SortKey>(['liquidSalary', 'grossSalary', 'sueldoEstandar', 'sueldoBase', 'gratificacion', 'bonosTotal', 'hhTotal', 'noImponiblesTotal'])
 
@@ -248,6 +251,82 @@ function FilterSelect({ value, onChange, options, placeholder }: {
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
       <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+    </div>
+  )
+}
+
+// ─── MultiSelect ──────────────────────────────────────────────────────────────
+
+function MultiSelect<T extends string>({ label, selected, onChange, options }: {
+  label: string
+  selected: T[]
+  onChange: (v: T[]) => void
+  options: { value: T; label: string }[]
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handle(e: MouseEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [open])
+
+  function toggle(v: T) {
+    onChange(selected.includes(v) ? selected.filter(s => s !== v) : [...selected, v])
+  }
+
+  const count = selected.length
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-1.5 pl-3 pr-2 py-2 text-sm border rounded-lg bg-white transition-colors ${
+          count > 0 ? 'border-blue-400 text-blue-700 bg-blue-50/60' : 'border-gray-200 text-gray-700 hover:border-gray-300'
+        }`}
+      >
+        {label}
+        {count > 0 && (
+          <span className="ml-0.5 bg-blue-600 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+            {count}
+          </span>
+        )}
+        <ChevronDown size={13} className={`ml-0.5 text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-lg min-w-max py-1.5">
+          <button
+            onClick={() => onChange([])}
+            className={`w-full px-3 py-1.5 text-sm text-left hover:bg-gray-50 ${count === 0 ? 'text-blue-600 font-semibold' : 'text-gray-500'}`}
+          >
+            Todos
+          </button>
+          <div className="border-t border-gray-100 my-1" />
+          {options.map(o => (
+            <button
+              key={o.value}
+              onClick={() => toggle(o.value)}
+              className={`w-full px-3 py-1.5 text-sm text-left flex items-center gap-2.5 hover:bg-gray-50 ${
+                selected.includes(o.value) ? 'text-blue-700 font-medium' : 'text-gray-700'
+              }`}
+            >
+              <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
+                selected.includes(o.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
+              }`}>
+                {selected.includes(o.value) && (
+                  <svg viewBox="0 0 12 12" className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="1.5,6 5,9.5 10.5,2.5" />
+                  </svg>
+                )}
+              </span>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -301,6 +380,139 @@ function MovementList({ title, items, color }: {
       </div>
     </div>
   )
+}
+
+// ─── Excel export ─────────────────────────────────────────────────────────────
+
+function applyClpFormat(ws: XLSX.WorkSheet, cols: number[], clpFmt = '$#,##0') {
+  const range = XLSX.utils.decode_range(ws['!ref']!)
+  for (let R = range.s.r + 1; R <= range.e.r; R++) {
+    for (const C of cols) {
+      const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })]
+      if (cell && typeof cell.v === 'number') cell.z = clpFmt
+    }
+  }
+}
+
+function exportCentrosToExcel(
+  centers: WorkCenter[],
+  allEntries: PayrollRawEntry[],
+  periodoLabel: string,
+  isMonthly: boolean,
+) {
+  const wb = XLSX.utils.book_new()
+
+  // ── Hoja 1: Resumen ──────────────────────────────────────────────────────────
+  const data = centers.map(wc => {
+    const wcEntries = allEntries.filter(e =>
+      e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
+    )
+    let gastoReal = 0, gastoEstandar = 0, gastoLiquido = 0
+    let gastoBonos = 0, gastoHH = 0, gastoNoImp = 0
+    for (const e of wcEntries) {
+      const p = parsePayrollItems(e.items ?? [], e.grossSalary)
+      gastoReal     += e.grossSalary
+      gastoLiquido  += e.liquidSalary
+      gastoEstandar += p.sueldoBase + p.gratificacion + p.noImponiblesTotal
+      gastoBonos    += p.bonosTotal
+      gastoHH       += p.hhTotal
+      gastoNoImp    += p.noImponiblesTotal
+    }
+    const nColabs    = new Set(wcEntries.map(e => e.employeeId)).size
+    const ingresos   = wc.totalIngresos
+    const diferencia = ingresos > 0 ? ingresos - gastoReal : null
+    return {
+      'Centro':                wc.name,
+      'Ubicación':             wc.ubicacion ?? '',
+      'Tipo de Costo':         COST_TYPE_LABEL[wc.costType],
+      'Colaboradores período': nColabs,
+      'N° Cargos':             wc.positions?.length ?? 0,
+      'Ingresos':              ingresos || 0,
+      'Sueldo Bruto':          gastoReal,
+      'Sueldo Estándar':       gastoEstandar,
+      'Sueldo Líquido':        gastoLiquido,
+      'Total Bonos':           gastoBonos,
+      'Total HH Extra':        gastoHH,
+      'Total Hab. No Imp.':    gastoNoImp,
+      'Diferencia Ing−Gasto':  diferencia,
+    }
+  })
+
+  const sumCols = [
+    'Colaboradores período', 'N° Cargos', 'Ingresos',
+    'Sueldo Bruto', 'Sueldo Estándar', 'Sueldo Líquido',
+    'Total Bonos', 'Total HH Extra', 'Total Hab. No Imp.', 'Diferencia Ing−Gasto',
+  ]
+  const totals: Record<string, number | string | null> = {
+    'Centro': `TOTAL (${centers.length} centros)`,
+    'Ubicación': '', 'Tipo de Costo': '',
+  }
+  for (const col of sumCols) {
+    totals[col] = data.reduce((s, r) => {
+      const v = (r as Record<string, unknown>)[col]
+      return s + (typeof v === 'number' ? v : 0)
+    }, 0)
+  }
+
+  const ws = XLSX.utils.json_to_sheet([...data, totals])
+  ws['!cols'] = [
+    { wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 10 },
+    { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
+    { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 22 },
+  ]
+  // cols: Ingresos(5), Bruto(6), Estándar(7), Líquido(8), Bonos(9), HH(10), NoImp(11), Diferencia(12)
+  applyClpFormat(ws, [5, 6, 7, 8, 9, 10, 11, 12])
+  XLSX.utils.book_append_sheet(wb, ws, 'Resumen')
+
+  // ── Hojas por centro ─────────────────────────────────────────────────────────
+  for (const wc of centers) {
+    const wcEntries = allEntries.filter(e =>
+      e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
+    )
+    const rows = aggregateWCRows(wcEntries, isMonthly)
+    if (rows.length === 0) continue
+
+    const detailData = rows.map(r => ({
+      'Colaborador':         r.employeeName,
+      'RUT':                 r.rut,
+      'Razón Social':        LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity,
+      'Cargo':               r.jobTitle,
+      'Período':             r.period,
+      'Ponderación':         r.ponderacion,
+      'Sueldo Bruto':        r.grossSalary,
+      'Sueldo Estándar':     r.sueldoEstandar,
+      'Sueldo Líquido':      r.liquidSalary,
+      'Sueldo Base':         r.sueldoBase,
+      'Gratificación':       r.gratificacion,
+      'Total Bonos':         r.bonosTotal,
+      'Bonos identificados': r.bonosNames,
+      'Total HH Extra':      r.hhTotal,
+      'HH identificadas':    r.hhDetail,
+      'Total Hab. No Imp.':  r.noImponiblesTotal,
+      'Hab. No Imp.':        r.noImponiblesNames,
+    }))
+
+    const dws = XLSX.utils.json_to_sheet(detailData)
+    dws['!cols'] = [
+      { wch: 28 }, { wch: 14 }, { wch: 16 }, { wch: 28 }, { wch: 14 },
+      { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
+      { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 30 },
+      { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 30 },
+    ]
+    // Ponderación(5) → %; CLP: Bruto(6), Estándar(7), Líquido(8), Base(9), Gratif(10), Bonos(11), HH(13), NoImp(15)
+    applyClpFormat(dws, [6, 7, 8, 9, 10, 11, 13, 15])
+    const drng = XLSX.utils.decode_range(dws['!ref']!)
+    for (let R = drng.s.r + 1; R <= drng.e.r; R++) {
+      const cell = dws[XLSX.utils.encode_cell({ r: R, c: 5 })]
+      if (cell && typeof cell.v === 'number') cell.z = '0%'
+    }
+
+    const sheetName = wc.name.replace(/[\\/?*[\]]/g, '').slice(0, 31)
+    XLSX.utils.book_append_sheet(wb, dws, sheetName)
+  }
+
+  const safe = periodoLabel.replace(/[\s/]+/g, '-').toLowerCase()
+  XLSX.writeFile(wb, `centros-de-trabajo${safe ? `-${safe}` : ''}.xlsx`)
 }
 
 // ─── WorkCenterModal ──────────────────────────────────────────────────────────
@@ -414,12 +626,43 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
   const [outerTab,  setOuterTab]  = useState<'personas' | 'honorarios' | 'compras'>('personas')
   const [personTab, setPersonTab] = useState<'sueldos' | 'movimientos' | 'provisiones'>('sueldos')
 
-  // Ingresos mensuales editable state
-  const [ingresosEdit, setIngresosEdit] = useState(false)
-  const [ingresosVal,  setIngresosVal]  = useState(
-    wc.ingresosMensuales ? String(Math.round(wc.ingresosMensuales)) : ''
-  )
-  const updateWC = useUpdateWorkCenter()
+  // Ingresos state
+  const [addingIngreso, setAddingIngreso] = useState(false)
+  const [newName,       setNewName]       = useState('')
+  const [newAmount,     setNewAmount]     = useState('')
+  const [editingId,     setEditingId]     = useState<string | null>(null)
+  const [editName,      setEditName]      = useState('')
+  const [editAmount,    setEditAmount]    = useState('')
+
+  const addIngreso    = useAddIngreso()
+  const updateIngreso = useUpdateIngreso()
+  const deleteIngreso = useDeleteIngreso()
+  const updateWC      = useUpdateWorkCenter()
+
+  async function handleAddIngreso() {
+    const amt = Number(newAmount.replace(/[^0-9]/g, ''))
+    if (!newName.trim() || !amt) return
+    await addIngreso.mutateAsync({ workCenterId: wc.id, name: newName.trim(), amount: amt })
+    setNewName(''); setNewAmount(''); setAddingIngreso(false)
+  }
+
+  function startEdit(ing: WorkCenterIngreso) {
+    setEditingId(ing.id)
+    setEditName(ing.name)
+    setEditAmount(String(Math.round(ing.amount)))
+  }
+
+  async function handleUpdateIngreso() {
+    if (!editingId) return
+    const amt = Number(editAmount.replace(/[^0-9]/g, ''))
+    if (!editName.trim() || !amt) return
+    await updateIngreso.mutateAsync({ workCenterId: wc.id, ingresoId: editingId, name: editName.trim(), amount: amt })
+    setEditingId(null)
+  }
+
+  async function handleDeleteIngreso(ingresoId: string) {
+    await deleteIngreso.mutateAsync({ workCenterId: wc.id, ingresoId })
+  }
 
   // Annual data (always year-only, for Gastos acumulados part 1)
   const { data: annualEntries = [] } = usePayrollTable({ year, month: undefined })
@@ -495,11 +738,6 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
   [movements, wc.name])
   const movReemplazos = useMemo(() => filterByCenter(movements?.reemplazos ?? []), [movements, wc.name])
 
-  async function saveIngresos() {
-    const val = ingresosVal.trim() ? (Number(ingresosVal.replace(/[^0-9]/g, '')) || null) : null
-    await updateWC.mutateAsync({ id: wc.id, ingresosMensuales: val })
-    setIngresosEdit(false)
-  }
 
   const periodoLabel = month ? `${MONTHS_LABEL[Number(month)]} ${year}` : year
 
@@ -575,7 +813,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
                       const totalGastosAnual   = brutoanual + contractAnual
                       const totalGastosMensual = brutoMensual !== null ? brutoMensual + (contractMensual ?? 0) : null
 
-                      const ingresosAnual  = (wc.ingresosMensuales ?? 0) * 12
+                      const ingresosAnual  = wc.totalIngresos * 12
 
                       return (
                         <>
@@ -665,54 +903,112 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
                                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
                                   <Wallet size={13} className="text-gray-400" /> Ingresos mensuales
                                 </p>
-                                {!ingresosEdit && (
-                                  <button onClick={() => setIngresosEdit(true)}
+                                {!addingIngreso && (
+                                  <button onClick={() => setAddingIngreso(true)}
                                     className="text-xs text-gray-400 hover:text-blue-600 flex items-center gap-1 transition-colors">
-                                    <Pencil size={11} /> Editar
+                                    <Plus size={11} /> Agregar
                                   </button>
                                 )}
                               </div>
-                              {ingresosEdit ? (
-                                <div className="space-y-2">
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+
+                              <div className="space-y-1.5">
+                                {wc.ingresos.map(ing => (
+                                  <div key={ing.id} className="bg-white rounded-lg border border-gray-100 p-2.5">
+                                    {editingId === ing.id ? (
+                                      <div className="space-y-1.5">
+                                        <input
+                                          autoFocus
+                                          value={editName}
+                                          onChange={e => setEditName(e.target.value)}
+                                          placeholder="Nombre"
+                                          className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                        <div className="relative">
+                                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                          <input
+                                            value={editAmount}
+                                            onChange={e => setEditAmount(e.target.value)}
+                                            placeholder="0"
+                                            className="w-full pl-6 pr-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                          />
+                                        </div>
+                                        <div className="flex gap-1.5">
+                                          <button
+                                            onClick={handleUpdateIngreso}
+                                            disabled={updateIngreso.isPending}
+                                            className="flex-1 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-1"
+                                          >
+                                            <Save size={11} /> Guardar
+                                          </button>
+                                          <button onClick={() => setEditingId(null)} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700">
+                                            Cancelar
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-gray-600 flex-1 truncate" title={ing.name}>{ing.name}</span>
+                                        <span className="text-sm font-bold text-emerald-700 whitespace-nowrap">{fmtShort(ing.amount)}</span>
+                                        <button onClick={() => startEdit(ing)} className="p-0.5 text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0">
+                                          <Pencil size={11} />
+                                        </button>
+                                        <button onClick={() => handleDeleteIngreso(ing.id)} disabled={deleteIngreso.isPending} className="p-0.5 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">
+                                          <Trash2 size={11} />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+
+                                {addingIngreso && (
+                                  <div className="bg-white rounded-lg border border-blue-200 p-2.5 space-y-1.5">
                                     <input
                                       autoFocus
-                                      value={ingresosVal}
-                                      onChange={e => setIngresosVal(e.target.value)}
-                                      placeholder="0"
-                                      className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      value={newName}
+                                      onChange={e => setNewName(e.target.value)}
+                                      placeholder="Nombre (ej: Contrato Codelco)"
+                                      className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     />
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <button onClick={saveIngresos} disabled={updateWC.isPending}
-                                      className="flex-1 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-1">
-                                      <Save size={12} /> Guardar
-                                    </button>
-                                    <button onClick={() => setIngresosEdit(false)} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">
-                                      Cancelar
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="space-y-2">
-                                  <div className="bg-white rounded-lg border border-gray-100 p-2.5">
-                                    <div className="flex justify-between items-baseline">
-                                      <span className="text-[10px] text-gray-400">Mensual</span>
-                                      <span className="text-sm font-bold text-emerald-700">
-                                        {wc.ingresosMensuales ? fmtShort(wc.ingresosMensuales) : <span className="text-gray-300">—</span>}
-                                      </span>
+                                    <div className="relative">
+                                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                                      <input
+                                        value={newAmount}
+                                        onChange={e => setNewAmount(e.target.value)}
+                                        placeholder="0"
+                                        onKeyDown={e => e.key === 'Enter' && handleAddIngreso()}
+                                        className="w-full pl-6 pr-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      />
                                     </div>
-                                    <div className="flex justify-between items-baseline mt-1">
-                                      <span className="text-[10px] text-gray-400">Anual {year}</span>
-                                      <span className="text-sm font-bold text-emerald-600">
-                                        {wc.ingresosMensuales ? fmtShort(ingresosAnual) : <span className="text-gray-300">—</span>}
-                                      </span>
+                                    <div className="flex gap-1.5">
+                                      <button
+                                        onClick={handleAddIngreso}
+                                        disabled={addIngreso.isPending}
+                                        className="flex-1 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-1"
+                                      >
+                                        <Save size={11} /> Agregar
+                                      </button>
+                                      <button onClick={() => { setAddingIngreso(false); setNewName(''); setNewAmount('') }} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700">
+                                        Cancelar
+                                      </button>
                                     </div>
                                   </div>
-                                  {!wc.ingresosMensuales && (
-                                    <p className="text-xs text-gray-400 text-center">Sin definir</p>
-                                  )}
+                                )}
+
+                                {wc.ingresos.length === 0 && !addingIngreso && (
+                                  <p className="text-xs text-gray-400 text-center py-1">Sin ingresos definidos</p>
+                                )}
+                              </div>
+
+                              {wc.totalIngresos > 0 && (
+                                <div className="mt-2 bg-white rounded-lg border border-gray-100 p-2.5">
+                                  <div className="flex justify-between items-baseline">
+                                    <span className="text-[10px] text-gray-400">Total mensual</span>
+                                    <span className="text-sm font-bold text-emerald-700">{fmtShort(wc.totalIngresos)}</span>
+                                  </div>
+                                  <div className="flex justify-between items-baseline mt-1">
+                                    <span className="text-[10px] text-gray-400">Anual {year}</span>
+                                    <span className="text-sm font-bold text-emerald-600">{fmtShort(ingresosAnual)}</span>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -802,7 +1098,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
                                     {(r.ponderacion * 100).toFixed(0)}%
                                   </td>
                                   <td className="px-4 py-2.5 text-right font-medium text-gray-900 whitespace-nowrap">{fmt(r.grossSalary * r.ponderacion)}</td>
-                                  <td className="px-4 py-2.5 text-right font-semibold text-blue-700 whitespace-nowrap bg-blue-50/40">{fmt(r.sueldoEstandar * r.ponderacion)}</td>
+                                  <td className={`px-4 py-2.5 text-right font-semibold whitespace-nowrap ${r.sueldoEstandar !== r.grossSalary ? 'text-blue-700 bg-blue-50/40' : 'text-gray-700'}`}>{fmt(r.sueldoEstandar * r.ponderacion)}</td>
                                   <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{fmt(r.bonosTotal * r.ponderacion)}</td>
                                   <td className="px-4 py-2.5 text-xs text-gray-500 max-w-[180px] truncate" title={r.bonosNames}>{r.bonosNames}</td>
                                   <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{fmt(r.hhTotal * r.ponderacion)}</td>
@@ -910,13 +1206,16 @@ export default function WorkCentersPage() {
   const [modal,        setModal]        = useState<'create' | WorkCenter | null>(null)
   const [confirmId,    setConfirmId]    = useState<string | null>(null)
   const [search,       setSearch]       = useState('')
-  const [typeFilter,   setTypeFilter]   = useState<'' | CostType>('')
+  const [typeFilters,  setTypeFilters]  = useState<CostType[]>([])
+  const [ubicFilters,  setUbicFilters]  = useState<string[]>([])
   const [selectedWC,   setSelectedWC]   = useState<WorkCenter | null>(null)
   const [remSearch,    setRemSearch]    = useState('')
   const [centerFilter, setCenterFilter] = useState('')
   const [entityFilter, setEntityFilter] = useState('')
   const [sortKey,      setSortKey]      = useState<SortKey>('employeeName')
   const [sortDir,      setSortDir]      = useState<SortDir>('asc')
+  const [cSortKey,     setCSort]        = useState<CenterSortKey>('name')
+  const [cSortDir,     setCDir]         = useState<SortDir>('asc')
 
   const { data: centers = [], isLoading: centersLoading } = useWorkCenters()
   const { data: years   = [] }                             = usePayrollYears()
@@ -935,11 +1234,50 @@ export default function WorkCentersPage() {
 
   // ── Centros tab stats ───────────────────────────────────────────────────────
 
+  const ubicaciones = useMemo(() =>
+    [...new Set(centers.map(c => c.ubicacion).filter((u): u is string => !!u))].sort()
+  , [centers])
+
   const filtered = useMemo(() => centers.filter(wc => {
     const matchSearch = !search || wc.name.toLowerCase().includes(search.toLowerCase())
-    const matchType   = !typeFilter || wc.costType === typeFilter
-    return matchSearch && matchType
-  }), [centers, search, typeFilter])
+    const matchType   = typeFilters.length === 0 || typeFilters.includes(wc.costType)
+    const matchUbic   = ubicFilters.length === 0 || ubicFilters.includes(wc.ubicacion ?? '')
+    return matchSearch && matchType && matchUbic
+  }), [centers, search, typeFilters, ubicFilters])
+
+  const enrichedCenters = useMemo(() =>
+    filtered.map(wc => {
+      const wcEntries = allEntries.filter(e =>
+        e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
+      )
+      const gastoReal  = wcEntries.reduce((s, e) => s + e.grossSalary, 0)
+      const ingresos   = wc.totalIngresos
+      const diferencia = ingresos > 0 ? ingresos - gastoReal : null
+      return { wc, gastoReal, diferencia }
+    })
+  , [filtered, allEntries])
+
+  const sortedCenters = useMemo(() =>
+    [...enrichedCenters].sort((a, b) => {
+      let cmp = 0
+      switch (cSortKey) {
+        case 'name':      cmp = a.wc.name.localeCompare(b.wc.name, 'es'); break
+        case 'ubicacion': cmp = (a.wc.ubicacion ?? '').localeCompare(b.wc.ubicacion ?? '', 'es'); break
+        case 'costType':  cmp = a.wc.costType.localeCompare(b.wc.costType); break
+        case 'personal':  cmp = (a.wc.totalPersonnel ?? 0) - (b.wc.totalPersonnel ?? 0); break
+        case 'cargos':    cmp = (a.wc.positions?.length ?? 0) - (b.wc.positions?.length ?? 0); break
+        case 'ingresos':  cmp = (a.wc.totalIngresos) - (b.wc.totalIngresos); break
+        case 'gasto':     cmp = a.gastoReal - b.gastoReal; break
+        case 'diferencia':cmp = (a.diferencia ?? -Infinity) - (b.diferencia ?? -Infinity); break
+      }
+      return cSortDir === 'asc' ? cmp : -cmp
+    })
+  , [enrichedCenters, cSortKey, cSortDir])
+
+  function handleCenterSort(col: CenterSortKey) {
+    if (col === cSortKey) setCDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCSort(col); setCDir('asc') }
+  }
 
   const centerStats = useMemo(() => {
     const totalBudget    = centers.reduce((s, c) => s + (c.presupuesto ?? 0), 0)
@@ -1124,7 +1462,7 @@ export default function WorkCentersPage() {
             const nPersonas      = new Set(allEntries.map(e => e.employeeId)).size
             const gastosContract = nPersonas * 120_000 * (month ? 1 : 12)
             const totalGastos    = payrollStats.total + gastosContract
-            const totalIngresos  = centers.reduce((s, c) => s + (c.ingresosMensuales ?? 0), 0) * (month ? 1 : 12)
+            const totalIngresos  = centers.reduce((s, c) => s + c.totalIngresos, 0) * (month ? 1 : 12)
             const diferencia     = totalIngresos - totalGastos
             const dPos           = diferencia >= 0
             const label          = month ? `${MONTHS_LABEL[Number(month)]} ${year}` : `Anual ${year}`
@@ -1170,9 +1508,35 @@ export default function WorkCentersPage() {
                   className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <FilterSelect value={typeFilter} onChange={v => setTypeFilter(v as '' | CostType)} placeholder="Todos los tipos"
+              <MultiSelect<CostType>
+                label="Tipo"
+                selected={typeFilters}
+                onChange={setTypeFilters}
                 options={[{ value: 'DIRECTO', label: 'Directo' }, { value: 'INDIRECTO', label: 'Indirecto' }]}
               />
+              <MultiSelect<string>
+                label="Ubicación"
+                selected={ubicFilters}
+                onChange={setUbicFilters}
+                options={ubicaciones.map(u => ({ value: u, label: u }))}
+              />
+              {(typeFilters.length > 0 || ubicFilters.length > 0) && (
+                <button
+                  onClick={() => { setTypeFilters([]); setUbicFilters([]) }}
+                  className="text-xs text-gray-400 hover:text-gray-600 px-2 py-2"
+                >
+                  Limpiar
+                </button>
+              )}
+              <button
+                onClick={() => exportCentrosToExcel(filtered, allEntries, periodoLabel, isMonthly)}
+                disabled={filtered.length === 0}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title="Exportar tabla a Excel"
+              >
+                <FileDown size={14} />
+                Exportar Excel
+              </button>
             </div>
 
             {centersLoading ? (
@@ -1184,27 +1548,49 @@ export default function WorkCentersPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
+                {(() => {
+                  const cTh = (label: string, col: CenterSortKey, right?: boolean) => (
+                    <th
+                      onClick={() => handleCenterSort(col)}
+                      className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700 ${right ? 'text-right' : ''} ${cSortKey === col ? 'text-blue-600' : 'text-gray-500'}`}
+                    >
+                      {label}
+                      {cSortKey === col
+                        ? (cSortDir === 'asc'
+                            ? <ChevronUp   size={12} className="ml-1 inline text-blue-500" />
+                            : <ChevronDown size={12} className="ml-1 inline text-blue-500" />)
+                        : <ChevronsUpDown size={12} className="ml-1 inline text-gray-300" />
+                      }
+                    </th>
+                  )
+                  return (
                 <table className="w-full">
                   <thead>
                     <tr className="text-left border-b border-gray-100">
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Nombre</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ubicación</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Tipo</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Personal</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cargos</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Ingresos (mes/año)</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                        {periodoLabel ? `Gasto ${periodoLabel}` : 'Gasto período'}
+                      {cTh('Nombre', 'name')}
+                      {cTh('Ubicación', 'ubicacion')}
+                      {cTh('Tipo', 'costType')}
+                      {cTh('Personal', 'personal')}
+                      {cTh('Cargos', 'cargos')}
+                      {cTh('Ingresos', 'ingresos', true)}
+                      {cTh(periodoLabel ? `Gasto ${periodoLabel}` : 'Gasto período', 'gasto', true)}
+                      <th
+                        onClick={() => handleCenterSort('diferencia')}
+                        className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap text-right ${cSortKey === 'diferencia' ? 'text-blue-600' : 'text-gray-500'} hover:text-gray-700`}
+                      >
+                        Diferencia
+                        {cSortKey === 'diferencia'
+                          ? (cSortDir === 'asc'
+                              ? <ChevronUp   size={12} className="ml-1 inline text-blue-500" />
+                              : <ChevronDown size={12} className="ml-1 inline text-blue-500" />)
+                          : <ChevronsUpDown size={12} className="ml-1 inline text-gray-300" />
+                        }
                       </th>
                       <th className="px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {filtered.map(wc => {
-                      const wcEntries = allEntries.filter(e =>
-                        e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
-                      )
-                      const gastoReal = wcEntries.reduce((s, e) => s + e.grossSalary, 0)
+                    {sortedCenters.map(({ wc, gastoReal, diferencia }) => {
                       const isSelected = selectedWC?.id === wc.id
                       return (
                         <Fragment key={wc.id}>
@@ -1247,11 +1633,27 @@ export default function WorkCentersPage() {
                                 {wc.positions?.length ?? 0}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-700">
-                              {wc.presupuesto ? fmtShort(wc.presupuesto) : <span className="text-gray-300">—</span>}
+                            <td className="px-4 py-3 text-sm text-gray-700 text-right">
+                              {wc.totalIngresos > 0 ? fmtShort(wc.totalIngresos) : <span className="text-gray-300">—</span>}
                             </td>
-                            <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
                               {year ? fmtShort(gastoReal) : <span className="text-gray-300">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {year && diferencia !== null ? (
+                                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold whitespace-nowrap ${
+                                  diferencia >= 0
+                                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                    : 'bg-red-100 text-red-700 border border-red-200'
+                                }`}>
+                                  {diferencia >= 0
+                                    ? <TrendingUp  size={13} />
+                                    : <TrendingDown size={13} />}
+                                  {fmtShort(Math.abs(diferencia))}
+                                </span>
+                              ) : (
+                                <span className="text-gray-300 text-sm">—</span>
+                              )}
                             </td>
                             <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center gap-1">
@@ -1268,7 +1670,7 @@ export default function WorkCentersPage() {
                           </tr>
                           {isSelected && (
                             <tr>
-                              <td colSpan={8} className="px-4 pb-4">
+                              <td colSpan={9} className="px-4 pb-4">
                                 <WorkCenterDetailPanel
                                   wc={wc}
                                   allEntries={allEntries}
@@ -1283,25 +1685,33 @@ export default function WorkCentersPage() {
                       )
                     })}
                   </tbody>
-                  {year && filtered.length > 0 && (() => {
-                    const totalGasto = filtered.reduce((sum, wc) => {
-                      const wcEntries = allEntries.filter(e =>
-                        e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
-                      )
-                      return sum + wcEntries.reduce((s, e) => s + e.grossSalary, 0)
-                    }, 0)
-                    const totalPresupuesto = filtered.reduce((s, c) => s + (c.presupuesto ?? 0), 0)
+                  {year && sortedCenters.length > 0 && (() => {
+                    const totalGasto    = sortedCenters.reduce((s, { gastoReal }) => s + gastoReal, 0)
+                    const totalIngresos = sortedCenters.reduce((s, { wc }) => s + (wc.totalIngresos), 0)
+                    const totalDiff     = totalIngresos > 0 ? totalIngresos - totalGasto : null
                     return (
                       <tfoot>
                         <tr className="border-t-2 border-gray-200 bg-gray-50">
                           <td className="px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide" colSpan={5}>
-                            Total ({filtered.length} centros)
+                            Total ({sortedCenters.length} centros)
                           </td>
-                          <td className="px-4 py-3 text-sm font-semibold text-gray-700">
-                            {totalPresupuesto > 0 ? fmtShort(totalPresupuesto) : <span className="text-gray-300">—</span>}
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-700 text-right">
+                            {totalIngresos > 0 ? fmtShort(totalIngresos) : <span className="text-gray-300">—</span>}
                           </td>
-                          <td className="px-4 py-3 text-sm font-bold text-gray-900">
+                          <td className="px-4 py-3 text-sm font-bold text-gray-900 text-right">
                             {fmtShort(totalGasto)}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {totalDiff !== null ? (
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold whitespace-nowrap ${
+                                totalDiff >= 0
+                                  ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                  : 'bg-red-100 text-red-700 border border-red-200'
+                              }`}>
+                                {totalDiff >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                                {fmtShort(Math.abs(totalDiff))}
+                              </span>
+                            ) : <span className="text-gray-300">—</span>}
                           </td>
                           <td />
                         </tr>
@@ -1309,6 +1719,8 @@ export default function WorkCentersPage() {
                     )
                   })()}
                 </table>
+                  )
+                })()}
               </div>
             )}
           </div>
@@ -1418,7 +1830,7 @@ export default function WorkCentersPage() {
                         <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{row.period}</td>
                         <td className="px-4 py-3 text-right font-medium text-gray-900 whitespace-nowrap">{fmt(row.liquidSalary)}</td>
                         <td className="px-4 py-3 text-right text-gray-700 whitespace-nowrap">{fmt(row.grossSalary)}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-blue-700 whitespace-nowrap bg-blue-50/40">{fmt(row.sueldoEstandar)}</td>
+                        <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${row.sueldoEstandar !== row.grossSalary ? 'text-blue-700 bg-blue-50/40' : 'text-gray-700'}`}>{fmt(row.sueldoEstandar)}</td>
                         <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{fmt(row.sueldoBase)}</td>
                         <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{fmt(row.gratificacion)}</td>
                         <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{fmt(row.bonosTotal)}</td>

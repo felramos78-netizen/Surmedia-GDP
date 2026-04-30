@@ -2,15 +2,23 @@ export type UserRole = 'ADMIN' | 'RRHH_MANAGER' | 'RRHH_ANALYST' | 'MANAGER' | '
 
 export type CostType = 'DIRECTO' | 'INDIRECTO'
 
+export interface WorkCenterIngreso {
+  id: string
+  name: string
+  amount: number
+  createdAt: string
+}
+
 export interface WorkCenter {
   id: string
   name: string
   costType: CostType
   presupuesto?: number | null
-  ingresosMensuales?: number | null
   ubicacion?: string | null
   totalPersonnel?: number
   positions?: { title: string; count: number }[]
+  ingresos: WorkCenterIngreso[]
+  totalIngresos: number
   createdAt: string
   updatedAt: string
 }
