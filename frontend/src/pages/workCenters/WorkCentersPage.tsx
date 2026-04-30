@@ -11,7 +11,7 @@ import {
   useWorkCenters, useCreateWorkCenter, useUpdateWorkCenter, useDeleteWorkCenter,
   useAddIngreso, useUpdateIngreso, useDeleteIngreso,
 } from '@/hooks/useWorkCenters'
-import { usePayrollTable, usePayrollYears, useMovements } from '@/hooks/useDotacion'
+import { usePayrollTable, usePayrollYears, useMovements, useExpiringContracts } from '@/hooks/useDotacion'
 import type { WorkCenter, WorkCenterIngreso, CostType, LegalEntity, PayrollRawEntry, PayrollItem, EmployeeStatus } from '@/types'
 
 // ─── Formatting ───────────────────────────────────────────────────────────────
@@ -31,6 +31,14 @@ const MONTHS_LABEL: Record<number, string> = {
   7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic',
 }
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: MONTHS_LABEL[i + 1] }))
+
+// ─── Dashboard card order ─────────────────────────────────────────────────────
+const WC_CARD_IDS = [
+  'centros', 'colaboradores', 'contratacion',
+  'directo', 'indirecto', 'total-payroll',
+  'fin-gastos', 'fin-ingresos', 'fin-diferencia',
+] as const
+type WCCardId = typeof WC_CARD_IDS[number]
 
 // ─── Label/color maps ─────────────────────────────────────────────────────────
 
@@ -401,39 +409,65 @@ function exportCentrosToExcel(
   isMonthly: boolean,
 ) {
   const wb = XLSX.utils.book_new()
+  const CONTRACTUAL = 160_000
+
+  function filterForCenter(entries: PayrollRawEntry[], wc: WorkCenter): PayrollRawEntry[] {
+    const idSet = new Set(wc.employeeIds ?? [])
+    if (idSet.size > 0) return entries.filter(e => idSet.has(e.employeeId))
+    const byWC = entries.filter(e =>
+      e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
+    )
+    if (byWC.length > 0) return byWC
+    return entries.filter(e => e.employee.costCenter === wc.name)
+  }
+
+  // Pre-computar primer centro por empleado (en orden de la lista)
+  const employeeFirstCenter = new Map<string, string>()
+  for (const wc of centers) {
+    for (const e of filterForCenter(allEntries, wc)) {
+      if (!employeeFirstCenter.has(e.employeeId)) {
+        employeeFirstCenter.set(e.employeeId, wc.name)
+      }
+    }
+  }
 
   // ── Hoja 1: Resumen ──────────────────────────────────────────────────────────
   const data = centers.map(wc => {
-    const wcEntries = allEntries.filter(e =>
-      e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
-    )
+    const wcEntries = filterForCenter(allEntries, wc)
     let gastoReal = 0, gastoEstandar = 0, gastoLiquido = 0
     let gastoBonos = 0, gastoHH = 0, gastoNoImp = 0
     for (const e of wcEntries) {
-      const p = parsePayrollItems(e.items ?? [], e.grossSalary)
-      gastoReal     += e.grossSalary
-      gastoLiquido  += e.liquidSalary
-      gastoEstandar += p.sueldoBase + p.gratificacion + p.noImponiblesTotal
-      gastoBonos    += p.bonosTotal
-      gastoHH       += p.hhTotal
-      gastoNoImp    += p.noImponiblesTotal
+      const p    = parsePayrollItems(e.items ?? [], e.grossSalary)
+      const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
+      gastoReal     += e.grossSalary * pond
+      gastoLiquido  += e.liquidSalary * pond
+      gastoEstandar += (p.sueldoBase + p.gratificacion + p.noImponiblesTotal) * pond
+      gastoBonos    += p.bonosTotal * pond
+      gastoHH       += p.hhTotal * pond
+      gastoNoImp    += p.noImponiblesTotal * pond
     }
-    const nColabs    = new Set(wcEntries.map(e => e.employeeId)).size
-    const ingresos   = wc.totalIngresos
-    const diferencia = ingresos > 0 ? ingresos - gastoReal : null
+    const nColabs   = new Set(wcEntries.map(e => e.employeeId)).size
+    // Solo cuenta empleados cuyo primer centro es este
+    const nPrimary  = new Set(
+      wcEntries.filter(e => employeeFirstCenter.get(e.employeeId) === wc.name).map(e => e.employeeId)
+    ).size
+    const gastoContract  = nPrimary * CONTRACTUAL * (isMonthly ? 1 : 12)
+    const ingresos       = (wc.totalIngresos ?? 0) * (isMonthly ? 1 : 12)
+    const diferencia     = ingresos > 0 ? ingresos - (gastoReal + gastoContract) : null
     return {
       'Centro':                wc.name,
       'Ubicación':             wc.ubicacion ?? '',
       'Tipo de Costo':         COST_TYPE_LABEL[wc.costType],
       'Colaboradores período': nColabs,
       'N° Cargos':             wc.positions?.length ?? 0,
-      'Ingresos':              ingresos || 0,
+      'Ingresos':              ingresos,
       'Sueldo Bruto':          gastoReal,
       'Sueldo Estándar':       gastoEstandar,
       'Sueldo Líquido':        gastoLiquido,
       'Total Bonos':           gastoBonos,
       'Total HH Extra':        gastoHH,
       'Total Hab. No Imp.':    gastoNoImp,
+      'Gastos Contractuales':  gastoContract,
       'Diferencia Ing−Gasto':  diferencia,
     }
   })
@@ -441,7 +475,8 @@ function exportCentrosToExcel(
   const sumCols = [
     'Colaboradores período', 'N° Cargos', 'Ingresos',
     'Sueldo Bruto', 'Sueldo Estándar', 'Sueldo Líquido',
-    'Total Bonos', 'Total HH Extra', 'Total Hab. No Imp.', 'Diferencia Ing−Gasto',
+    'Total Bonos', 'Total HH Extra', 'Total Hab. No Imp.',
+    'Gastos Contractuales', 'Diferencia Ing−Gasto',
   ]
   const totals: Record<string, number | string | null> = {
     'Centro': `TOTAL (${centers.length} centros)`,
@@ -458,57 +493,86 @@ function exportCentrosToExcel(
   ws['!cols'] = [
     { wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 10 },
     { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
-    { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 22 },
+    { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 22 },
   ]
-  // cols: Ingresos(5), Bruto(6), Estándar(7), Líquido(8), Bonos(9), HH(10), NoImp(11), Diferencia(12)
-  applyClpFormat(ws, [5, 6, 7, 8, 9, 10, 11, 12])
+  // cols: Ingresos(5), Bruto(6), Estándar(7), Líquido(8), Bonos(9), HH(10), NoImp(11), Contract(12), Diferencia(13)
+  applyClpFormat(ws, [5, 6, 7, 8, 9, 10, 11, 12, 13])
   XLSX.utils.book_append_sheet(wb, ws, 'Resumen')
 
-  // ── Hojas por centro ─────────────────────────────────────────────────────────
+  // ── Hoja por centro ──────────────────────────────────────────────────────────
   for (const wc of centers) {
-    const wcEntries = allEntries.filter(e =>
-      e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
-    )
+    const wcEntries = filterForCenter(allEntries, wc)
     const rows = aggregateWCRows(wcEntries, isMonthly)
-    if (rows.length === 0) continue
 
-    const detailData = rows.map(r => ({
-      'Colaborador':         r.employeeName,
-      'RUT':                 r.rut,
-      'Razón Social':        LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity,
-      'Cargo':               r.jobTitle,
-      'Período':             r.period,
-      'Ponderación':         r.ponderacion,
-      'Sueldo Bruto':        r.grossSalary,
-      'Sueldo Estándar':     r.sueldoEstandar,
-      'Sueldo Líquido':      r.liquidSalary,
-      'Sueldo Base':         r.sueldoBase,
-      'Gratificación':       r.gratificacion,
-      'Total Bonos':         r.bonosTotal,
-      'Bonos identificados': r.bonosNames,
-      'Total HH Extra':      r.hhTotal,
-      'HH identificadas':    r.hhDetail,
-      'Total Hab. No Imp.':  r.noImponiblesTotal,
-      'Hab. No Imp.':        r.noImponiblesNames,
-    }))
+    type DetailRow = Record<string, string | number | null>
+    const chargedInCenter = new Set<string>()
+    const detailData: DetailRow[] = rows.map(r => {
+      const isFirstCenter = employeeFirstCenter.get(r.employeeId) === wc.name
+      const chargeHere    = isFirstCenter && !chargedInCenter.has(r.employeeId)
+      if (chargeHere) chargedInCenter.add(r.employeeId)
+      return {
+        'Colaborador':               r.employeeName,
+        'RUT':                       r.rut,
+        'Razón Social':              LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity,
+        'Cargo':                     r.jobTitle,
+        'Período':                   r.period,
+        'Ponderación':               r.ponderacion,
+        'Sueldo Bruto':              r.grossSalary,
+        'Sueldo Bruto Ponderado':    r.grossSalary       * r.ponderacion,
+        'Sueldo Estándar':           r.sueldoEstandar    * r.ponderacion,
+        'Sueldo Líquido':            r.liquidSalary      * r.ponderacion,
+        'Sueldo Base':               r.sueldoBase        * r.ponderacion,
+        'Gratificación':             r.gratificacion     * r.ponderacion,
+        'Total Bonos':               r.bonosTotal        * r.ponderacion,
+        'Bonos identificados':       r.bonosNames,
+        'Total HH Extra':            r.hhTotal           * r.ponderacion,
+        'HH identificadas':          r.hhDetail,
+        'Total Hab. No Imp.':        r.noImponiblesTotal * r.ponderacion,
+        'Hab. No Imp.':              r.noImponiblesNames,
+        'Gastos Contractuales':      chargeHere ? CONTRACTUAL : 0,
+      }
+    })
 
-    const dws = XLSX.utils.json_to_sheet(detailData)
+    // Fila de totales
+    if (detailData.length > 0) {
+      const numCols = [
+        'Sueldo Bruto', 'Sueldo Bruto Ponderado', 'Sueldo Estándar', 'Sueldo Líquido', 'Sueldo Base',
+        'Gratificación', 'Total Bonos', 'Total HH Extra', 'Total Hab. No Imp.',
+        'Gastos Contractuales',
+      ]
+      const rowTotals: DetailRow = {
+        'Colaborador': `TOTAL (${detailData.length} colaboradores)`,
+        'RUT': '', 'Razón Social': '', 'Cargo': '', 'Período': '',
+        'Ponderación': null,
+        'Bonos identificados': '', 'HH identificadas': '', 'Hab. No Imp.': '',
+      }
+      for (const col of numCols) {
+        rowTotals[col] = detailData.reduce((s, r) => s + (typeof r[col] === 'number' ? (r[col] as number) : 0), 0)
+      }
+      detailData.push(rowTotals)
+    }
+
+    const dws = XLSX.utils.json_to_sheet(
+      detailData.length > 0
+        ? detailData
+        : [{ 'Colaborador': 'Sin datos de remuneración para el período seleccionado' }]
+    )
     dws['!cols'] = [
       { wch: 28 }, { wch: 14 }, { wch: 16 }, { wch: 28 }, { wch: 14 },
-      { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
+      { wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 16 }, { wch: 16 },
       { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 30 },
-      { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 30 },
+      { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 30 }, { wch: 20 },
     ]
-    // Ponderación(5) → %; CLP: Bruto(6), Estándar(7), Líquido(8), Base(9), Gratif(10), Bonos(11), HH(13), NoImp(15)
-    applyClpFormat(dws, [6, 7, 8, 9, 10, 11, 13, 15])
+    // CLP: Bruto(6), BrutoPond(7), Estándar(8), Líquido(9), Base(10), Gratif(11), Bonos(12), HH(14), NoImp(16), Contract(18)
+    applyClpFormat(dws, [6, 7, 8, 9, 10, 11, 12, 14, 16, 18])
     const drng = XLSX.utils.decode_range(dws['!ref']!)
     for (let R = drng.s.r + 1; R <= drng.e.r; R++) {
       const cell = dws[XLSX.utils.encode_cell({ r: R, c: 5 })]
       if (cell && typeof cell.v === 'number') cell.z = '0%'
     }
 
-    const sheetName = wc.name.replace(/[\\/?*[\]]/g, '').slice(0, 31)
-    XLSX.utils.book_append_sheet(wb, dws, sheetName)
+    const sheetName = wc.name.replace(/[\\/?*[\]:']/g, '').slice(0, 31)
+    XLSX.utils.book_append_sheet(wb, dws, sheetName || `Centro ${wc.id.slice(0, 6)}`)
   }
 
   const safe = periodoLabel.replace(/[\s/]+/g, '-').toLowerCase()
@@ -803,7 +867,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
                   <>
                     {/* ── Cálculos derivados ── */}
                     {(() => {
-                      const CONTRACTUAL = 120_000
+                      const CONTRACTUAL = 160_000
                       const nAnual      = new Set(centerAnnual.map(e => `${e.employeeId}::${e.legalEntity}`)).size
                       const nMensual    = month ? new Set(centerEntries.map(e => `${e.employeeId}::${e.legalEntity}`)).size : null
 
@@ -1103,7 +1167,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
                                   <td className="px-4 py-2.5 text-xs text-gray-500 max-w-[180px] truncate" title={r.bonosNames}>{r.bonosNames}</td>
                                   <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{fmt(r.hhTotal * r.ponderacion)}</td>
                                   <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{r.hhDetail}</td>
-                                  <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{fmt(120_000)}</td>
+                                  <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{fmt(160_000)}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1216,6 +1280,17 @@ export default function WorkCentersPage() {
   const [sortDir,      setSortDir]      = useState<SortDir>('asc')
   const [cSortKey,     setCSort]        = useState<CenterSortKey>('name')
   const [cSortDir,     setCDir]         = useState<SortDir>('asc')
+  const [movTab,       setMovTab]       = useState<'vacaciones' | 'licencias' | 'reemplazos' | 'contratos'>('vacaciones')
+  const [cardOrder,    setCardOrder]    = useState<WCCardId[]>(() => {
+    try {
+      const s = localStorage.getItem('gdp-wc-cards')
+      const p = s ? JSON.parse(s) : null
+      if (Array.isArray(p) && p.length === WC_CARD_IDS.length) return p as WCCardId[]
+    } catch {}
+    return [...WC_CARD_IDS]
+  })
+  const [dgFrom,       setDgFrom]       = useState<number | null>(null)
+  const [dgOver,       setDgOver]       = useState<number | null>(null)
 
   const { data: centers = [], isLoading: centersLoading } = useWorkCenters()
   const { data: years   = [] }                             = usePayrollYears()
@@ -1229,6 +1304,9 @@ export default function WorkCentersPage() {
   const { data: allEntries = [], isLoading: payrollLoading } = usePayrollTable({
     year, month: month || undefined,
   })
+
+  const { data: movements }         = useMovements({ year, month: month || undefined })
+  const { data: expiringContracts = [] } = useExpiringContracts()
 
   const isMonthly = !!month
 
@@ -1274,6 +1352,14 @@ export default function WorkCentersPage() {
     })
   , [enrichedCenters, cSortKey, cSortDir])
 
+  function swapDashCards(a: number, b: number) {
+    const next = [...cardOrder]
+    ;[next[a], next[b]] = [next[b], next[a]]
+    setCardOrder(next)
+    setDgFrom(null); setDgOver(null)
+    try { localStorage.setItem('gdp-wc-cards', JSON.stringify(next)) } catch {}
+  }
+
   function handleCenterSort(col: CenterSortKey) {
     if (col === cSortKey) setCDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setCSort(col); setCDir('asc') }
@@ -1282,11 +1368,16 @@ export default function WorkCentersPage() {
   const centerStats = useMemo(() => {
     const totalBudget    = centers.reduce((s, c) => s + (c.presupuesto ?? 0), 0)
     const totalPersonnel = centers.reduce((s, c) => s + (c.totalPersonnel ?? 0), 0)
+    const byUbic: Record<string, number> = {}
+    for (const c of centers) {
+      const u = c.ubicacion ?? 'Sin ubicación'
+      byUbic[u] = (byUbic[u] ?? 0) + 1
+    }
     return {
       total: centers.length,
       directCount:   centers.filter(c => c.costType === 'DIRECTO').length,
       indirectCount: centers.filter(c => c.costType === 'INDIRECTO').length,
-      totalPersonnel, totalBudget,
+      totalPersonnel, totalBudget, byUbic,
     }
   }, [centers])
 
@@ -1390,41 +1481,42 @@ export default function WorkCentersPage() {
       {tab === 'centros' && (
         <div className="space-y-5">
 
-          {/* Stats row */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-2xl font-bold text-gray-900">{centerStats.total}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Total centros</p>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-2xl font-bold text-blue-600">{centerStats.directCount}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Costos directos</p>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-2xl font-bold text-gray-500">{centerStats.indirectCount}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Costos indirectos</p>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-lg font-bold text-blue-700">
-                {payrollStats.directCost > 0 ? fmtShort(payrollStats.directCost) : '—'}
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">Gasto directo{periodoLabel ? ` ${periodoLabel}` : ''}</p>
-            </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-lg font-bold text-gray-600">
-                {payrollStats.indirectCost > 0 ? fmtShort(payrollStats.indirectCost) : '—'}
-              </p>
-              <p className="text-xs text-gray-500 mt-0.5">Gasto indirecto{periodoLabel ? ` ${periodoLabel}` : ''}</p>
-              {payrollStats.total > 0 && (
-                <p className="text-xs text-amber-500 mt-0.5">{payrollStats.pctIndirecto.toFixed(1)}% del total</p>
-              )}
-            </div>
-          </div>
-
-          {/* Location totals */}
-          {year && payrollStats.total > 0 && (() => {
-            const locMap = new Map(centers.map(c => [c.name, c.ubicacion ?? '']))
-            const locLabels = ['Antofagasta', 'Atacama', 'Santiago / Rancagua']
+          {/* ── Dashboard 3/3/3/2 ─────────────────────────────────────── */}
+          {(() => {
+            // ── Computations ──────────────────────────────────────────────
+            const uniquePeople = new Set(allEntries.map(e => e.employeeId)).size
+            // Activos = still employed on the 1st of the NEXT period
+            // Monthly: endDate null OR >= 2026-02-01
+            // Annual:  endDate null OR >= 2027-01-01
+            const nextPeriodStart = year
+              ? (month ? new Date(Number(year), Number(month), 1)       // 1st of next month
+                       : new Date(Number(year) + 1, 0, 1))              // 1st of next year
+              : null
+            const periodStart = year
+              ? (month ? new Date(Number(year), Number(month) - 1, 1)
+                       : new Date(Number(year), 0, 1))
+              : null
+            const isActiveAtClose = (e: typeof allEntries[0]) => {
+              const ed = e.employee.endDate ? new Date(e.employee.endDate) : null
+              return !ed || !nextPeriodStart || ed >= nextPeriodStart
+            }
+            const totalActive = new Set(allEntries.filter(isActiveAtClose).map(e => e.employeeId)).size
+            const comActive   = new Set(allEntries.filter(e => e.legalEntity === 'COMUNICACIONES_SURMEDIA' && isActiveAtClose(e)).map(e => e.employeeId)).size
+            const conActive   = new Set(allEntries.filter(e => e.legalEntity === 'SURMEDIA_CONSULTORIA'    && isActiveAtClose(e)).map(e => e.employeeId)).size
+            // Bajas = endDate within the period
+            const totalBajas  = new Set(allEntries.filter(e => {
+              const ed = e.employee.endDate ? new Date(e.employee.endDate) : null
+              return ed && periodStart && nextPeriodStart && ed >= periodStart && ed < nextPeriodStart
+            }).map(e => e.employeeId)).size
+            const contratacionN    = uniquePeople || centers.reduce((s, c) => s + (c.totalPersonnel ?? 0), 0)
+            const contratacionCost = contratacionN * 160_000 * (month ? 1 : 12)
+            const totalGastos      = payrollStats.total + uniquePeople * 160_000 * (month ? 1 : 12)
+            const totalIngresos    = centers.reduce((s, c) => s + c.totalIngresos, 0) * (month ? 1 : 12)
+            const diferencia       = totalIngresos - totalGastos
+            const dPos             = diferencia >= 0
+            const label            = year ? (month ? `${MONTHS_LABEL[Number(month)]} ${year}` : `Anual ${year}`) : ''
+            const locMap           = new Map(centers.map(c => [c.name, c.ubicacion ?? '']))
+            const locLabels        = ['Antofagasta', 'Atacama', 'Santiago / Rancagua']
             const gastoByLoc: Record<string, number> = {}
             for (const e of allEntries) {
               const wcs = e.employee.workCenters?.filter(a => a.legalEntity === e.legalEntity) ?? []
@@ -1440,59 +1532,323 @@ export default function WorkCentersPage() {
                 }
               }
             }
-            return (
-              <div className="grid grid-cols-3 gap-3">
-                {locLabels.map(loc => (
-                  <div key={loc} className="bg-white rounded-xl border border-gray-100 p-4 flex items-center gap-3">
-                    <div className="w-2 h-8 rounded-full bg-blue-200 flex-shrink-0" />
-                    <div>
-                      <p className="text-base font-bold text-gray-900">
-                        {gastoByLoc[loc] ? fmtShort(gastoByLoc[loc]) : <span className="text-gray-300 font-normal text-sm">—</span>}
-                      </p>
-                      <p className="text-xs text-gray-500">{loc}</p>
+            const locTotal    = locLabels.reduce((s, l) => s + (gastoByLoc[l] ?? 0), 0)
+            const ingresos    = movements?.ingresos   ?? []
+            const salidas     = movements?.salidas    ?? []
+            const vacaciones  = movements?.vacaciones ?? []
+            const licencias   = movements?.licencias  ?? []
+            const reemplazos  = movements?.reemplazos ?? []
+
+            function fmtDate(d: any) {
+              if (!d) return '—'
+              const dt = new Date(d)
+              return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`
+            }
+            function getCenter(wcs: any[]) { return wcs?.[0]?.workCenter?.name ?? '—' }
+
+            // ── Shared card shell ──────────────────────────────────────────
+            const C = 'bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden h-full select-none'
+            const H = 'px-3.5 py-2 border-b border-gray-100 flex items-center justify-between flex-shrink-0'
+            const hl = 'text-[10px] font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1.5'
+            const sub = 'text-[10px] text-gray-300'
+            const noData = <span className="text-gray-300 font-normal text-xl">—</span>
+
+            // ── Card content by ID ─────────────────────────────────────────
+            const renderCard = (id: WCCardId) => {
+              switch (id) {
+
+                case 'centros': return (
+                  <div className={C}>
+                    <div className={H}><span className={hl}><Building2 size={10}/>Centros</span></div>
+                    <div className="p-4 flex-1">
+                      <p className="text-2xl font-bold text-gray-900">{centerStats.total}</p>
+                      <p className="text-xs text-gray-500 mt-1">{centerStats.directCount} directos · {centerStats.indirectCount} indirectos</p>
+                      <div className="mt-2 space-y-0.5">
+                        {Object.entries(centerStats.byUbic).sort((a,b)=>b[1]-a[1]).map(([u,n])=>(
+                          <div key={u} className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-blue-300 flex-shrink-0"/>
+                            <span className="text-[10px] text-gray-400 truncate">{n} · {u}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )
-          })()}
+                )
 
-          {/* Resumen total módulo (3 + 3) */}
-          {year && (() => {
-            const nPersonas      = new Set(allEntries.map(e => e.employeeId)).size
-            const gastosContract = nPersonas * 120_000 * (month ? 1 : 12)
-            const totalGastos    = payrollStats.total + gastosContract
-            const totalIngresos  = centers.reduce((s, c) => s + c.totalIngresos, 0) * (month ? 1 : 12)
-            const diferencia     = totalIngresos - totalGastos
-            const dPos           = diferencia >= 0
-            const label          = month ? `${MONTHS_LABEL[Number(month)]} ${year}` : `Anual ${year}`
+                case 'colaboradores': return (
+                  <div className={C}>
+                    <div className={H}><span className={hl}><Users size={10}/>Colaboradores</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className="p-4 flex-1">
+                      <p className="text-2xl font-bold text-gray-900">{uniquePeople || centers.reduce((s,c)=>s+(c.totalPersonnel??0),0)}</p>
+                      {uniquePeople > 0
+                        ? <>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-xs text-gray-700 font-medium">{totalActive} activos</span>
+                              {totalBajas > 0 && (
+                                <span className="text-[10px] font-semibold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-full">
+                                  {totalBajas} {totalBajas === 1 ? 'baja' : 'bajas'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-2 space-y-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">{comActive}</span>
+                                <span className="text-[10px] text-gray-400">Comunicaciones</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full">{conActive}</span>
+                                <span className="text-[10px] text-gray-400">Consultoría</span>
+                              </div>
+                            </div>
+                          </>
+                        : <p className="text-xs text-gray-400 mt-1">Selecciona un período</p>
+                      }
+                    </div>
+                  </div>
+                )
+
+                case 'contratacion': return (
+                  <div className={C}>
+                    <div className={H}><span className={hl}><Briefcase size={10}/>Gastos Contratación</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className="p-4 flex-1">
+                      <p className="text-2xl font-bold text-violet-700">{contratacionN>0?fmtShort(contratacionCost):noData}</p>
+                      {contratacionN>0&&<><p className="text-xs text-gray-500 mt-1">{contratacionN} personas · $160K c/u</p><p className="text-[10px] text-gray-300 mt-0.5">Sin duplicados entre empresas</p></>}
+                    </div>
+                  </div>
+                )
+
+                case 'directo': return (
+                  <div className={C}>
+                    <div className={H}><span className={hl}><TrendingUp size={10} className="text-blue-400"/>Gasto Directo</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className="p-4 flex-1">
+                      <p className="text-2xl font-bold text-blue-700">{payrollStats.directCost>0?fmtShort(payrollStats.directCost):noData}</p>
+                      {payrollStats.total>0&&<p className="text-xs text-gray-400 mt-1">{(100-payrollStats.pctIndirecto).toFixed(1)}% del gasto total</p>}
+                    </div>
+                  </div>
+                )
+
+                case 'indirecto': return (
+                  <div className={C}>
+                    <div className={H}><span className={hl}><TrendingDown size={10} className="text-gray-400"/>Gasto Indirecto</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className="p-4 flex-1">
+                      <p className="text-2xl font-bold text-gray-600">{payrollStats.indirectCost>0?fmtShort(payrollStats.indirectCost):noData}</p>
+                      {payrollStats.total>0&&<p className="text-xs text-amber-500 mt-1">{payrollStats.pctIndirecto.toFixed(1)}% del gasto total</p>}
+                    </div>
+                  </div>
+                )
+
+                case 'total-payroll': return (
+                  <div className={C}>
+                    <div className={H}><span className={hl}><BarChart2 size={10}/>Gasto Total</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className="p-4 flex-1">
+                      <p className="text-2xl font-bold text-gray-900">{payrollStats.total>0?fmtShort(payrollStats.total):noData}</p>
+                      {payrollStats.total>0&&<p className="text-xs text-gray-400 mt-1">Sueldos brutos</p>}
+                    </div>
+                  </div>
+                )
+
+                case 'fin-gastos': return (
+                  <div className={C}>
+                    <div className={H}><span className={hl}><TrendingDown size={10} className="text-red-400"/>Total Gastos</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className="p-4 flex-1">
+                      <p className="text-2xl font-bold text-gray-900">{year?fmtShort(totalGastos):noData}</p>
+                      <p className="text-[10px] text-gray-300 mt-1">Sueldos + contratación</p>
+                    </div>
+                  </div>
+                )
+
+                case 'fin-ingresos': return (
+                  <div className={C}>
+                    <div className={H}><span className={hl}><TrendingUp size={10} className="text-emerald-400"/>Total Ingresos</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className="p-4 flex-1">
+                      <p className="text-2xl font-bold text-emerald-700">{totalIngresos>0?fmtShort(totalIngresos):<span className="text-gray-300 font-normal text-xl">Sin definir</span>}</p>
+                    </div>
+                  </div>
+                )
+
+                case 'fin-diferencia': return (
+                  <div className={`${C} ${year&&totalIngresos>0?(dPos?'border-emerald-200':'border-red-200'):''}`}>
+                    <div className={H}><span className={hl}><BarChart2 size={10} className={year&&totalIngresos>0?(dPos?'text-emerald-400':'text-red-400'):'text-gray-400'}/>Diferencia</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className="p-4 flex-1">
+                      <p className={`text-2xl font-bold ${year&&totalIngresos>0?(dPos?'text-emerald-700':'text-red-600'):'text-gray-900'}`}>{year&&totalIngresos>0?fmtShort(diferencia):noData}</p>
+                    </div>
+                  </div>
+                )
+              }
+            }
+
+            // ── Drag style helper ──────────────────────────────────────────
+            const dragCls = (idx: number) =>
+              `rounded-xl transition-all duration-100 ${dgFrom===idx?'opacity-25 scale-[0.97]':''} ${dgOver===idx&&dgFrom!==null&&dgFrom!==idx?'ring-2 ring-blue-400 ring-offset-1':''}`
+
             return (
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-xl border border-gray-200 bg-white p-4">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                    <TrendingDown size={12} className="text-red-400" /> Total gastos
-                  </p>
-                  <p className="text-lg font-bold text-gray-900">{fmtShort(totalGastos)}</p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">{label} · sueldos + contratación</p>
+              <div className="space-y-3">
+
+                {/* ── 9 viñetas arrastrables (3 × 3) ── */}
+                <div className="grid grid-cols-3 gap-3" style={{ gridAutoRows: '1fr' }}>
+                  {cardOrder.map((id, idx) => (
+                    <div
+                      key={id}
+                      draggable
+                      onDragStart={e => { e.dataTransfer.effectAllowed='move'; setDgFrom(idx) }}
+                      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect='move'; setDgOver(idx) }}
+                      onDrop={e => { e.preventDefault(); if(dgFrom!==null&&dgFrom!==idx) swapDashCards(dgFrom,idx) }}
+                      onDragEnd={() => { setDgFrom(null); setDgOver(null) }}
+                      className={`cursor-grab active:cursor-grabbing ${dragCls(idx)}`}
+                      title="Arrastra para reorganizar"
+                    >
+                      {renderCard(id)}
+                    </div>
+                  ))}
                 </div>
-                <div className="rounded-xl border border-gray-200 bg-white p-4">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                    <TrendingUp size={12} className="text-emerald-400" /> Total ingresos
-                  </p>
-                  <p className="text-lg font-bold text-emerald-700">
-                    {totalIngresos > 0 ? fmtShort(totalIngresos) : <span className="text-gray-300 font-normal text-sm">Sin definir</span>}
-                  </p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">{label}</p>
-                </div>
-                <div className={`rounded-xl border p-4 ${dPos ? 'border-emerald-200 bg-emerald-50/30' : 'border-red-200 bg-red-50/30'}`}>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                    <BarChart2 size={12} className={dPos ? 'text-emerald-400' : 'text-red-400'} /> Diferencia
-                  </p>
-                  <p className={`text-lg font-bold ${dPos ? 'text-emerald-700' : 'text-red-600'}`}>
-                    {totalIngresos > 0 ? fmtShort(diferencia) : <span className="text-gray-300 font-normal text-sm">—</span>}
-                  </p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">{label}</p>
-                </div>
+
+                {/* ── 2 paneles proporcionales (1/3 + 2/3) ── */}
+                {year && (
+                  <div className="grid grid-cols-3 gap-3" style={{ height: 360 }}>
+
+                    {/* Panel: Ubicaciones (1/3) */}
+                    <div className="col-span-1 bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
+                      <div className={H}>
+                        <span className={hl}>Gasto por Ubicación</span>
+                        <span className={sub}>{label}</span>
+                      </div>
+                      <div className="flex-1 p-4 flex flex-col justify-around overflow-y-auto">
+                        {locLabels.map(loc => {
+                          const val = gastoByLoc[loc] ?? 0
+                          const pct = locTotal>0?(val/locTotal)*100:0
+                          return (
+                            <div key={loc}>
+                              <div className="flex items-baseline justify-between mb-1">
+                                <span className="text-xs font-medium text-gray-700 truncate">{loc}</span>
+                                <span className="text-xs font-bold text-gray-900 ml-2 flex-shrink-0">{val>0?fmtShort(val):<span className="text-gray-300">—</span>}</span>
+                              </div>
+                              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-300 rounded-full transition-all duration-500" style={{width:`${pct}%`}}/>
+                              </div>
+                              {locTotal>0&&<p className="text-[10px] text-gray-300 mt-0.5 text-right">{pct.toFixed(1)}%</p>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Panel: Movimientos (2/3) */}
+                    <div className="col-span-2 bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
+                      <div className={H}>
+                        <span className={hl}>Movimientos</span>
+                        <span className={sub}>{label}</span>
+                      </div>
+
+                      {/* Ingresos / Salidas */}
+                      <div className="grid grid-cols-2 divide-x divide-gray-100 border-b border-gray-100 flex-shrink-0">
+                        {([
+                          { icon: <UserPlus size={10} className="text-emerald-500"/>, label: 'Ingresos', list: ingresos, dateFn: (m:any)=>m.startDate, badge:'text-emerald-600 bg-emerald-50' },
+                          { icon: <UserMinus size={10} className="text-red-400"/>,    label: 'Salidas',  list: salidas,  dateFn: (m:any)=>m.endDate,   badge:'text-red-500 bg-red-50'     },
+                        ]).map(col => (
+                          <div key={col.label} className="p-3">
+                            <div className="flex items-center gap-1.5 mb-2">
+                              {col.icon}
+                              <span className="text-[10px] font-semibold text-gray-600">{col.label}</span>
+                              <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${col.badge}`}>{col.list.length}</span>
+                            </div>
+                            {col.list.length===0
+                              ? <p className="text-[10px] text-gray-300">—</p>
+                              : <ul className="space-y-1.5 max-h-24 overflow-y-auto">
+                                  {col.list.map((m:any,i:number)=>(
+                                    <li key={i}>
+                                      <p className="text-[11px] font-medium text-gray-700 truncate">{m.firstName} {m.lastName}</p>
+                                      <p className="text-[10px] text-gray-400 truncate">{fmtDate(col.dateFn(m))} · {getCenter(m.workCenters)}</p>
+                                    </li>
+                                  ))}
+                                </ul>
+                            }
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Tabs */}
+                      <div className="flex border-b border-gray-100 flex-shrink-0">
+                        {([
+                          {key:'vacaciones' as const, label:'Vacaciones', count:vacaciones.length,        active:'border-blue-500 text-blue-600',    num:'text-blue-600'},
+                          {key:'licencias'  as const, label:'Licencias',  count:licencias.length,         active:'border-amber-500 text-amber-600',  num:'text-amber-600'},
+                          {key:'reemplazos' as const, label:'Reemplazos', count:reemplazos.length,        active:'border-purple-500 text-purple-600',num:'text-purple-600'},
+                          {key:'contratos'  as const, label:'Por vencer', count:expiringContracts.length, active:'border-rose-500 text-rose-600',    num:'text-rose-600'},
+                        ]).map(t=>(
+                          <button key={t.key} onClick={()=>setMovTab(t.key)}
+                            className={`flex-1 py-2 flex flex-col items-center border-b-2 transition-colors ${movTab===t.key?t.active:'border-transparent text-gray-400 hover:text-gray-600'}`}
+                          >
+                            <span className={`text-sm font-bold leading-none ${movTab===t.key?t.num:'text-gray-500'}`}>{t.count}</span>
+                            <span className="text-[9px] uppercase tracking-wide mt-0.5">{t.label}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Tab content */}
+                      <div className="flex-1 overflow-y-auto p-3 min-h-0 text-[10px]">
+                        {movTab==='vacaciones'&&(vacaciones.length===0
+                          ?<p className="text-gray-300 text-center py-4">Sin vacaciones en el período</p>
+                          :<ul className="space-y-2">{vacaciones.map((v:any,i:number)=>(
+                            <li key={i} className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-gray-700 truncate">{v.employee.firstName} {v.employee.lastName}</p>
+                                <p className="text-gray-400">{fmtDate(v.startDate)} → {fmtDate(v.endDate)}</p>
+                                <p className="text-gray-400 truncate">{getCenter(v.employee.workCenters)}</p>
+                              </div>
+                              <span className="font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full flex-shrink-0">{v.days}d</span>
+                            </li>
+                          ))}</ul>
+                        )}
+                        {movTab==='licencias'&&(licencias.length===0
+                          ?<p className="text-gray-300 text-center py-4">Sin licencias en el período</p>
+                          :<ul className="space-y-2">{licencias.map((l:any,i:number)=>{
+                            const days=l.days??(Math.round((new Date(l.endDate).getTime()-new Date(l.startDate).getTime())/86400000)+1)
+                            return(
+                              <li key={i} className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="font-medium text-gray-700 truncate">{l.employee.firstName} {l.employee.lastName}</p>
+                                  <p className="text-gray-400">{fmtDate(l.startDate)} → {fmtDate(l.endDate)}</p>
+                                  <p className="text-gray-400 truncate">{getCenter(l.employee.workCenters)}</p>
+                                </div>
+                                <span className="font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full flex-shrink-0">{days}d</span>
+                              </li>
+                            )
+                          })}</ul>
+                        )}
+                        {movTab==='reemplazos'&&(reemplazos.length===0
+                          ?<p className="text-gray-300 text-center py-4">Sin reemplazos en el período</p>
+                          :<ul className="space-y-2">{reemplazos.map((r:any,i:number)=>(
+                            <li key={i} className="bg-purple-50/50 rounded-lg p-2">
+                              <p className="font-semibold text-gray-700 truncate">{r.firstName} {r.lastName}</p>
+                              <p className="text-gray-500 truncate">↳ {r.reemplazaA??'Sin especificar'}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="text-emerald-600 font-medium">Ing: {fmtDate(r.startDate)}</span>
+                                {r.endDate&&<span className="text-red-400 font-medium">Sal: {fmtDate(r.endDate)}</span>}
+                                <span className="text-gray-400 ml-auto truncate">{getCenter(r.workCenters)}</span>
+                              </div>
+                            </li>
+                          ))}</ul>
+                        )}
+                        {movTab==='contratos'&&(expiringContracts.length===0
+                          ?<p className="text-gray-300 text-center py-4">Sin contratos por vencer (próx. 3 meses)</p>
+                          :<ul className="space-y-2">{expiringContracts.map((c:any,i:number)=>{
+                            const daysLeft=Math.ceil((new Date(c.endDate).getTime()-Date.now())/86400000)
+                            return(
+                              <li key={i} className="bg-rose-50/50 rounded-lg p-2">
+                                <div className="flex items-start justify-between gap-1">
+                                  <p className="font-semibold text-gray-700 truncate">{c.employee.firstName} {c.employee.lastName}</p>
+                                  <span className={`font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${daysLeft<=15?'bg-red-100 text-red-600':'bg-rose-100 text-rose-600'}`}>{daysLeft}d</span>
+                                </div>
+                                <p className="text-gray-400 truncate">{getCenter(c.employee.workCenters)}</p>
+                                <p className="text-gray-400">Vence: {fmtDate(c.endDate)}</p>
+                              </li>
+                            )
+                          })}</ul>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
               </div>
             )
           })()}

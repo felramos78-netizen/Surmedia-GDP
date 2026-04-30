@@ -40,6 +40,7 @@ const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const positions = Array.from(positionCounts.entries()).map(([title, count]) => ({ title, count }))
       const totalIngresos = wc.ingresos.reduce((s, i) => s + i.amount, 0)
+      const employeeIds = [...new Set(wc.assignments.map(a => a.employeeId))]
       return {
         id: wc.id,
         name: wc.name,
@@ -48,6 +49,7 @@ const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
         ubicacion: wc.ubicacion ?? null,
         totalPersonnel,
         positions,
+        employeeIds,
         ingresos: wc.ingresos.map(i => ({ id: i.id, name: i.name, amount: i.amount, createdAt: i.createdAt })),
         totalIngresos,
         createdAt: wc.createdAt,

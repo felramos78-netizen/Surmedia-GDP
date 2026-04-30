@@ -98,6 +98,34 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     } })
   })
 
+  // GET /api/employees/expiring-contracts — PLAZO_FIJO contracts expiring in next 3 months
+  fastify.get('/expiring-contracts', async (_req, reply) => {
+    const today  = new Date()
+    const future = new Date(today)
+    future.setMonth(future.getMonth() + 3)
+
+    const contracts = await fastify.prisma.contract.findMany({
+      where: {
+        deletedAt: null,
+        isActive:  true,
+        type:      'PLAZO_FIJO',
+        endDate:   { gte: today, lte: future },
+        employee:  { deletedAt: null },
+      },
+      include: {
+        employee: {
+          select: {
+            id: true, firstName: true, lastName: true,
+            workCenters: { select: { legalEntity: true, workCenter: { select: { name: true } } } },
+          },
+        },
+      },
+      orderBy: { endDate: 'asc' },
+    })
+
+    return reply.send({ data: contracts })
+  })
+
   // GET /api/employees/movements?year=2026&month=4&legalEntity=
   fastify.get<{ Querystring: { year: string; month?: string; legalEntity?: string } }>('/movements', async (req, reply) => {
     const { year, month, legalEntity } = req.query

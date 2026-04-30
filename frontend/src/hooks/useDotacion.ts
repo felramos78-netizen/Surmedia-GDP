@@ -124,6 +124,16 @@ export function useMovements(filters: { year: string; month?: string; legalEntit
   })
 }
 
+export function useExpiringContracts() {
+  return useQuery({
+    queryKey: ['expiringContracts'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<any[]>>('/employees/expiring-contracts')
+      return data.data
+    },
+  })
+}
+
 export function useUpdateEmployee() {
   const qc = useQueryClient()
   return useMutation({

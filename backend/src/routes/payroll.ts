@@ -54,7 +54,7 @@ const payrollRoutes: FastifyPluginAsync = async (fastify) => {
       include: {
         employee: {
           select: {
-            id: true, firstName: true, lastName: true, rut: true, status: true, jobTitle: true,
+            id: true, firstName: true, lastName: true, rut: true, status: true, jobTitle: true, costCenter: true, endDate: true,
             workCenters: {
               select: { legalEntity: true, workCenter: { select: { name: true } } },
             },
