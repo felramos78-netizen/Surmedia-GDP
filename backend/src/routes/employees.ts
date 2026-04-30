@@ -123,7 +123,11 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
       .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())
 
     const ruts = [...new Set(rawVacaciones.map(v => v.rut))]
-    const [ingresos, salidas, empByRut] = await Promise.all([
+    const leaveEntityFilter = legalEntity
+      ? { contracts: { some: { legalEntity: legalEntity as any, deletedAt: null } } }
+      : {}
+
+    const [ingresos, salidas, empByRut, licencias, reemplazos] = await Promise.all([
       fastify.prisma.employee.findMany({
         where: { deletedAt: null, startDate: { gte: startOfPeriod, lte: endOfPeriod }, ...entityContractFilter },
         select: empSelect,
@@ -136,7 +140,34 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
       }),
       fastify.prisma.employee.findMany({
         where: { rut: { in: ruts } },
-        select: { rut: true, firstName: true, lastName: true },
+        select: {
+          rut: true, firstName: true, lastName: true,
+          workCenters: { select: { legalEntity: true, workCenter: { select: { name: true } } } },
+        },
+      }),
+      fastify.prisma.leave.findMany({
+        where: {
+          type:      { in: ['LICENCIA_MEDICA', 'LICENCIA_MATERNIDAD', 'LICENCIA_PATERNIDAD'] as any },
+          status:    'APPROVED' as any,
+          startDate: { lte: endOfPeriod },
+          endDate:   { gte: startOfPeriod },
+          employee:  { deletedAt: null, ...leaveEntityFilter },
+        },
+        select: {
+          id: true, type: true, startDate: true, endDate: true, days: true,
+          employee: { select: empSelect },
+        },
+        orderBy: { startDate: 'asc' },
+      }),
+      fastify.prisma.employee.findMany({
+        where: { deletedAt: null, vinculo: 'Reemplazo', ...entityContractFilter },
+        select: {
+          id: true, firstName: true, lastName: true, rut: true,
+          startDate: true, endDate: true, status: true, reemplazaA: true,
+          contracts:   { where: { deletedAt: null, isActive: true }, select: { legalEntity: true } },
+          workCenters: { select: { legalEntity: true, workCenter: { select: { name: true } } } },
+        },
+        orderBy: { startDate: 'asc' },
       }),
     ])
 
@@ -146,7 +177,9 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
       const days = Math.round((v.endDate.getTime() - v.startDate.getTime()) / 86400000) + 1
       return {
         id:         v.id,
-        employee:   emp ? { firstName: emp.firstName, lastName: emp.lastName } : { firstName: v.nombre, lastName: '' },
+        employee:   emp
+          ? { firstName: emp.firstName, lastName: emp.lastName, workCenters: emp.workCenters }
+          : { firstName: v.nombre, lastName: '', workCenters: [] },
         startDate:  v.startDate,
         endDate:    v.endDate,
         days,
@@ -154,7 +187,7 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
       }
     })
 
-    return reply.send({ data: { ingresos, salidas, vacaciones } })
+    return reply.send({ data: { ingresos, salidas, vacaciones, licencias, reemplazos } })
   })
 
   fastify.get<{ Querystring: EmployeeListQuery }>('/', async (req, reply) => {

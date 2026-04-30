@@ -6,6 +6,9 @@ export interface WorkCenter {
   id: string
   name: string
   costType: CostType
+  presupuesto?: number | null
+  ingresosMensuales?: number | null
+  ubicacion?: string | null
   totalPersonnel?: number
   positions?: { title: string; count: number }[]
   createdAt: string
@@ -132,6 +135,7 @@ export interface PayrollRawEntry {
   items: PayrollItem[]
   employee: {
     id: string; firstName: string; lastName: string; rut: string; status: EmployeeStatus
+    jobTitle?: string | null
     workCenters?: { legalEntity: string; workCenter: { name: string } }[]
   }
 }

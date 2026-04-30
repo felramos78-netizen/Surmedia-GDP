@@ -3,6 +3,9 @@ import type { FastifyPluginAsync } from 'fastify'
 interface WorkCenterBody {
   name: string
   costType: 'DIRECTO' | 'INDIRECTO'
+  presupuesto?: number | null
+  ingresosMensuales?: number | null
+  ubicacion?: string | null
 }
 
 const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
@@ -14,7 +17,7 @@ const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
         assignments: {
           include: {
             employee: {
-              select: { id: true, firstName: true, lastName: true, positionId: true, position: { select: { title: true } } },
+              select: { id: true, firstName: true, lastName: true, jobTitle: true },
             },
           },
         },
@@ -26,7 +29,7 @@ const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
       const totalPersonnel = new Set(wc.assignments.map(a => a.employeeId)).size
       const positionCounts = new Map<string, number>()
       for (const a of wc.assignments) {
-        const title = a.employee.position?.title ?? 'Sin cargo'
+        const title = a.employee.jobTitle ?? 'Sin cargo'
         positionCounts.set(title, (positionCounts.get(title) ?? 0) + 1)
       }
       const positions = Array.from(positionCounts.entries()).map(([title, count]) => ({ title, count }))
@@ -34,6 +37,9 @@ const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
         id: wc.id,
         name: wc.name,
         costType: wc.costType,
+        presupuesto: wc.presupuesto ?? null,
+        ingresosMensuales: wc.ingresosMensuales ?? null,
+        ubicacion: wc.ubicacion ?? null,
         totalPersonnel,
         positions,
         createdAt: wc.createdAt,
@@ -45,16 +51,29 @@ const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.post<{ Body: WorkCenterBody }>('/', async (req, reply) => {
-    const { name, costType } = req.body
-    const wc = await fastify.prisma.workCenter.create({ data: { name, costType } })
+    const { name, costType, presupuesto, ingresosMensuales } = req.body
+    const wc = await fastify.prisma.workCenter.create({
+      data: {
+        name, costType,
+        ...(presupuesto != null ? { presupuesto } : {}),
+        ...(ingresosMensuales != null ? { ingresosMensuales } : {}),
+        ...(ubicacion != null ? { ubicacion } : {}),
+      },
+    })
     return reply.status(201).send({ data: wc })
   })
 
   fastify.patch<{ Params: { id: string }; Body: Partial<WorkCenterBody> }>('/:id', async (req, reply) => {
-    const { name, costType } = req.body
+    const { name, costType, presupuesto, ingresosMensuales, ubicacion } = req.body
     const wc = await fastify.prisma.workCenter.update({
       where: { id: req.params.id },
-      data: { ...(name && { name }), ...(costType && { costType }) },
+      data: {
+        ...(name      ? { name }      : {}),
+        ...(costType  ? { costType }  : {}),
+        ...('presupuesto'       in req.body ? { presupuesto:       presupuesto       ?? null } : {}),
+        ...('ingresosMensuales' in req.body ? { ingresosMensuales: ingresosMensuales ?? null } : {}),
+        ...('ubicacion'         in req.body ? { ubicacion:         ubicacion         ?? null } : {}),
+      },
     })
     return reply.send({ data: wc })
   })
@@ -64,7 +83,6 @@ const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ ok: true })
   })
 
-  // Asignar un colaborador a un centro
   fastify.post<{ Params: { id: string }; Body: { employeeId: string; legalEntity: string } }>(
     '/:id/assign',
     async (req, reply) => {
@@ -84,7 +102,6 @@ const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
     },
   )
 
-  // Remover asignación
   fastify.delete<{ Params: { id: string }; Body: { employeeId: string; legalEntity: string } }>(
     '/:id/assign',
     async (req, reply) => {

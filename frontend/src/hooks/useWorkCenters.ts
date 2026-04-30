@@ -15,7 +15,7 @@ export function useWorkCenters() {
 export function useCreateWorkCenter() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (body: { name: string; costType: CostType }) => {
+    mutationFn: async (body: { name: string; costType: CostType; presupuesto?: number | null }) => {
       const { data } = await api.post<ApiResponse<WorkCenter>>('/work-centers', body)
       return data.data
     },
@@ -26,7 +26,7 @@ export function useCreateWorkCenter() {
 export function useUpdateWorkCenter() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, ...body }: { id: string; name?: string; costType?: CostType }) => {
+    mutationFn: async ({ id, ...body }: { id: string; name?: string; costType?: CostType; presupuesto?: number | null; ingresosMensuales?: number | null; ubicacion?: string | null }) => {
       const { data } = await api.patch<ApiResponse<WorkCenter>>(`/work-centers/${id}`, body)
       return data.data
     },

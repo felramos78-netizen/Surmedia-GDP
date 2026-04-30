@@ -117,7 +117,7 @@ export function useMovements(filters: { year: string; month?: string; legalEntit
       const params = new URLSearchParams({ year: filters.year })
       if (filters.month)       params.set('month',       filters.month)
       if (filters.legalEntity) params.set('legalEntity', filters.legalEntity)
-      const { data } = await api.get<ApiResponse<{ ingresos: any[]; salidas: any[]; vacaciones: any[] }>>(`/employees/movements?${params}`)
+      const { data } = await api.get<ApiResponse<{ ingresos: any[]; salidas: any[]; vacaciones: any[]; licencias: any[]; reemplazos: any[] }>>(`/employees/movements?${params}`)
       return data.data
     },
     enabled: !!filters.year,
