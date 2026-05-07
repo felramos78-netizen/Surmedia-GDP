@@ -1,6 +1,6 @@
 generator client {
   provider      = "prisma-client-js"
-  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl-openssl-3.0.x"]
+  binaryTargets = ["native"]
 }
 
 datasource db {
@@ -193,6 +193,7 @@ model Employee {
   payrollEntries      PayrollEntry[]
   onboardingProcesses OnboardingProcess[]
   workCenters    EmployeeWorkCenter[]
+  vacationBalances VacationBalance[]
 
   deletedAt    DateTime?
   createdAt    DateTime       @default(now())
@@ -264,6 +265,31 @@ model Leave {
   updatedAt   DateTime    @updatedAt
 
   @@map("leaves")
+}
+
+// ─────────────────────────────────────────────
+// Saldo de vacaciones (snapshot mensual BUK)
+// ─────────────────────────────────────────────
+
+model VacationBalance {
+  id                   String      @id @default(uuid())
+  employeeId           String
+  employee             Employee    @relation(fields: [employeeId], references: [id])
+  legalEntity          LegalEntity
+  year                 Int
+  month                Int
+
+  saldoLegal           Float       @default(0)
+  saldoProgresivas     Float       @default(0)
+  saldoAdministrativos Float       @default(0)
+  diasLicencias        Float       @default(0)
+  vacacionesTomadas    Float       @default(0)
+
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  @@unique([employeeId, legalEntity, year, month])
+  @@map("vacation_balances")
 }
 
 // ─────────────────────────────────────────────

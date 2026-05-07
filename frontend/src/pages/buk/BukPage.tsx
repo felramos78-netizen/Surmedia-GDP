@@ -1,21 +1,19 @@
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import {
   RefreshCw, X, CheckCircle2, AlertTriangle, Info, Check, Minus,
   FileSpreadsheet, ChevronRight, ChevronDown,
 } from 'lucide-react'
 import {
-  fetchBukPreview, useBukApply,
+  fetchBukPreview,
   type BukPreviewData, type BukSueldoNuevo, type BukSueldoCambio,
-  type BukDotacionCambio, type BukVacNueva,
+  type BukDotacionCambio, type BukVacNueva, type BukDotacionNuevo,
 } from '@/hooks/useBuk'
+import { useImportStore } from '@/store/importStore'
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
 const CLP = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 })
 const fmtS = (n: number) => n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(1)}M` : CLP.format(n)
-const MONTHS: Record<number, string> = {
-  1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic',
-}
 const ENTITY_LABEL: Record<string, string> = {
   COMUNICACIONES_SURMEDIA: 'Com.', SURMEDIA_CONSULTORIA: 'Cons.',
 }
@@ -261,48 +259,156 @@ function TblVacNew({ rows, sel, setSel }: { rows: BukVacNueva[]; sel: Set<string
   )
 }
 
+function TblDotNew({ rows, sel, setSel }: { rows: BukDotacionNuevo[]; sel: Set<string>; setSel: (s: Set<string>) => void }) {
+  const [exp, setExp] = useState<Set<string>>(new Set())
+  const fmtDate = (d?: string | null) => d ? new Date(d + 'T00:00:00Z').toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : null
+  return (
+    <table className="w-full text-xs">
+      <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase">
+        <tr>
+          <th className="px-3 py-1.5 w-8"></th>
+          <th className="px-3 py-1.5 text-left">Colaborador</th>
+          <th className="px-3 py-1.5">Emp.</th>
+          <th className="px-3 py-1.5 text-left">Estado</th>
+          <th className="px-3 py-1.5 w-8"></th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-50">
+        {rows.map(r => {
+          const k = `dot-nuevo|${r.rut}`
+          const isExp = exp.has(r.rut)
+          const details: Array<[string, string | null | undefined]> = [
+            ['Cargo', r.cargo],
+            ['AFP', r.afp],
+            ['Isapre', r.isapre],
+            ['Contrato', r.tipoContrato],
+            ['Ingreso', fmtDate(r.fechaIngreso)],
+            ['Supervisor', r.supervisorNombre],
+            ['Jornada', r.jornada],
+          ].filter(([, v]) => !!v) as Array<[string, string]>
+          return (
+            <Fragment key={r.rut}>
+              <tr className={sel.has(k) ? 'bg-emerald-50/40' : 'hover:bg-gray-50'}>
+                <td className="px-3 py-1"><RowCheck checked={sel.has(k)} onChange={() => setSel(toggle(sel, k))} /></td>
+                <td className="px-3 py-1"><div className="font-medium text-gray-800">{r.nombre}</div><div className="text-gray-400">{r.rut}</div></td>
+                <td className="px-3 py-1"><Badge e={r.legalEntity} /></td>
+                <td className="px-3 py-1 text-gray-500">{r.estado}</td>
+                <td className="px-3 py-1 text-center">
+                  {details.length > 0 && (
+                    <button onClick={() => setExp(s => toggle(s, r.rut))} className="text-gray-400 hover:text-gray-600">
+                      {isExp ? <ChevronDown size={13}/> : <ChevronRight size={13}/>}
+                    </button>
+                  )}
+                </td>
+              </tr>
+              {isExp && (
+                <tr className="bg-gray-50">
+                  <td /><td colSpan={4} className="px-4 py-2">
+                    <table className="text-[11px]"><tbody className="divide-y divide-gray-100">
+                      {details.map(([label, val]) => (
+                        <tr key={label}>
+                          <td className="pr-5 py-0.5 text-gray-400 font-medium w-24">{label}</td>
+                          <td className="py-0.5 text-gray-700">{val}</td>
+                        </tr>
+                      ))}
+                    </tbody></table>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
 // ─── Vista de preview (inline, sin modal, sin sub-tabs) ───────────────────────
 
-function BukPreview({ data, onDone }: { data: BukPreviewData; onDone: () => void }) {
+const MONTHS: Record<number, string> = {
+  1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic',
+}
+
+function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string; onDone: () => void }) {
   const sN = data.sueldos.nuevos,   sC = data.sueldos.cambios, sSync = data.sueldos.sincronizados ?? []
   const dC = data.dotacion.cambios, dN = data.dotacion.nuevos
   const vN = data.vacaciones.nuevas
+  const vL = data.vacLicencia?.registros ?? []
 
   const [selSN,   setSelSN]  = useState<Set<string>>(() => new Set(sN.map(r => r.key)))
   const [selSC,   setSelSC]  = useState<Set<string>>(() => new Set(sC.map(r => r.key)))
   const [selDC,   setSelDC]  = useState<Set<string>>(() => new Set(dC.map(r => r.key)))
   const [selVN,   setSelVN]  = useState<Set<string>>(() => new Set(vN.map(r => r.key)))
+  const [selVL,   setSelVL]  = useState<Set<string>>(() => new Set(vL.map(r => r.key)))
   const [selSync, setSelSync] = useState<Set<string>>(new Set())
-  const [selDN,   setSelDN]  = useState<Set<string>>(new Set())
+  const [selDN,   setSelDN]  = useState<Set<string>>(() => new Set(dN.map(r => `dot-nuevo|${r.rut}`)))
   const [sueldosOverrides, setSueldosOverrides] = useState<SueldosOverrides>(new Map())
 
-  const { mutate: doApply, isPending, data: result } = useBukApply()
+  const allActionKeys = [
+    ...sN.map(r => r.key), ...sC.map(r => r.key),
+    ...dC.map(r => r.key), ...vN.map(r => r.key),
+    ...dN.map(r => `dot-nuevo|${r.rut}`),
+    ...vL.map(r => r.key),
+  ]
+  const allSelected = allActionKeys.length > 0 && allActionKeys.every(k =>
+    selSN.has(k) || selSC.has(k) || selDC.has(k) || selVN.has(k) || selDN.has(k) || selVL.has(k)
+  )
+  const someSelected = allActionKeys.some(k =>
+    selSN.has(k) || selSC.has(k) || selDC.has(k) || selVN.has(k) || selDN.has(k) || selVL.has(k)
+  )
+  function toggleAll(on: boolean) {
+    setSelSN(setAll(selSN, sN.map(r => r.key), on))
+    setSelSC(setAll(selSC, sC.map(r => r.key), on))
+    setSelDC(setAll(selDC, dC.map(r => r.key), on))
+    setSelVN(setAll(selVN, vN.map(r => r.key), on))
+    setSelDN(setAll(selDN, dN.map(r => `dot-nuevo|${r.rut}`), on))
+    setSelVL(setAll(selVL, vL.map(r => r.key), on))
+  }
 
-  const total = selSN.size + selSC.size + selDC.size + selVN.size + selSync.size + selDN.size
-  const totalItems = sN.length + sC.length + dC.length + dN.length + vN.length + sSync.length
+  const { status: importStatus, startImport } = useImportStore()
+  const isPending = importStatus === 'running'
+
+  const total = selSN.size + selSC.size + selDC.size + selVN.size + selSync.size + selDN.size + selVL.size
 
   function apply() {
     const overridesObj = sueldosOverrides.size > 0 ? Object.fromEntries(sueldosOverrides) : undefined
-    doApply({
-      sueldos:    { nuevosKeys: [...selSN], cambiosKeys: [...selSC], sincronizadosKeys: [...selSync], overrides: overridesObj },
-      dotacion:   { cambiosKeys: [...selDC], nuevosKeys: [...selDN] },
-      vacaciones: { nuevasKeys: [...selVN] },
-    })
+    const label = `Importando ${total} registro${total !== 1 ? 's' : ''}…`
+    startImport({
+      year: Number(year),
+      sueldos:     { nuevosKeys: [...selSN], cambiosKeys: [...selSC], sincronizadosKeys: [...selSync], overrides: overridesObj },
+      dotacion:    { cambiosKeys: [...selDC], nuevosKeys: [...selDN] },
+      vacaciones:  { nuevasKeys: [...selVN] },
+      vacLicencia: { keys: [...selVL] },
+    }, label)
+    onDone()
   }
 
-  const hasActions = sN.length + sC.length + dC.length + vN.length + dN.length > 0
+  const hasActions = sN.length + sC.length + dC.length + vN.length + dN.length + vL.length > 0
 
   return (
     <div className="space-y-4">
-      {/* Resumen */}
-      <div className="flex flex-wrap gap-2 text-xs">
+      {/* Resumen + select all */}
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         {sSync.length > 0 && <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full">{sSync.length} sueldos ya en GDP</span>}
         {sN.length > 0 && <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">{sN.length} sueldos nuevos</span>}
         {sC.length > 0 && <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full">{sC.length} sueldos con cambio</span>}
         {dC.length > 0 && <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full">{dC.length} dotación con cambio</span>}
         {dN.length > 0 && <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full">{dN.length} nuevos en BUK (no en GDP)</span>}
         {vN.length > 0 && <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">{vN.length} vacaciones nuevas</span>}
+        {vL.length > 0 && <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full">{vL.length} saldos de vacaciones</span>}
         {data.sueldos.sinEmpleado.length > 0 && <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full">{data.sueldos.sinEmpleado.length} RUTs sin coincidencia</span>}
+        {allActionKeys.length > 0 && (
+          <button
+            onClick={() => toggleAll(!allSelected)}
+            className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition-colors
+              ${allSelected ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : someSelected ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+          >
+            <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${allSelected ? 'bg-blue-600 border-blue-600' : someSelected ? 'bg-blue-100 border-blue-400' : 'border-gray-300'}`}>
+              {allSelected ? <Check size={8} className="text-white" /> : someSelected ? <Minus size={8} className="text-blue-600" /> : null}
+            </span>
+            {allSelected ? 'Deseleccionar todo' : 'Seleccionar todo'}
+          </button>
+        )}
       </div>
 
       {/* Secciones */}
@@ -345,35 +451,46 @@ function BukPreview({ data, onDone }: { data: BukPreviewData; onDone: () => void
         <Section title="Nuevos en BUK — crear en GDP" count={dN.length} variant="new"
           allKeys={dN.map(r => `dot-nuevo|${r.rut}`)} selected={selDN}
           onToggleAll={on => setSelDN(setAll(selDN, dN.map(r => `dot-nuevo|${r.rut}`), on))}>
-          <div className="px-4 pt-2 pb-1 text-[11px] text-gray-400">Empleados que existen en BUK pero aún no están en GDP. Se crearán con los datos del Excel. El email se puede corregir en Dotación después.</div>
+          <TblDotNew rows={dN} sel={selDN} setSel={setSelDN} />
+        </Section>
+      )}
+      {vL.length > 0 && (
+        <Section title="Saldo de vacaciones y licencias —" count={vL.length} variant="new"
+          allKeys={vL.map(r => r.key)} selected={selVL}
+          onToggleAll={on => setSelVL(setAll(selVL, vL.map(r => r.key), on))}>
           <table className="w-full text-xs">
-            <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase">
-              <tr>
-                <th className="px-3 py-1.5 w-8"></th>
-                <th className="px-3 py-1.5 text-left">Colaborador</th>
-                <th className="px-3 py-1.5">Emp.</th>
-                <th className="px-3 py-1.5 text-left">Estado</th>
-              </tr>
-            </thead>
+            <thead><tr className="text-left text-gray-400 border-b border-gray-100">
+              <th className="px-3 py-2 w-8"></th>
+              <th className="px-3 py-2">Colaborador</th>
+              <th className="px-3 py-2">Emp.</th>
+              <th className="px-3 py-2">Período</th>
+              <th className="px-3 py-2 text-right">Legal</th>
+              <th className="px-3 py-2 text-right">Progresivas</th>
+              <th className="px-3 py-2 text-right">Administrativos</th>
+              <th className="px-3 py-2 text-right">Total saldo</th>
+            </tr></thead>
             <tbody className="divide-y divide-gray-50">
-              {dN.map(r => {
-                const k = `dot-nuevo|${r.rut}`
-                return (
-                  <tr key={r.rut} className={selDN.has(k) ? 'bg-emerald-50/40' : 'hover:bg-gray-50'}>
-                    <td className="px-3 py-1"><RowCheck checked={selDN.has(k)} onChange={() => setSelDN(toggle(selDN, k))} /></td>
-                    <td className="px-3 py-1"><div className="font-medium text-gray-800">{r.nombre}</div><div className="text-gray-400">{r.rut}</div></td>
-                    <td className="px-3 py-1"><Badge e={r.legalEntity} /></td>
-                    <td className="px-3 py-1 text-gray-500">{r.estado}</td>
-                  </tr>
-                )
-              })}
+              {vL.map(r => (
+                <tr key={r.key} className={selVL.has(r.key) ? 'bg-purple-50/40' : 'hover:bg-gray-50'}>
+                  <td className="px-3 py-1"><RowCheck checked={selVL.has(r.key)} onChange={() => setSelVL(toggle(selVL, r.key))} /></td>
+                  <td className="px-3 py-1"><div className="font-medium text-gray-800">{r.nombre}</div><div className="text-gray-400">{r.rut}</div></td>
+                  <td className="px-3 py-1"><Badge e={r.legalEntity} /></td>
+                  <td className="px-3 py-1 text-gray-500">{MONTHS[r.month]} {r.year}</td>
+                  <td className="px-3 py-1 text-right text-gray-700">{r.saldoLegal.toFixed(1)}</td>
+                  <td className="px-3 py-1 text-right text-gray-700">{r.saldoProgresivas.toFixed(1)}</td>
+                  <td className="px-3 py-1 text-right text-gray-700">{r.saldoAdministrativos.toFixed(1)}</td>
+                  <td className="px-3 py-1 text-right font-medium text-purple-700">
+                    {(r.saldoLegal + r.saldoProgresivas + r.saldoAdministrativos).toFixed(1)}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </Section>
       )}
 
       {/* Sin acciones pendientes */}
-      {!hasActions && !result && (
+      {!hasActions && (
         <div className="space-y-2">
           <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg text-sm text-gray-500">
             <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
@@ -381,25 +498,11 @@ function BukPreview({ data, onDone }: { data: BukPreviewData; onDone: () => void
             <div className="flex-1" />
             <button onClick={onDone} className="text-xs border border-gray-200 px-3 py-1 rounded-lg hover:bg-white">Cerrar</button>
           </div>
-          {(data as any)._debug && (
-            <div className="p-2 bg-yellow-50 border border-yellow-100 rounded text-[10px] font-mono text-yellow-800 break-all">
-              debug: {JSON.stringify((data as any)._debug)}
-            </div>
-          )}
         </div>
       )}
 
       {/* Acción */}
-      {hasActions && result ? (
-        <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-lg">
-          <CheckCircle2 size={18} className="text-emerald-600" />
-          <span className="text-sm font-medium text-emerald-700">
-            Importación completa: {result.applied.sueldos} sueldos, {result.applied.dotacion} dotación, {result.applied.vacaciones} vacaciones.
-          </span>
-          <div className="flex-1" />
-          <button onClick={onDone} className="text-sm text-emerald-700 hover:underline">Cerrar</button>
-        </div>
-      ) : hasActions ? (
+      {hasActions && (
         <div className="flex items-center justify-between pt-2 border-t border-gray-100">
           <span className="text-xs text-gray-400">
             {total > 0 ? <><span className="font-medium text-gray-700">{total}</span> registros seleccionados</> : 'Ningún registro seleccionado'}
@@ -411,12 +514,11 @@ function BukPreview({ data, onDone }: { data: BukPreviewData; onDone: () => void
               disabled={isPending || total === 0}
               className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-40"
             >
-              {isPending && <RefreshCw size={12} className="animate-spin" />}
               Importar{total > 0 ? ` (${total})` : ''}
             </button>
           </div>
         </div>
-      ) : null}
+      )}
     </div>
   )
 }
@@ -427,11 +529,12 @@ function BukTab() {
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState<string | null>(null)
   const [preview,  setPreview]  = useState<BukPreviewData | null>(null)
+  const [year,     setYear]     = useState(String(new Date().getFullYear()))
 
   async function load() {
     setLoading(true); setError(null); setPreview(null)
     try {
-      const result = await fetchBukPreview()
+      const result = await fetchBukPreview(year)
       if ((result as any)._debug) console.warn('[BUK debug]', (result as any)._debug)
       setPreview(result)
     }
@@ -441,18 +544,28 @@ function BukTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-sm text-gray-500">Lee automáticamente los 8 archivos Excel de la carpeta <code className="text-xs bg-gray-100 px-1 rounded">reportes/</code></p>
           <p className="text-xs text-gray-400 mt-0.5">Comunicaciones y Consultoría · Dotación, Sueldos, Vacaciones tomadas, Vacaciones y licencia</p>
         </div>
-        <button
-          onClick={load} disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 flex-shrink-0"
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          {loading ? 'Leyendo archivos…' : preview ? 'Recargar' : 'Cargar y previsualizar'}
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-gray-500 whitespace-nowrap">Año sueldos</label>
+            <input
+              type="number" value={year} onChange={e => setYear(e.target.value)}
+              min={2020} max={2099} step={1}
+              className="w-20 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 text-center"
+            />
+          </div>
+          <button
+            onClick={load} disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            {loading ? 'Leyendo archivos…' : preview ? 'Recargar' : 'Cargar y previsualizar'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -460,7 +573,7 @@ function BukTab() {
       )}
 
       {preview && (
-        <BukPreview data={preview} onDone={() => setPreview(null)} />
+        <BukPreview data={preview} year={year} onDone={() => setPreview(null)} />
       )}
     </div>
   )

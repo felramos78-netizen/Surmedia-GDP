@@ -134,11 +134,28 @@ export function useExpiringContracts() {
   })
 }
 
+export interface EmployeePatch {
+  id: string
+  firstName?: string; lastName?: string
+  email?: string; personalEmail?: string | null
+  phone?: string | null; birthDate?: string | null
+  address?: string | null; city?: string | null; commune?: string | null
+  nationality?: string | null; gender?: string | null
+  afp?: string | null; isapre?: string | null
+  jobTitle?: string | null; jobFamily?: string | null
+  costCenter?: string | null; supervisorName?: string | null; supervisorTitle?: string | null
+  workSchedule?: string | null; startDate?: string; endDate?: string | null
+  status?: string; vinculo?: string | null; reemplazaA?: string | null
+  exclusive?: boolean | null
+}
+
 export function useUpdateEmployee() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: string; vinculo?: string | null; reemplazaA?: string | null }) =>
-      api.patch(`/employees/${id}`, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['employees'] }),
+    mutationFn: ({ id, ...body }: EmployeePatch) => api.patch(`/employees/${id}`, body),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['employees'] })
+      qc.invalidateQueries({ queryKey: ['employee', vars.id] })
+    },
   })
 }

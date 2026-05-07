@@ -80,6 +80,32 @@ export interface Contract {
   updatedAt: string
 }
 
+export type LeaveType = 'VACACIONES' | 'PERMISO' | 'LICENCIA_MEDICA' | 'LICENCIA_MATERNIDAD' | 'LICENCIA_PATERNIDAD' | 'OTRO'
+export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+
+export interface Leave {
+  id: string
+  type: LeaveType
+  startDate: string
+  endDate: string
+  days: number
+  reason?: string | null
+  status: LeaveStatus
+  createdAt: string
+}
+
+export interface VacationBalance {
+  id: string
+  legalEntity: LegalEntity
+  year: number
+  month: number
+  saldoLegal: number
+  saldoProgresivas: number
+  saldoAdministrativos: number
+  diasLicencias: number
+  vacacionesTomadas: number
+}
+
 export interface Employee {
   id: string
   rut: string
@@ -115,6 +141,8 @@ export interface Employee {
   reemplazaA?: string | null
   contracts?: Contract[]
   workCenters?: EmployeeWorkCenter[]
+  leaves?: Leave[]
+  vacationBalances?: VacationBalance[]
   createdAt: string
   updatedAt: string
 }

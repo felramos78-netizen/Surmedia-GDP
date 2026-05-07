@@ -295,13 +295,20 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: employees, total, page: Number(page), limit: Number(limit) })
   })
 
-  fastify.patch<{ Params: { id: string }; Body: { vinculo?: string | null; reemplazaA?: string | null } }>('/:id', async (req, reply) => {
+  fastify.patch<{ Params: { id: string }; Body: Record<string, unknown> }>('/:id', async (req, reply) => {
     const { id } = req.params
-    const { vinculo, reemplazaA } = req.body
+    const TEXT_FIELDS    = ['firstName','lastName','email','personalEmail','phone','address','city','commune',
+                            'nationality','gender','afp','isapre','jobTitle','jobFamily','costCenter',
+                            'supervisorName','supervisorTitle','workSchedule','vinculo','reemplazaA','status']
+    const DATE_FIELDS    = ['birthDate','startDate','endDate']
+    const BOOLEAN_FIELDS = ['exclusive']
+
     const data: Record<string, unknown> = {}
-    if ('vinculo'    in req.body) data.vinculo    = vinculo    ?? null
-    if ('reemplazaA' in req.body) data.reemplazaA = reemplazaA ?? null
-    const emp = await fastify.prisma.employee.update({ where: { id }, data, select: { id: true, vinculo: true, reemplazaA: true } })
+    for (const f of TEXT_FIELDS)    if (f in req.body) data[f] = req.body[f] ?? null
+    for (const f of DATE_FIELDS)    if (f in req.body) data[f] = req.body[f] ? new Date(req.body[f] as string) : null
+    for (const f of BOOLEAN_FIELDS) if (f in req.body) data[f] = req.body[f] ?? null
+
+    const emp = await fastify.prisma.employee.update({ where: { id }, data })
     return reply.send({ data: emp })
   })
 
@@ -330,9 +337,16 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
         },
         leaves: {
           orderBy: { createdAt: 'desc' },
-          take: 10,
+          take: 20,
         },
         documents: true,
+        workCenters: {
+          include: { workCenter: { select: { id: true, name: true, costType: true } } },
+        },
+        vacationBalances: {
+          orderBy: [{ year: 'desc' }, { month: 'desc' }],
+          take: 12,
+        },
       },
     })
 

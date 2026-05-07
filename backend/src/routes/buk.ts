@@ -71,7 +71,7 @@ interface SueldosRow {
   items: Array<{ name: string; amount: number; taxable: boolean }>
 }
 
-function parseSueldos(): SueldosRow[] {
+function parseSueldos(yearOverride?: number): SueldosRow[] {
   const out: SueldosRow[] = []
   for (const { dir, entity } of FOLDERS) {
     const fp = latestFile(path.join(REPORTES_DIR, dir), 'Sueldos')
@@ -91,7 +91,7 @@ function parseSueldos(): SueldosRow[] {
 
     const fname   = path.basename(fp)
     const yrMatch = fname.match(/[Ss]ueldos[^\d]*(20\d{2})/i)
-    const startYr = yrMatch ? Number(yrMatch[1]) : new Date().getFullYear()
+    const startYr = yearOverride ?? (yrMatch ? Number(yrMatch[1]) : new Date().getFullYear())
 
     const itemCols: Array<{ idx: number; name: string; taxable: boolean }> = []
     headers.forEach((h, i) => {
@@ -258,16 +258,85 @@ function parseVacaciones(): VacRow[] {
   return out
 }
 
+// ── Vacaciones y licencia parser ──────────────────────────────────────────────
+
+interface VacLicRow {
+  key:         string
+  legalEntity: LegalEntityKey
+  rut:         string
+  nombre:      string
+  year:        number
+  month:       number
+  saldoLegal:           number
+  saldoProgresivas:     number
+  saldoAdministrativos: number
+  diasLicencias:        number
+  vacacionesTomadas:    number
+}
+
+function parseVacLicencia(yearOverride?: number): VacLicRow[] {
+  const out: VacLicRow[] = []
+  const year = yearOverride ?? new Date().getFullYear()
+  for (const { dir, entity } of FOLDERS) {
+    const fp = latestFile(path.join(REPORTES_DIR, dir), 'Vacaciones y licencia')
+    if (!fp) continue
+    const wb  = XLSX.readFile(fp)
+    const ws  = wb.Sheets[wb.SheetNames[0]]
+    const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: null }) as any[][]
+    // Header row contains 'Mes de Cálculo' and 'Número de Documento'
+    const hdrIdx = raw.findIndex(r => r.some((c: any) => String(c ?? '').includes('Mes de Cálculo')))
+    if (hdrIdx === -1) continue
+    const headers = raw[hdrIdx].map((h: any) => String(h ?? '').trim())
+    const col = (t: string) => headers.findIndex(h => h.includes(t))
+
+    const MES_COL  = col('Mes de Cálculo')
+    const RUT_COL  = col('Número de Documento')
+    const NOM_COL  = col('Nombre Completo')
+    const LIC_COL  = col('Días de Licencias (Aplicadas)')
+    const VAC_COL  = col('Vacaciones Tomadas')
+    const ACM_COL  = col('Saldo Vacaciones Acumuladas')
+    const ADM_COL  = col('Saldo Vacaciones Días Administrativos')
+    const PRG_COL  = col('Saldo Vacaciones Progresivas')
+    const LEG_COL  = col('Saldo Vacaciones Legales')
+    if (RUT_COL === -1 || MES_COL === -1) continue
+
+    for (let i = hdrIdx + 1; i < raw.length; i++) {
+      const r = raw[i]
+      const rut = String(r[RUT_COL] ?? '').trim()
+      if (!rut) continue
+      const month = Number(r[MES_COL]) || 0
+      if (!month) continue
+      const norm = normalizeRut(rut)
+      out.push({
+        key:                 `vaclic|${entity}|${norm}|${year}|${month}`,
+        legalEntity:         entity,
+        rut:                 norm,
+        nombre:              String(r[NOM_COL] ?? '').trim(),
+        year,
+        month,
+        saldoLegal:           Number(r[LEG_COL] ?? 0) || 0,
+        saldoProgresivas:     Number(r[PRG_COL] ?? 0) || 0,
+        saldoAdministrativos: Number(r[ADM_COL] ?? 0) || 0,
+        diasLicencias:        Number(r[LIC_COL] ?? 0) || 0,
+        vacacionesTomadas:    Number(r[VAC_COL] ?? 0) || 0,
+      })
+    }
+  }
+  return out
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 const bukRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.addHook('preHandler', fastify.authenticate)
 
   // GET /api/buk/preview — lee todos los Excel y devuelve diff vs DB
-  fastify.get('/preview', async (_req, reply) => {
-    const sueldosRows  = parseSueldos()
+  fastify.get<{ Querystring: { year?: string } }>('/preview', async (req, reply) => {
+    const yearOverride = req.query.year ? Number(req.query.year) : undefined
+    const sueldosRows  = parseSueldos(yearOverride)
     const dotacionRows = parseDotacion()
     const vacRows      = parseVacaciones()
+    const vacLicRows   = parseVacLicencia(yearOverride)
 
     // ── Sueldos diff ──────────────────────────────────────────────────────
     const sueldosRuts = [...new Set(sueldosRows.map(r => r.rut))]
@@ -322,7 +391,7 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
     const rutToContract  = new Map<string, typeof dbContracts[0]>()
     for (const c of dbContracts) if (!rutToContract.has(upRut(c.employee.rut))) rutToContract.set(upRut(c.employee.rut), c)
 
-    const dotNuevos:  Array<{ rut: string; nombre: string; legalEntity: LegalEntityKey; estado: string }> = []
+    const dotNuevos:  Array<{ rut: string; nombre: string; legalEntity: LegalEntityKey; estado: string; cargo: string | null; afp: string | null; isapre: string | null; tipoContrato: string | null; fechaIngreso: string | null; supervisorNombre: string | null; jornada: string | null }> = []
     const dotCambios: Array<{ key: string; rut: string; nombre: string; legalEntity: LegalEntityKey; campos: Array<{ campo: string; antes: string | null; despues: string | null }> }> = []
     const seenDotRuts = new Set<string>()
 
@@ -330,7 +399,19 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       if (seenDotRuts.has(row.rut)) continue
       seenDotRuts.add(row.rut)
       const dbEmp = rutToEmpDot.get(row.rut)
-      if (!dbEmp) { dotNuevos.push({ rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, estado: row.estado }); continue }
+      if (!dbEmp) {
+        dotNuevos.push({
+          rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, estado: row.estado,
+          cargo:           row.cargo            || null,
+          afp:             row.afp              || null,
+          isapre:          row.isapre           || null,
+          tipoContrato:    row.tipoContrato     || null,
+          fechaIngreso:    row.fechaIngreso ? row.fechaIngreso.toISOString().slice(0, 10) : null,
+          supervisorNombre:row.supervisorNombre || null,
+          jornada:         row.jornada          || null,
+        })
+        continue
+      }
 
       const campos: Array<{ campo: string; antes: string | null; despues: string | null }> = []
       const addCampo = (campo: string, antes: string | null | undefined, despues: string) => {
@@ -381,12 +462,30 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
         vacNuevas.push({ key: row.key, rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, startDate: row.startDate.toISOString().slice(0, 10), endDate: row.endDate.toISOString().slice(0, 10), days: row.days })
     }
 
+    // ── Vacaciones y licencia diff ─────────────────────────────────────────
+    const vacLicRuts = [...new Set(vacLicRows.map(r => r.rut))]
+    const dbEmpsVacLic = await fastify.prisma.employee.findMany({
+      where: { rut: { in: rutVariants(vacLicRuts) } },
+      select: { id: true, rut: true },
+    })
+    const rutSetVacLic = new Set(dbEmpsVacLic.map(e => upRut(e.rut)))
+
+    const vacLicRegistros = vacLicRows.filter(r => rutSetVacLic.has(r.rut)).map(r => ({
+      key: r.key, rut: r.rut, nombre: r.nombre, legalEntity: r.legalEntity,
+      year: r.year, month: r.month,
+      saldoLegal: r.saldoLegal, saldoProgresivas: r.saldoProgresivas,
+      saldoAdministrativos: r.saldoAdministrativos, diasLicencias: r.diasLicencias,
+      vacacionesTomadas: r.vacacionesTomadas,
+    }))
+    const vacLicSinEmpleado = [...new Set(vacLicRows.filter(r => !rutSetVacLic.has(r.rut)).map(r => r.rut))]
+
     return reply.send({
       _debug: { reportesDir: REPORTES_DIR, exists: fs.existsSync(REPORTES_DIR), sueldosRowsCount: sueldosRows.length },
       data: {
-        sueldos:   { nuevos: sueldosNuevos, cambios: sueldosCambios, sincronizados: sueldosSincronizados, sinEmpleado: [...new Set(sueldosSinEmpleado)] },
-        dotacion:  { nuevos: dotNuevos,     cambios: dotCambios },
-        vacaciones:{ nuevas: vacNuevas,     sinEmpleado: [...new Set(vacSinEmpleado)] },
+        sueldos:    { nuevos: sueldosNuevos, cambios: sueldosCambios, sincronizados: sueldosSincronizados, sinEmpleado: [...new Set(sueldosSinEmpleado)] },
+        dotacion:   { nuevos: dotNuevos,     cambios: dotCambios },
+        vacaciones: { nuevas: vacNuevas,     sinEmpleado: [...new Set(vacSinEmpleado)] },
+        vacLicencia:{ registros: vacLicRegistros, sinEmpleado: vacLicSinEmpleado },
       },
     })
   })
@@ -394,15 +493,17 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/buk/apply — aplica los cambios aprobados
   fastify.post<{
     Body: {
+      year?: number
       sueldos?:    {
         nuevosKeys?: string[]; cambiosKeys?: string[]; sincronizadosKeys?: string[]
         overrides?: Record<string, { grossSalary?: number; liquidSalary?: number }>
       }
-      dotacion?:   { cambiosKeys?: string[]; nuevosKeys?: string[] }
-      vacaciones?: { nuevasKeys?: string[] }
+      dotacion?:    { cambiosKeys?: string[]; nuevosKeys?: string[] }
+      vacaciones?:  { nuevasKeys?: string[] }
+      vacLicencia?: { keys?: string[] }
     }
   }>('/apply', { config: { bodyLimit: 1_000_000 } }, async (req, reply) => {
-    const { sueldos, dotacion, vacaciones } = req.body
+    const { sueldos, dotacion, vacaciones, vacLicencia, year: yearOverride } = req.body
     const sueldosAllKeys = new Set([
       ...(sueldos?.nuevosKeys       ?? []),
       ...(sueldos?.cambiosKeys      ?? []),
@@ -411,32 +512,34 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
     const dotCambiosKeys  = new Set(dotacion?.cambiosKeys ?? [])
     const dotNuevosKeys   = new Set(dotacion?.nuevosKeys  ?? [])
     const vacNuevasKeys   = new Set(vacaciones?.nuevasKeys ?? [])
-    const applied = { sueldos: 0, dotacion: 0, vacaciones: 0 }
+    const vacLicKeys   = new Set(vacLicencia?.keys ?? [])
+    const applied = { sueldos: 0, dotacion: 0, vacaciones: 0, vacLicencia: 0 }
 
-    // ── Sueldos ───────────────────────────────────────────────────────────
+    // ── Sueldos (batch con $transaction) ─────────────────────────────────
     if (sueldosAllKeys.size > 0) {
-      const rows = parseSueldos().filter(r => sueldosAllKeys.has(r.key))
+      const rows = parseSueldos(yearOverride).filter(r => sueldosAllKeys.has(r.key))
       const ruts = [...new Set(rows.map(r => r.rut))]
       const emps = await fastify.prisma.employee.findMany({ where: { rut: { in: rutVariants(ruts) } }, select: { id: true, rut: true } })
       const rutToId = new Map(emps.map(e => [upRut(e.rut), e.id]))
-      for (const row of rows) {
+      const ops = rows.flatMap(row => {
         const empId = rutToId.get(row.rut)
-        if (!empId) continue
-        try {
-          const ov = sueldos?.overrides?.[row.key]
-          const gross  = ov?.grossSalary  ?? row.grossSalary
-          const liquid = ov?.liquidSalary ?? row.liquidSalary
-          await fastify.prisma.payrollEntry.upsert({
-            where: { employeeId_legalEntity_year_month: { employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month } },
-            create: { employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month, grossSalary: gross, liquidSalary: liquid, items: row.items as any },
-            update: { grossSalary: gross, liquidSalary: liquid, items: row.items as any },
-          })
-          applied.sueldos++
-        } catch { /* skip */ }
+        if (!empId) return []
+        const ov = sueldos?.overrides?.[row.key]
+        const gross  = ov?.grossSalary  ?? row.grossSalary
+        const liquid = ov?.liquidSalary ?? row.liquidSalary
+        return [fastify.prisma.payrollEntry.upsert({
+          where: { employeeId_legalEntity_year_month: { employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month } },
+          create: { employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month, grossSalary: gross, liquidSalary: liquid, items: row.items as any },
+          update: { grossSalary: gross, liquidSalary: liquid, items: row.items as any },
+        })]
+      })
+      if (ops.length > 0) {
+        await fastify.prisma.$transaction(ops)
+        applied.sueldos = ops.length
       }
     }
 
-    // ── Dotación ──────────────────────────────────────────────────────────
+    // ── Dotación cambios (batch con $transaction) ─────────────────────────
     if (dotCambiosKeys.size > 0) {
       const relevantRuts = [...dotCambiosKeys].map(k => k.replace('dotacion|', ''))
       const rows = parseDotacion().filter(r => relevantRuts.includes(r.rut))
@@ -450,12 +553,12 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       const contractByEmpId = new Map<string, string>()
       for (const c of contracts) if (!contractByEmpId.has(c.employeeId)) contractByEmpId.set(c.employeeId, c.id)
 
-      for (const row of rows) {
+      const ops = rows.flatMap(row => {
         const emp = empByRut.get(row.rut)
-        if (!emp) continue
+        if (!emp) return []
         const excelStatus = row.estado.toLowerCase() === 'activo' ? 'ACTIVE' : 'INACTIVE'
         const excelType   = row.tipoContrato.toLowerCase().includes('plazo') ? 'PLAZO_FIJO' : 'INDEFINIDO'
-        await fastify.prisma.employee.update({
+        const updates = [fastify.prisma.employee.update({
           where: { id: emp.id },
           data: {
             status:          excelStatus as any,
@@ -466,73 +569,108 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
             supervisorName:  row.supervisorNombre || undefined,
             supervisorTitle: row.supervisorCargo  || undefined,
           },
-        })
+        })]
         const contractId = contractByEmpId.get(emp.id)
-        if (contractId) {
-          await fastify.prisma.contract.update({
-            where: { id: contractId },
-            data: { type: excelType as any, endDate: row.fechaVencimiento ?? null },
-          })
-        }
-        applied.dotacion++
+        if (contractId) updates.push(fastify.prisma.contract.update({
+          where: { id: contractId },
+          data: { type: excelType as any, endDate: row.fechaVencimiento ?? null },
+        }) as any)
+        return updates
+      })
+      if (ops.length > 0) {
+        await fastify.prisma.$transaction(ops as any[])
+        applied.dotacion += rows.filter(r => empByRut.has(r.rut)).length
       }
     }
 
-    // ── Dotación nuevos → crear empleados ────────────────────────────────
+    // ── Dotación nuevos → createMany + contratos (3 queries en total) ────
     if (dotNuevosKeys.size > 0) {
       const nuevosRuts = [...dotNuevosKeys].map(k => k.replace('dot-nuevo|', ''))
       const rows = parseDotacion().filter(r => nuevosRuts.includes(r.rut))
-      for (const row of rows) {
-        try {
-          const parts    = row.nombre.trim().split(/\s+/)
+      await fastify.prisma.employee.createMany({
+        data: rows.map(row => {
+          const parts     = row.nombre.trim().split(/\s+/)
           const firstName = parts.length > 2 ? parts.slice(2).join(' ') : parts[0] ?? row.nombre
           const lastName  = parts.length > 2 ? parts.slice(0, 2).join(' ') : parts.slice(1).join(' ') || '-'
           const excelStatus = row.estado.toLowerCase() === 'activo' ? 'ACTIVE' : 'INACTIVE'
-          const excelType   = row.tipoContrato.toLowerCase().includes('plazo') ? 'PLAZO_FIJO' : 'INDEFINIDO'
-          const emp = await fastify.prisma.employee.create({
-            data: {
-              rut:            row.rut,
-              firstName,
-              lastName,
-              email:          `${row.rut.replace(/[^0-9]/g, '')}@buk.import`,
-              status:         excelStatus as any,
-              startDate:      row.fechaIngreso ?? new Date(),
-              afp:            row.afp            || undefined,
-              isapre:         row.isapre         || undefined,
-              jobTitle:       row.cargo          || undefined,
-              jobFamily:      row.familaCargo    || undefined,
-              supervisorName: row.supervisorNombre || undefined,
-              supervisorTitle:row.supervisorCargo  || undefined,
-              contracts: { create: {
-                type:      excelType as any,
-                startDate: row.fechaIngreso ?? new Date(),
-                endDate:   row.fechaVencimiento ?? null,
-                salary:    0,
-                legalEntity: row.legalEntity as any,
-              }},
-            },
-          })
-          void emp
-          applied.dotacion++
-        } catch { /* skip si ya existe */ }
+          return {
+            rut:             row.rut,
+            firstName,
+            lastName,
+            email:           `${row.rut.replace(/[^0-9]/g, '')}@buk.import`,
+            status:          excelStatus as any,
+            startDate:       row.fechaIngreso ?? new Date(),
+            afp:             row.afp             || undefined,
+            isapre:          row.isapre          || undefined,
+            jobTitle:        row.cargo           || undefined,
+            jobFamily:       row.familaCargo     || undefined,
+            supervisorName:  row.supervisorNombre || undefined,
+            supervisorTitle: row.supervisorCargo  || undefined,
+          }
+        }),
+        skipDuplicates: true,
+      })
+      const createdEmps = await fastify.prisma.employee.findMany({
+        where: { rut: { in: rutVariants(rows.map(r => r.rut)) } },
+        select: { id: true, rut: true },
+      })
+      const rutToId = new Map(createdEmps.map(e => [upRut(e.rut), e.id]))
+      const contractData = rows.flatMap(row => {
+        const empId = rutToId.get(row.rut)
+        if (!empId) return []
+        const excelType = row.tipoContrato.toLowerCase().includes('plazo') ? 'PLAZO_FIJO' : 'INDEFINIDO'
+        return [{ employeeId: empId, type: excelType as any, startDate: row.fechaIngreso ?? new Date(), endDate: row.fechaVencimiento ?? null, salary: 0, legalEntity: row.legalEntity as any }]
+      })
+      if (contractData.length > 0) {
+        await fastify.prisma.contract.createMany({ data: contractData, skipDuplicates: true })
       }
+      applied.dotacion += rows.length
     }
 
-    // ── Vacaciones ────────────────────────────────────────────────────────
+    // ── Vacaciones (createMany — las keys ya vienen filtradas como nuevas) ──
     if (vacNuevasKeys.size > 0) {
       const rows = parseVacaciones().filter(r => vacNuevasKeys.has(r.key))
       const ruts = [...new Set(rows.map(r => r.rut))]
       const emps = await fastify.prisma.employee.findMany({ where: { rut: { in: rutVariants(ruts) } }, select: { id: true, rut: true } })
       const rutToId = new Map(emps.map(e => [upRut(e.rut), e.id]))
-      for (const row of rows) {
+      const leaveData = rows.flatMap(row => {
         const empId = rutToId.get(row.rut)
-        if (!empId) continue
-        try {
-          await fastify.prisma.leave.create({
-            data: { employeeId: empId, type: 'VACACIONES' as any, startDate: row.startDate, endDate: row.endDate, days: row.days, status: 'APPROVED' as any, reason: 'Importado desde BUK' },
-          })
-          applied.vacaciones++
-        } catch { /* skip duplicates */ }
+        if (!empId) return []
+        return [{ employeeId: empId, type: 'VACACIONES' as any, startDate: row.startDate, endDate: row.endDate, days: row.days, status: 'APPROVED' as any, reason: 'Importado desde BUK' }]
+      })
+      if (leaveData.length > 0) {
+        await fastify.prisma.leave.createMany({ data: leaveData, skipDuplicates: true })
+        applied.vacaciones = leaveData.length
+      }
+    }
+
+    // ── Vacaciones y licencia (upsert batch) ──────────────────────────────
+    if (vacLicKeys.size > 0) {
+      const rows = parseVacLicencia(yearOverride).filter(r => vacLicKeys.has(r.key))
+      const ruts = [...new Set(rows.map(r => r.rut))]
+      const emps = await fastify.prisma.employee.findMany({ where: { rut: { in: rutVariants(ruts) } }, select: { id: true, rut: true } })
+      const rutToId = new Map(emps.map(e => [upRut(e.rut), e.id]))
+      const ops = rows.flatMap(row => {
+        const empId = rutToId.get(row.rut)
+        if (!empId) return []
+        return [fastify.prisma.vacationBalance.upsert({
+          where: { employeeId_legalEntity_year_month: { employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month } },
+          create: {
+            employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month,
+            saldoLegal: row.saldoLegal, saldoProgresivas: row.saldoProgresivas,
+            saldoAdministrativos: row.saldoAdministrativos, diasLicencias: row.diasLicencias,
+            vacacionesTomadas: row.vacacionesTomadas,
+          },
+          update: {
+            saldoLegal: row.saldoLegal, saldoProgresivas: row.saldoProgresivas,
+            saldoAdministrativos: row.saldoAdministrativos, diasLicencias: row.diasLicencias,
+            vacacionesTomadas: row.vacacionesTomadas,
+          },
+        })]
+      })
+      if (ops.length > 0) {
+        await fastify.prisma.$transaction(ops)
+        applied.vacLicencia = ops.length
       }
     }
 

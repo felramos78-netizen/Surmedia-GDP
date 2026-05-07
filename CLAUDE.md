@@ -1,160 +1,427 @@
-# CLAUDE.md — Contexto del Proyecto GDP Surmedia
+# CLAUDE.md
 
-Este archivo provee contexto esencial para sesiones de desarrollo asistido por IA en el proyecto **Gestión de Personas Surmedia (GDP)**.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Empresa: Surmedia
+---
 
-Empresa de medios y tecnología con sede en Chile. GDP es su sistema interno de Recursos Humanos construido para reemplazar y complementar los procesos manuales actualmente gestionados en Excel.
+## Proyecto: Gestión de Personas Surmedia (GDP)
 
-## Propósito del Proyecto
+Sistema interno de RRHH para Surmedia (empresa de medios y tecnología, Chile). Reemplaza procesos manuales en Excel. Centraliza gestión de personas integrando BUK, Previred, Google Workspace y otras plataformas del ecosistema digital.
 
-Centralizar la gestión de personas de Surmedia integrando todas las herramientas del ecosistema digital en un único sistema coherente. Eliminar silos de información, reducir trabajo manual y mejorar la experiencia del colaborador.
+**Dos razones sociales operativas:**
+- `COMUNICACIONES_SURMEDIA` — Comunicaciones Surmedia Spa
+- `SURMEDIA_CONSULTORIA` — Surmedia Consultoría Spa
 
-## Ecosistema Digital de Surmedia
+Ambas entidades conviven en la misma base de datos; casi todos los modelos relevantes llevan `legalEntity: LegalEntity`.
 
-### Plataformas Críticas (integraciones obligatorias)
-- **BUK**: Sistema principal de RRHH. Contratos, liquidaciones, vacaciones, beneficios, evaluaciones de desempeño.
-- **BUK Asistencia**: Control de marcaje y asistencia. Turnos, horas extra, ausencias.
-- **Previred**: Declaración y pago de cotizaciones previsionales (AFP, salud) ante organismos chilenos.
-
-### Plataformas Importantes (integraciones deseadas)
-- **Microsoft Office / Outlook**: Documentos Word/Excel, correos corporativos.
-- **Suite de Google**: Drive para almacenamiento, Sheets para reportes, Forms para encuestas, Meet para entrevistas.
-- **Trello**: Flujos de trabajo del equipo de RRHH (onboarding, offboarding, procesos de selección).
-- **Zapier**: Automatizaciones entre plataformas (ej: nuevo empleado en BUK → crear carpeta en Drive → crear tarjeta en Trello).
-
-### Plataformas de Contexto
-- **Adobe Suite**: Utilizada por el equipo creativo. Considerar al modelar perfiles y roles.
-- **Smart CTO**: Gestión del equipo tecnológico.
-- **DT Digital**: Iniciativas de transformación digital de la empresa.
-
-## Arquitectura de Alto Nivel
-
-```
-[GDP Frontend] → [GDP API] → [PostgreSQL]
-                     ↕
-        [Integration Layer / Zapier]
-                     ↕
-    BUK | Previred | Google | Microsoft | Trello
-```
-
-## Arquitectura de Módulos RRHH (fuente: Arquitectura.xlsx)
-
-El sistema GDP está organizado en **5 macro-módulos** que reflejan exactamente la estructura de RRHH de Surmedia (DPDO — Departamento de Personas y Desarrollo Organizacional):
-
-### 1. Gestión de Bienestar Laboral
-- **Evaluación de clima laboral**: Encuestas de clima, Comité paritario, CEAL-SUCESO
-
-### 2. Gestión de Talento
-- **Capacitaciones externas**: Diplomados, Magíster, Cursos Copagados, Cursos SENCE
-- **Capacitaciones internas**: Liderazgo, Talleres
-- **Onboarding**: Feedback e indefinido, Acreditaciones, Antecedentes del ingresante, Inducción corporativa, Inducción SSO, Programa de mentoría, Elementos de ingreso
-- **Prácticas laborales**: Presupuesto de prácticas
-- **Reclutamiento**: Requerimientos y vacantes, Portales de publicación
-- **Selección**: Entrevistas y pruebas, Carta oferta
-
-### 3. Gestión de Valores
-- **Difusión interna**: Canales de Círculos SM, La Alcuza, Cumpleaños, Canales de comunicación interna
-- **Integración cultural**: Estructura organizacional y organigrama, Año de la Excelencia, Celebraciones anuales, Reconocimientos, Puntos de encuentro
-
-### 4. Gestión del Desempeño
-- **Cargos**: Descriptivos de cargo
-- **Diccionario de competencias**: Competencias laborales
-- **Evaluación de desempeño**: Planificación anual, Análisis de métricas, Planes de sucesión
-
-### 5. Gestión Documental
-- **Presupuestos**: Presupuesto DPDO
-- **Boletas de honorarios**: Informe mensual de boletas
-- **Dotación**: Administración documental, Generación de contratos y anexos
-- **Procesos de soporte personas**: Seguro complementario, Tarjeta Pluxee, Enrolamiento oficina
-- **Remuneraciones**: Informe mensual de remuneraciones
-
-> **Glosario clave:**
-> - **DPDO**: Departamento de Personas y Desarrollo Organizacional (nombre interno de RRHH en Surmedia)
-> - **SSO**: Seguridad y Salud Ocupacional
-> - **CEAL-SUCESO**: Cuestionario de Evaluación de Ambiente Laboral (herramienta oficial MINSAL Chile)
-> - **La Alcuza**: Newsletter/canal de comunicación interna de Surmedia
-> - **Pluxee**: Tarjeta de beneficios (ex-Sodexo) para alimentación y/o bienestar
-> - **SENCE**: Servicio Nacional de Capacitación y Empleo (subsidio estatal de capacitación)
-> - **Círculos SM**: Grupos de trabajo internos de Surmedia
-> - **Feedback e indefinido**: Proceso de evaluación al término del período de prueba antes de pasar a contrato indefinido
-
-## Modelo de Datos Core
-
-### Entidades Principales — Núcleo
-- `Employee` — Colaborador (datos personales, contractuales, laborales)
-- `Contract` — Contrato laboral (tipo, fechas, remuneración)
-- `Department` — Área/departamento
-- `Position` — Cargo/puesto con descriptivo
-- `Attendance` — Registro de asistencia (sync desde BUK Asistencia)
-- `Leave` — Solicitudes de vacaciones/permisos
-- `Payroll` — Liquidaciones de sueldo (sync desde BUK)
-- `Document` — Documentos del colaborador en Drive
-- `HonoraryReceipt` — Boletas de honorarios (prestadores externos)
-
-### Entidades — Gestión de Talento
-- `Training` — Capacitación interna o externa
-- `TrainingEnrollment` — Inscripción de colaborador en capacitación
-- `Internship` — Práctica laboral + presupuesto
-- `JobPosting` — Vacante publicada
-- `Candidate` — Candidato a vacante
-- `Interview` — Entrevista de selección
-- `JobOffer` — Carta oferta
-
-### Entidades — Desempeño y Bienestar
-- `PerformanceCycle` — Ciclo anual de evaluaciones
-- `PerformanceReview` — Evaluación individual de desempeño
-- `SuccessionPlan` — Plan de sucesión por cargo clave
-- `Competency` — Competencias del diccionario corporativo
-- `ClimateSurvey` — Encuesta de clima laboral (CEAL-SUCESO u otras)
-- `ClimateSurveyResponse` — Respuestas anónimas por colaborador
-
-### Entidades — Valores y Beneficios
-- `Recognition` — Reconocimientos a colaboradores
-- `CulturalEvent` — Celebraciones y eventos internos
-- `InternalCommunication` — Publicaciones de La Alcuza / comunicaciones
-- `EmployeeBenefit` — Beneficios asignados (Pluxee, seguro complementario)
-
-### Campos Chilenos Obligatorios
-- `rut` — RUT chileno (formato: XX.XXX.XXX-X)
-- `afp` — AFP del trabajador
-- `isapre` — Isapre o Fonasa
-- `previred_codigo` — Código de previred para declaraciones
-
-## Convenciones de Código
-
-- **Idioma de código**: Inglés (variables, funciones, clases)
-- **Idioma de comentarios/docs**: Español
-- **Formato de RUT**: Siempre validar y formatear con dígito verificador
-- **Fechas**: ISO 8601 internamente, formato DD/MM/YYYY en UI
-- **Moneda**: CLP (peso chileno) como entero (sin decimales)
+---
 
 ## Comandos de Desarrollo
 
 ```bash
-npm run dev          # Servidor de desarrollo
-npm run build        # Build de producción
-npm run test         # Tests unitarios
-npm run test:e2e     # Tests end-to-end
-npm run lint         # ESLint + Prettier
-npm run db:migrate   # Ejecutar migraciones Prisma
-npm run db:seed      # Poblar base de datos con datos de prueba
-npm run db:studio    # Abrir Prisma Studio
+# Desde la raíz del monorepo
+npm run dev:frontend          # Frontend en http://localhost:3000
+npm run dev:backend           # Backend en http://localhost:4000
+
+# Desde cada workspace directamente
+cd backend && npm run dev     # tsx watch (hot reload)
+cd frontend && npm run dev    # Vite dev server
+
+# Build
+npm run build                 # Compila frontend (Vite) + backend (tsc)
+
+# Lint
+npm run lint                  # ESLint en ambos workspaces
+cd backend && npm run lint    # Solo tsc --noEmit (sin ESLint)
+
+# Base de datos (backend/)
+npm run db:migrate            # prisma migrate dev (crea migración y aplica)
+npm run db:deploy             # prisma migrate deploy (solo aplica, para producción)
+npm run db:push               # prisma db push (sin migración, útil en dev)
+npm run db:seed               # tsx prisma/seed.ts
+npm run db:studio             # Prisma Studio
+npm run generate              # prisma generate (regenerar cliente)
 ```
 
-## Contexto de RRHH Chileno
+No hay suite de tests definida en este momento.
 
-- Las liquidaciones de sueldo siguen la legislación laboral chilena (Código del Trabajo)
-- Cotizaciones previsionales: AFP (~10% trabajador), salud (7%), seguro cesantía, etc.
-- Declaración mensual de cotizaciones a través de Previred
-- Feriados legales chilenos deben considerarse en el módulo de asistencia
-- Finiquitos deben cumplir causales del Artículo 159, 160, 161 del Código del Trabajo
+---
 
-## Archivos Importantes
+## Arquitectura
 
-- `docs/arquitectura.md` — Diseño técnico detallado
-- `docs/integraciones.md` — Configuración de cada integración
-- `docs/modelo-datos.md` — Esquema completo de base de datos
-- `docs/procesos-rrhh.md` — Flujos de proceso de RRHH
-- `docs/roadmap.md` — Plan de desarrollo por fases
-- `prisma/schema.prisma` — Esquema de base de datos (cuando exista)
+### Monorepo (npm workspaces)
+```
+surmedia-gdp/
+├── frontend/     React 19 + Vite + TailwindCSS v4
+├── backend/      Fastify 5 + Prisma + PostgreSQL
+├── reportes/     Excel exportados manualmente desde BUK (ver sección Importación)
+└── package.json  Workspace root — scripts dev:frontend / dev:backend
+```
+
+### Backend (`backend/`)
+
+- **Runtime:** Node.js con `tsx watch` en desarrollo; `tsc` → `node dist/server.js` en producción.
+- **Framework:** Fastify 5 con plugins registrados en `src/server.ts`: CORS, cookie, JWT (`@fastify/jwt`), Prisma (plugin propio), y `authenticate` (decorador de instancia).
+- **Puerto:** 4000. Todas las rutas bajo `/api/`.
+- **Autenticación:** JWT via `Authorization: Bearer <token>`. El decorador `fastify.authenticate` se añade como `preHandler` en cada router que requiere auth. Actualmente hay un usuario temporal hardcodeado (`framos@surmedia.cl` / `1234`) mientras se termina el flujo de Google OAuth.
+- **ORM:** Prisma 5 con PostgreSQL. El cliente se expone como `fastify.prisma` via el plugin `src/plugins/prisma.ts`.
+- **Estructura de rutas:**
+  ```
+  /api/auth          → src/routes/auth.ts       (login, Google OAuth, /me)
+  /api/employees     → src/routes/employees.ts
+  /api/onboarding    → src/routes/onboarding.ts
+  /api/profiles      → src/routes/profiles.ts
+  /api/payroll       → src/routes/payroll.ts
+  /api/work-centers  → src/routes/workCenters.ts
+  /api/buk           → src/routes/buk.ts        (importación desde Excel)
+  /api/health        → health check
+  ```
+- **Servicios:**
+  - `services/auth.service.ts` — Google OAuth + resolución de usuario
+  - `services/automation.service.ts` — Ejecuta automatizaciones de tareas de onboarding (EMAIL, CALENDAR, BUK_CHECK, EXTERNAL)
+  - `services/email.service.ts` — SMTP via Nodemailer; contiene las plantillas de correo de onboarding
+  - `services/sheets.service.ts` — Integración Google Sheets
+
+### Frontend (`frontend/`)
+
+- **Stack:** React 19 + TypeScript + Vite + TailwindCSS v4 (plugin de Vite, no CLI).
+- **Puerto:** 3000. Proxy Vite envía `/api/*` → `http://localhost:4000`.
+- **Path alias:** `@` → `frontend/src/`.
+- **Estado global:** Zustand (`store/auth.ts`) para sesión de usuario. TanStack Query para datos del servidor (staleTime 5 min).
+- **HTTP:** axios (`lib/api.ts`) con interceptor de JWT. Lee token de `localStorage` (`gdp_token`). Tiene lógica de re-login automático con las credenciales del usuario temporal — esto debe revisarse cuando se active Google OAuth.
+- **Routing:** React Router v7. Layout único `AppLayout` con sidebar de navegación.
+- **Páginas activas:**
+  - `/employees` — Dotación (listado + drawer de detalle)
+  - `/colaboradores` — Directorio de colaboradores (tarjetas con búsqueda y filtros)
+  - `/colaboradores/:id` — Ficha completa con tabs: Datos (editable), Contratos, Remuneraciones, Ausencias, Centros
+  - `/centros-trabajo` — Centros de trabajo
+  - `/onboarding` — Procesos de onboarding
+  - `/perfiles` — Perfiles del equipo RRHH
+  - `/buk` — Importación de Excel desde BUK
+- **Despliegue:** Vercel (configurado en `frontend/vercel.json`).
+
+### Importación de datos (flujo Excel manual)
+
+No hay integración directa con ninguna API externa. El equipo RRHH exporta reportes manualmente desde BUK y los coloca en `reportes/` (raíz del proyecto), organizado por razón social:
+
+```
+reportes/
+├── Comunicaciones/
+│   ├── Dotación YYYY-MM.xlsx
+│   ├── Sueldos YYYY-MM.xlsx
+│   ├── Vacaciones tomadas YYYY-MM.xlsx
+│   └── Vacaciones y licencia YYYY-MM.xlsx
+└── Consultoría/
+    ├── Dotación YYYY-MM.xlsx
+    ├── Sueldos YYYY-MM.xlsx
+    ├── Vacaciones tomadas YYYY-MM.xlsx
+    └── Vacaciones y licencia YYYY-MM.xlsx
+```
+
+`GET /api/buk/preview` parsea estos archivos con `xlsx` y los compara contra la DB, devolviendo un diff (nuevos, cambios, sincronizados). `POST /api/buk/apply` aplica los cambios seleccionados. La UI en `/buk` permite revisar y confirmar cada importación antes de escribir en la DB. Previred no está implementado.
+
+---
+
+## Modelo de Datos Central
+
+El esquema vive en `backend/prisma/schema.prisma`. Entidades núcleo:
+
+- `Employee` — Colaborador. Campos extendidos desde BUK: `jobTitle`, `jobFamily`, `costCenter`, `vinculo`, `reemplazaA`, `supervisorName/Title`, etc.
+- `Contract` — Contrato laboral. Tipos: `INDEFINIDO`, `PLAZO_FIJO`, `HONORARIOS`, `PRACTICA`.
+- `WorkCenter` + `EmployeeWorkCenter` — Centros de trabajo (DIRECTO/INDIRECTO) con asignaciones por colaborador y razón social.
+- `PayrollEntry` — Liquidaciones mensuales (importadas desde Excel BUK). Unique por `(employeeId, legalEntity, year, month)`.
+- `Leave` — Vacaciones y permisos (tipos: `VACACIONES`, `LICENCIA_MEDICA`, etc.).
+- `VacationBalance` — Saldo de vacaciones por colaborador × razón social × mes. Campos: `saldoLegal`, `saldoProgresivas`, `saldoAdministrativos`, `diasLicencias`, `vacacionesTomadas`. Importado desde Excel "Vacaciones y licencia". Unique por `(employeeId, legalEntity, year, month)`.
+- `OnboardingProcess` + `OnboardingTask` — Proceso de onboarding con hitos por período (`PRE_INGRESO`, `DIA_1`, `SEMANA_1`, `MES_1`, `EVALUACION`) y automatizaciones.
+- `Profile` + `ProfileRole` — Perfiles del equipo RRHH con roles por área (BUK, SMART, ADMINISTRACION, etc.) y tipo (RESPONSABLE_HITO, ENVIA_CORREOS, etc.).
+
+---
+
+## Convenciones de Código
+
+- **Idioma de código:** Inglés (variables, funciones, clases, nombres de modelos).
+- **Idioma de comentarios y UI:** Español.
+- **RUT chileno:** Formato `XX.XXX.XXX-X` con dígito verificador en mayúscula. Ver `normalizeRut()` en `backend/src/routes/buk.ts`.
+- **Fechas:** ISO 8601 internamente; `DD/MM/YYYY` en UI.
+- **Moneda:** CLP como entero (sin decimales). Campos `salary`, `grossSalary`, `liquidSalary` son `Int` en Prisma.
+- Los tipos TypeScript del frontend y backend **no se comparten** — cada workspace define los suyos en `src/types/index.ts`. Mantenerlos sincronizados manualmente cuando cambie el schema.
+
+---
+
+## Variables de Entorno Requeridas
+
+El archivo `.env` vive en `backend/` y se carga via `--env-file=.env` en `tsx watch`. No usa `dotenv` en código. Ver `.env.example` para la plantilla completa.
+
+```env
+DATABASE_URL=postgresql://postgres.[ref]:[pwd]@aws-0-[region].pooler.supabase.com:6543/postgres
+DIRECT_URL=postgresql://postgres.[ref]:[pwd]@aws-0-[region].supabase.com:5432/postgres
+JWT_SECRET=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+APP_URL=http://localhost:3000
+```
+
+Supabase requiere dos URLs: `DATABASE_URL` usa el **connection pooler** (puerto 6543), `DIRECT_URL` usa la conexión directa (puerto 5432) y es la que usa Prisma para ejecutar migraciones.
+
+## Conexión a Supabase
+
+Para conectar a un proyecto Supabase nuevo:
+
+```bash
+# 1. Actualizar backend/.env con las URLs de Supabase
+# 2. Empujar el schema a la DB
+cd backend && npm run db:push
+
+# O si se quiere usar el sistema de migraciones:
+npm run db:migrate
+```
+
+Las migraciones existentes en `backend/prisma/migrations/` documentan la evolución del schema y se pueden aplicar en orden con `npm run db:deploy`.
+
+---
+
+## Despliegue
+
+El proyecto corre solo en entorno local. No hay configuración de despliegue activa.
+
+---
+
+## Módulos del Sistema
+
+> **Término correcto:** siempre referirse a las personas como **"Colaborador"**, nunca "empleado". El identificador único de todo colaborador es siempre el **RUT** (no el ID interno de la DB).
+
+---
+
+### Colaborador — Data Dictionary
+
+El Colaborador es la entidad central del sistema. Su identificador único siempre es el **RUT** (nunca el UUID interno). Todos los módulos giran en torno a él.
+
+Los datos de un colaborador provienen de cuatro fuentes:
+- **BUK Dotación** — Excel exportado manualmente (`reportes/*/Dotación*.xlsx`)
+- **BUK Sueldos** — Excel exportado manualmente (`reportes/*/Sueldos*.xlsx`)
+- **BUK Vacaciones Tomadas** — Excel exportado manualmente (`reportes/*/Vacaciones tomadas*.xlsx`)
+- **BUK Vacaciones y licencia** — Excel exportado manualmente (`reportes/*/Vacaciones y licencia*.xlsx`); contiene saldos acumulados por mes
+- **Manual** — ingresado directamente en GDP, no tiene equivalente en BUK
+
+---
+
+#### Identidad y contacto
+
+| Campo | Origen | Columna BUK | Notas |
+|---|---|---|---|
+| `rut` | BUK Dotación | `Empleado - Número de Documento` | Normalizado a formato `XX.XXX.XXX-X` con DV en mayúscula |
+| `firstName` | BUK Dotación | Derivado de `Empleado - Nombre Completo` | Parsing: las palabras 3 en adelante (BUK usa formato "Apellido1 Apellido2 Nombre") |
+| `lastName` | BUK Dotación | Derivado de `Empleado - Nombre Completo` | Parsing: las primeras 2 palabras |
+| `email` | Auto + Manual | — | Al importar se genera `{digitos_rut}@buk.import`; debe reemplazarse con el correo real |
+| `personalEmail` | Manual | — | Correo personal; se usa en Onboarding para envíos previos al ingreso |
+| `phone` | Manual | — | No viene de BUK |
+| `birthDate` | Manual | — | BUK lo tiene internamente pero no aparece en los Excel de dotación |
+| `address` | Manual | — | Dirección completa |
+| `city` | Manual | — | Ciudad de residencia |
+| `commune` | Manual | — | Comuna (subdivide la ciudad) |
+| `nationality` | Manual | — | Default `"Chilena"` |
+| `gender` | Manual | — | Valores en DB: `M` / `F` / `male` / `female` (inconsistencia heredada, normalizar) |
+
+#### Previsión social
+
+| Campo | Origen | Columna BUK | Notas |
+|---|---|---|---|
+| `afp` | BUK Dotación | `Plan - Fondo de Cotización` | Almacenado en minúsculas; ej: `"modelo"`, `"habitat"` |
+| `isapre` | BUK Dotación | `Plan - Fonasa/Isapre` | Almacenado en minúsculas; ej: `"fonasa"`, `"banmédica"` |
+| `previredCode` | Manual | — | Campo reservado, no implementado |
+
+#### Datos laborales
+
+| Campo | Origen | Columna BUK | Notas |
+|---|---|---|---|
+| `status` | BUK Dotación | `Empleado - Estado` | `Activo→ACTIVE`, `Inactivo→INACTIVE`; ver regla DUPLICATE más abajo |
+| `startDate` | BUK Dotación | `Trabajo - Fecha Ingreso Compañía` | Fecha de ingreso a la compañía (Excel serial → Date UTC) |
+| `endDate` | BUK Dotación | `Trabajo - Fecha Vencimiento Contrato` | Solo para plazo fijo; `null` si es indefinido |
+| `jobTitle` | BUK Dotación | `Trabajo - Cargo` | Cargo directo del colaborador en BUK |
+| `jobFamily` | BUK Dotación | `Trabajo - Familia de Cargo` | Agrupador de cargos (ej: "Tecnología", "Creativo") |
+| `workSchedule` | BUK Dotación | `Trabajo - Jornada Laboral` | Texto libre (ej: `"Mensual 40.0 hrs. (L, M, M, J, V)"`) |
+| `supervisorName` | BUK Dotación | `Trabajo - Nombre Supervisor` | Nombre del jefe directo según BUK |
+| `supervisorTitle` | BUK Dotación | `Trabajo - Cargo Supervisor` | Cargo del supervisor |
+| `costCenter` | BUK Dotación | `Trabajo - Centro de Costos` | String libre de BUK; distinto a los `WorkCenter` de GDP (ver abajo) |
+| `exclusive` | Manual | — | Booleano: exclusividad laboral con Surmedia |
+| `vinculo` | Manual | — | `"Planta"` o `"Reemplazo"`; editable inline en tabla de Dotación |
+| `reemplazaA` | Manual | — | Nombre de la persona a quien reemplaza (solo cuando `vinculo = "Reemplazo"`) |
+
+> **Diferencia `costCenter` vs `WorkCenter`:** `costCenter` es un string que viene de BUK y refleja el centro de costos administrativo interno. `WorkCenter` son las entidades propias de GDP (con presupuesto, ingresos, etc.) a las que se asigna el colaborador manualmente.
+
+#### Contratos (`Contract[]`)
+
+Cada colaborador puede tener múltiples contratos (activos e históricos). La razón social del contrato determina en qué empresa está registrado.
+
+| Campo | Origen | Columna BUK | Notas |
+|---|---|---|---|
+| `type` | BUK Dotación | `Trabajo - Tipo de Contrato` | `INDEFINIDO` / `PLAZO_FIJO` / `HONORARIOS` / `PRACTICA` |
+| `startDate` | BUK Dotación | `Trabajo - Fecha Ingreso Compañía` | Misma fecha que `Employee.startDate` al crear |
+| `endDate` | BUK Dotación | `Trabajo - Fecha Vencimiento Contrato` | `null` si indefinido |
+| `legalEntity` | BUK Dotación | Determinado por la carpeta del Excel | `COMUNICACIONES_SURMEDIA` o `SURMEDIA_CONSULTORIA` |
+| `salary` | BUK Dotación | — | Inicia en `0`; no se llena automáticamente desde Excel de sueldos |
+| `grossSalary` | Manual / referencia | — | Se puede poblar, pero el dato definitivo vive en `PayrollEntry` |
+| `isActive` | Derivado | — | `true` al crear; `false` cuando se termina o reemplaza por uno nuevo |
+
+#### Remuneraciones (`PayrollEntry[]`)
+
+Una entrada por colaborador × razón social × mes. Son el dato financiero real, separado del contrato.
+
+| Campo | Origen | Columna BUK | Notas |
+|---|---|---|---|
+| `year` / `month` | BUK Sueldos | `Mes de Cálculo` + lógica de año | El año se infiere por rollover de meses en el archivo |
+| `grossSalary` | BUK Sueldos | `Sueldo Bruto` | Entero CLP |
+| `liquidSalary` | BUK Sueldos | `Sueldo Líquido` | Entero CLP; lo que se muestra en el drawer |
+| `items` | BUK Sueldos | Columnas `Haberes Imponibles - *` y `Haberes No Imponibles - *` | Array JSON con `{name, amount, taxable}`. En el drawer se clasifican en Bonos y Horas Extras |
+| `legalEntity` | BUK Sueldos | Carpeta del Excel | Permite ver remuneraciones por razón social por separado |
+
+#### Ausencias (`Leave[]`)
+
+| Tipo | Origen | Fuente BUK |
+|---|---|---|
+| `VACACIONES` | BUK Vacaciones Tomadas | Excel `Vacaciones tomadas`; campos: RUT, nombre, inicio, término |
+| `LICENCIA_MEDICA` / `LICENCIA_MATERNIDAD` / `LICENCIA_PATERNIDAD` | Manual | No vienen de Excel; se ingresan en GDP |
+| `PERMISO` / `OTRO` | Manual | No vienen de Excel |
+
+Las vacaciones importadas quedan con `status: APPROVED` automáticamente. Las licencias se ven en el tab "Licencias" de Dotación.
+
+#### Saldo de vacaciones (`VacationBalance[]`)
+
+Una entrada por colaborador × razón social × mes. Importado desde Excel "Vacaciones y licencia".
+
+| Campo | Columna BUK | Notas |
+|---|---|---|
+| `saldoLegal` | `Saldo Legal` | Días de vacaciones legales disponibles |
+| `saldoProgresivas` | `Saldo Progresivas` | Días de vacaciones progresivas acumulados |
+| `saldoAdministrativos` | `Saldo Administrativos` | Días adicionales de tipo administrativo |
+| `diasLicencias` | `Días Licencias` | Días de licencia médica en el período |
+| `vacacionesTomadas` | `Vacaciones Tomadas` | Días de vacaciones ya utilizados |
+
+Se muestra en el tab **Ausencias** de `/colaboradores/:id` como 4 números grandes (último mes registrado por razón social).
+
+#### Datos gestionados en GDP (no BUK)
+
+| Relación | Módulo | Descripción |
+|---|---|---|
+| `workCenters[]` (`EmployeeWorkCenter`) | Centros de Trabajo | Asignación manual del colaborador a uno o más centros. Lleva `legalEntity` porque la misma persona puede estar en centros de distintas razones sociales |
+| `onboardingProcesses[]` | Onboarding | Vinculación opcional; el proceso puede existir sin que el colaborador esté en la DB |
+| `documents[]` | — | Documentos del colaborador (no implementado aún en UI) |
+| `user?` | Auth | Cuenta de acceso al sistema GDP; vincula el `Employee` con un `User` para login |
+| `positionId` / `position` | — | FK a `Position` (cargo formal con departamento); distinto de `jobTitle` que viene de BUK |
+| `departmentId` / `department` | — | FK a `Department`; distinto de la Familia de Cargo de BUK |
+| `managerId` | — | Auto-referencia a otro `Employee` como jefe directo; distinto de `supervisorName` (string de BUK) |
+
+---
+
+#### Estado DUPLICATE — detalle técnico
+
+Al importar dotación, si un RUT ya existe en la DB pero ahora aparece en la otra razón social (o en la misma con sueldo $0), el sistema lo marca `DUPLICATE`. Criterio actual: el colaborador viene con sueldo bruto $0 en el Excel de Sueldos → es el duplicado.
+
+Casos de ambigüedad que requieren intervención manual:
+1. Un colaborador sin sueldo en el Excel de Dotación actual pero que sí tuvo sueldo antes (baja o salida)
+2. Alan Alcayaga — trabaja para ambas razones sociales; **ninguno** de sus registros debe marcarse DUPLICATE
+
+Pendiente: UI para que RRHH marque manualmente el duplicado cuando el mismo RUT está en ambas empresas.
+
+---
+
+### Colaboradores (`/colaboradores`)
+
+Módulo independiente para navegar y editar la ficha de un colaborador en profundidad. Complementa Dotación (que es más operativa/tabular) con una vista enfocada en el individuo.
+
+**`/colaboradores`** — Directorio con tarjetas (grid). Filtros: búsqueda libre, razón social (Todas / Comunicaciones / Consultoría), estado (Todos / Activos / Inactivos). Cada tarjeta muestra avatar con iniciales, nombre completo, cargo (`jobTitle`), RUT, badge de razón social y punto de estado.
+
+**`/colaboradores/:id`** — Ficha completa con 5 tabs:
+
+- **Datos** — Identidad, contacto, datos laborales, previsión social. Tiene **modo edición** completo: botón "Editar" → todos los campos se vuelven inputs/selects controlados → "Guardar" hace PATCH a `/api/employees/:id`.
+- **Contratos** — Lista de contratos (activos e históricos) con tipo, razón social, fechas y estado.
+- **Remuneraciones** — Tabla de `PayrollEntry` mes a mes con bruto, líquido y detalle de ítems (bonos, horas extras).
+- **Ausencias** — Saldo de vacaciones actual (card con 4 números: saldo legal, progresivas, administrativos, licencias), seguido de listado de `Leave` individuales.
+- **Centros** — Centros de trabajo asignados al colaborador con razón social.
+
+**Patrón de edición (`empToForm`):** la función `empToForm(emp)` inicializa un objeto `FormData` tipado desde el `Employee`. Los componentes `TextField`, `DateField`, `SelectField` son controlados con `onChange`. Al guardar, convierte `exclusive` de string a booleano antes del PATCH. El backend acepta todos los campos via whitelist en `PATCH /api/employees/:id`.
+
+---
+
+### Dotación (`/employees`)
+
+Módulo principal de gestión de la nómina. Tiene tres tabs:
+
+- **Personas** — tabla principal de colaboradores con filtros (razón social, estado, tipo de contrato, mes/año activo, búsqueda libre) y ordenamiento por cualquier columna. Columnas visibles: Colaborador, Vínculo, Razón Social, Centros de Trabajo, Estado, Cargo, Ciudad, Jornada, Tipo Contrato, Ingreso, Término, Exclusividad, RUT, Género, Supervisor.
+- **Vacaciones / Licencias** — ausencias del período filtradas por mes y año, con vista tabla o calendario.
+
+Panel de **Ingresos y Salidas** muestra movimientos del mes seleccionado.
+
+**Drawer de colaborador:** ficha completa con datos personales, laborales, contratos vigentes e históricos, y remuneraciones mes a mes con detalle de bonos y horas extras.
+
+**Campo Vínculo** (editable inline desde la tabla): `Planta` o `Reemplazo`. Si es Reemplazo, se puede registrar el nombre de la persona a quien reemplaza.
+
+**Estado DUPLICADO — regla de negocio clave:**
+Un mismo RUT puede estar registrado en ambas razones sociales en BUK (por visibilidad o administración). El registro que pertenece a la razón social donde el colaborador **no percibe sueldo** (Sueldo Base $0 en BUK) o **no tiene trabajo asignado** ("Empleado sin Trabajo" en BUK) se marca como `DUPLICATE`. Excepción conocida: Alan Alcayaga trabaja genuinamente para ambas razones sociales y no debe marcarse duplicado.
+
+Pendiente: el sistema aún no permite que RRHH marque manualmente cuál es el duplicado cuando el mismo RUT se carga en ambas empresas; hoy la detección es parcial (verifica si tiene sueldo).
+
+**Deuda técnica pendiente:** al re-importar desde BUK, el sistema siempre sobreescribe. A futuro se quiere que pregunte si desea conservar los valores editados manualmente en GDP.
+
+---
+
+### Centros de Trabajo (`/centros-trabajo`)
+
+Agrupadores de colaboradores por proyecto o área de negocio. Cada centro tiene nombre, tipo (`DIRECTO` / `INDIRECTO`), presupuesto, y ubicación.
+
+Un colaborador puede estar asignado a múltiples centros. La asignación lleva `legalEntity`, ya que un mismo colaborador puede pertenecer a centros distintos según la razón social. La asignación se gestiona inline desde la tabla de Dotación (clic en la columna Centros de una fila).
+
+**Ingresos mensuales** (`WorkCenterIngreso`): representan los ingresos económicos del proyecto o cliente que ese centro genera. Por ahora son datos mock ingresados manualmente; no provienen de ningún sistema externo. Sirven para poner en perspectiva el costo de la dotación asignada al centro.
+
+El dashboard del módulo muestra viñetas arrastrables con métricas por centro.
+
+---
+
+### Onboarding (`/onboarding`)
+
+Seguimiento del proceso de ingreso de nuevos colaboradores durante los primeros 90 días. El proceso se divide en 5 períodos secuenciales:
+
+`PRE_INGRESO` → `DIA_1` → `SEMANA_1` → `MES_1` → `EVALUACION`
+
+Cada proceso se crea a partir de una **plantilla global de hitos** (`OnboardingTask`). Al crear un proceso, el usuario puede seleccionar qué hitos aplican (por período completo o uno a uno). El proceso **no requiere** que el colaborador exista en la DB de empleados — se registra con nombre libre y se vincula a un `Employee` en forma posterior.
+
+Tipos de automatización por hito: `MANUAL`, `EMAIL`, `CALENDAR`, `BUK_CHECK`, `EXTERNAL`, `SHEET_VERIFY`. **Ninguna automatización está operativa aún; toda la lógica de `automation.service.ts` y `email.service.ts` está en desarrollo.**
+
+La tab **Herramientas** es un placeholder, pendiente de implementar.
+
+Los perfiles (ver módulo Perfiles) se asignan a los hitos para indicar quién es responsable, quién envía correos, quién recibe copia, etc.
+
+---
+
+### Perfiles (`/perfiles`)
+
+Directorio de personas que participan en cualquier proceso interno de RRHH (no exclusivo del equipo RRHH). Incluye jefaturas, TI, administración, mentores, y cualquier persona con rol en el proceso de onboarding.
+
+Cada perfil tiene: nombre, cargo, email, teléfono, notas.
+
+Se les asignan roles cruzando **ÁREA** × **TIPO DE ROL**:
+
+- **Áreas:** `BUK`, `SMART`, `ADMINISTRACION`, `ACREDITACION`, `INGRESANTE`, `JEFATURA`, `MENTORIA`, `CHECKPOINTS`, `GENERAL`
+- **Tipos de rol:** `ENVIA_CORREOS`, `RECIBE_CORREOS`, `COPIA_CORREOS`, `PREPARA_ADM_FISICA`, `RESPONSABLE_HITO`
+
+Un perfil puede tener múltiples combinaciones área+rol. Estas combinaciones se usan para asignar automáticamente responsabilidades cuando se crea un proceso de onboarding.
+
+---
+
+### Importables Excel (`/buk`)
+
+Módulo para importar datos desde reportes Excel exportados manualmente de BUK. No hay conexión directa con la API de BUK.
+
+**Flujo:** Preview (diff contra DB) → Selección de registros a aplicar → Apply.
+
+Los archivos Excel deben ubicarse en `reportes/Comunicaciones/` y `reportes/Consultoría/`. El sistema selecciona automáticamente el archivo más reciente que contenga la keyword correspondiente en el nombre.
+
+**Tres tipos de datos que maneja:**
+
+1. **Sueldos** (keyword `Sueldos`): crea o actualiza `PayrollEntry` por colaborador / mes / razón social. Incluye detalle de ítems (haberes imponibles y no imponibles). Los valores de bruto y líquido son editables antes de aplicar. Las secciones muestran: Nuevos, Cambios (diff de montos), Ya sincronizados.
+
+2. **Dotación** (keyword `Dotación`): actualiza estado, AFP, isapre, cargo, familia de cargo, supervisor, tipo de contrato y fecha de vencimiento. También puede crear colaboradores nuevos que no existen en la DB. La detección de DUPLICADO depende parcialmente de esta importación (colaborador sin sueldo → `DUPLICATE`).
+
+3. **Vacaciones tomadas** (keyword `Vacaciones tomadas`): crea registros `Leave` de tipo `VACACIONES` con fechas y días calculados. Solo registra las nuevas (no duplica las ya existentes).
+
+4. **Vacaciones y licencia** (keyword `Vacaciones y licencia`): crea o actualiza registros `VacationBalance` con los saldos acumulados de vacaciones y licencias por colaborador × razón social × mes. Se hace upsert por la clave única `(employeeId, legalEntity, year, month)`.
