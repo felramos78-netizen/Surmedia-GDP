@@ -313,15 +313,11 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
   })
 
   fastify.get<{ Params: { id: string } }>('/:id/payroll', async (req, reply) => {
-    const entries = await fastify.prisma.$queryRaw<Array<{
-      id: string; year: number; month: number; legalEntity: string;
-      grossSalary: number; liquidSalary: number; items: unknown
-    }>>`
-      SELECT id, year, month, "legalEntity", "grossSalary", "liquidSalary", items
-      FROM payroll_entries
-      WHERE "employeeId" = ${req.params.id}::uuid
-      ORDER BY year DESC, month DESC
-    `
+    const entries = await fastify.prisma.payrollEntry.findMany({
+      where: { employeeId: req.params.id },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      select: { id: true, year: true, month: true, legalEntity: true, grossSalary: true, liquidSalary: true, items: true },
+    })
     return reply.send({ data: entries })
   })
 

@@ -39,7 +39,7 @@ const LEAVE_STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pendiente', APPROVED: 'Aprobada', REJECTED: 'Rechazada', CANCELLED: 'Cancelada',
 }
 const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-const TABS = ['Datos', 'Contratos', 'Remuneraciones', 'Ausencias', 'Centros'] as const
+const TABS = ['Datos', 'Contratos', 'Remuneraciones', 'Ausencias'] as const
 type Tab = typeof TABS[number]
 
 // ─── Formulario de edición ────────────────────────────────────────────────────
@@ -424,7 +424,6 @@ export default function ColaboradorDetallePage() {
     Contratos:      emp.contracts?.length,
     Remuneraciones: payroll.length || undefined,
     Ausencias:      leaves.length || undefined,
-    Centros:        emp.workCenters?.length || undefined,
   }
 
   function startEdit() {
@@ -574,14 +573,74 @@ export default function ColaboradorDetallePage() {
           </div>
         )}
 
-        {tab === 'Remuneraciones' && (
-          <div className="space-y-3">
-            {payroll.length === 0
-              ? <p className="text-center text-gray-400 py-12">Sin liquidaciones registradas.</p>
-              : payroll.map(entry => <PayrollMonthCard key={entry.id} entry={entry} />)
-            }
-          </div>
-        )}
+        {tab === 'Remuneraciones' && (() => {
+          // Centros con sueldo ponderado: agrupar por razón social y dividir el último sueldo líquido
+          const centersByEntity = new Map<string, typeof emp.workCenters>()
+          for (const wc of (emp.workCenters ?? [])) {
+            if (!centersByEntity.has(wc.legalEntity)) centersByEntity.set(wc.legalEntity, [])
+            centersByEntity.get(wc.legalEntity)!.push(wc)
+          }
+          const latestByEntity = new Map<string, typeof payroll[0]>()
+          for (const entry of payroll) {
+            const ex = latestByEntity.get(entry.legalEntity)
+            if (!ex || entry.year > ex.year || (entry.year === ex.year && entry.month > ex.month))
+              latestByEntity.set(entry.legalEntity, entry)
+          }
+          const hasCentros = (emp.workCenters?.length ?? 0) > 0
+
+          return (
+            <div className="space-y-6">
+              {hasCentros && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+                    Centros — costo ponderado
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[...centersByEntity.entries()].flatMap(([entity, centers]) => {
+                      const latest  = latestByEntity.get(entity)
+                      const share   = latest ? Math.round(latest.liquidSalary / centers.length) : null
+                      const month   = latest ? `${MONTH_NAMES[latest.month - 1]} ${latest.year}` : null
+                      return centers.map(wc => (
+                        <div key={wc.id} className="bg-white border border-gray-100 rounded-xl p-4">
+                          <div className="flex items-start justify-between gap-2 mb-3">
+                            <div>
+                              <p className="font-medium text-gray-800 text-sm">{wc.workCenter.name}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {wc.workCenter.costType === 'DIRECTO' ? 'Directo' : 'Indirecto'}
+                              </p>
+                            </div>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${ENTITY_COLOR[wc.legalEntity]}`}>
+                              {ENTITY_LABEL[wc.legalEntity]}
+                            </span>
+                          </div>
+                          {share !== null ? (
+                            <>
+                              <p className="text-xl font-bold text-gray-900">{formatCLP(share)}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {month}
+                                {centers.length > 1 && ` · 1/${centers.length} del líquido`}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-xs text-gray-400">Sin remuneración registrada</p>
+                          )}
+                        </div>
+                      ))
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {hasCentros && <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Liquidaciones</p>}
+                {payroll.length === 0
+                  ? <p className="text-center text-gray-400 py-12">Sin liquidaciones registradas.</p>
+                  : payroll.map(entry => <PayrollMonthCard key={entry.id} entry={entry} />)
+                }
+              </div>
+            </div>
+          )
+        })()}
 
         {tab === 'Ausencias' && (
           <div className="space-y-4">
@@ -663,26 +722,6 @@ export default function ColaboradorDetallePage() {
           </div>
         )}
 
-        {tab === 'Centros' && (
-          <div className="space-y-3">
-            {!emp.workCenters?.length
-              ? <p className="text-center text-gray-400 py-12">Sin centros de trabajo asignados.</p>
-              : emp.workCenters.map(wc => (
-                <div key={wc.id} className="bg-white border border-gray-100 rounded-xl p-4 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="font-medium text-gray-800">{wc.workCenter.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {wc.workCenter.costType === 'DIRECTO' ? 'Directo' : 'Indirecto'}
-                    </p>
-                  </div>
-                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${ENTITY_COLOR[wc.legalEntity]}`}>
-                    {ENTITY_LABEL[wc.legalEntity]}
-                  </span>
-                </div>
-              ))
-            }
-          </div>
-        )}
       </div>
     </div>
   )

@@ -6,7 +6,24 @@
       "Bash(node -e ' *)",
       "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\);console.log\\(JSON.parse\\(d\\).scripts\\)\")",
       "Bash(node -e \"const path=require\\('path'\\); console.log\\(process.cwd\\(\\)\\)\")",
-      "Bash(node -e \"console.log\\(process.cwd\\(\\)\\)\")"
+      "Bash(node -e \"console.log\\(process.cwd\\(\\)\\)\")",
+      "PowerShell(Test-NetConnection *)",
+      "PowerShell(Get-ChildItem C:\\\\Proyecto\\\\surmedia-gdp\\\\backend\\\\src -Recurse | Where-Object {!$_.PSIsContainer} | Select-Object FullName | ForEach-Object { $_.FullName.Replace\\('C:\\\\Proyecto\\\\surmedia-gdp\\\\backend\\\\src\\\\', ''\\) })",
+      "PowerShell(Get-ChildItem C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src -Recurse | Where-Object {!$_.PSIsContainer} | Select-Object FullName | ForEach-Object { $_.FullName.Replace\\('C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src\\\\', ''\\) })",
+      "PowerShell(head *)",
+      "PowerShell(Get-ChildItem C:\\\\Proyecto\\\\surmedia-gdp -Exclude node_modules,frontend,backend,.git -Recurse | Select-Object FullName | ForEach-Object { $_.FullName.Replace\\('C:\\\\Proyecto\\\\surmedia-gdp\\\\', ''\\) })",
+      "PowerShell(Get-ChildItem C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src -Recurse | Where-Object {!$_.PSIsContainer} | ForEach-Object { $_.FullName.Replace\\('C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src\\\\', ''\\) })",
+      "PowerShell(Get-ChildItem C:\\\\Proyecto\\\\surmedia-gdp\\\\backend -Exclude node_modules -Recurse | Where-Object {!$_.PSIsContainer} | ForEach-Object { $_.FullName.Replace\\('C:\\\\Proyecto\\\\surmedia-gdp\\\\backend\\\\', ''\\) })",
+      "PowerShell(git *)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Felipe\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Proyecto-surmedia-gdp\\\\30ddb89a-2da6-4ea3-881a-250f93ff77e4\\\\tasks\\\\b87tdvpg9.output\" -Wait)",
+      "Bash(Select-String -Pattern \".\")",
+      "PowerShell(\\(Get-Content \"C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src\\\\pages\\\\employees\\\\EmployeesPage.tsx\"\\).Count; \\(Get-Content \"C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src\\\\pages\\\\employees\\\\EmployeeDrawer.tsx\"\\).Count)",
+      "Bash(npx prisma *)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Get-Process *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(node --env-file=.env -e ' *)"
     ]
   }
 }
