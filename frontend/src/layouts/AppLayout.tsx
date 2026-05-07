@@ -1,18 +1,17 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import {
-  Users, FileText, UserPlus, Calendar, BarChart3,
-  Settings, Building2, Contact, Landmark,
+  Users, FileText, UserPlus,
+  Settings, Building2, Contact, Landmark, FileSpreadsheet,
 } from 'lucide-react'
 
 const navItems = [
-  { to: '/dashboard',        icon: BarChart3,  label: 'Dashboard' },
-  { to: '/employees',        icon: Users,      label: 'Dotación' },
-  { to: '/centros-trabajo',  icon: Landmark,   label: 'Centros de Trabajo' },
-  { to: '/recruitment',      icon: UserPlus,   label: 'Reclutamiento' },
-  { to: '/onboarding',       icon: Building2,  label: 'Onboarding' },
-  { to: '/perfiles',         icon: Contact,    label: 'Perfiles' },
-  { to: '/leave',            icon: Calendar,   label: 'Vacaciones' },
-  { to: '/documents',        icon: FileText,   label: 'Documentos' },
+  { to: '/employees',        icon: Users,            label: 'Dotación' },
+  { to: '/centros-trabajo',  icon: Landmark,         label: 'Centros de Trabajo' },
+  { to: '/recruitment',      icon: UserPlus,         label: 'Reclutamiento' },
+  { to: '/onboarding',       icon: Building2,        label: 'Onboarding' },
+  { to: '/perfiles',         icon: Contact,          label: 'Perfiles' },
+  { to: '/buk',              icon: FileSpreadsheet,  label: 'Importables Excel' },
+  { to: '/documents',        icon: FileText,         label: 'Documentos' },
 ]
 
 export default function AppLayout() {

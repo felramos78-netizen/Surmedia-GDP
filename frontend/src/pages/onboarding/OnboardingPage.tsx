@@ -290,6 +290,7 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
 // ─── Página principal ──────────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
+  const [tab, setTab]                         = useState<'procesos' | 'herramientas'>('procesos')
   const [drawerProcessId, setDrawerProcessId] = useState<string | null>(null)
   const [showNewModal, setShowNewModal]       = useState(false)
   const [filterStatus, setFilterStatus]       = useState<string>('IN_PROGRESS')
@@ -305,19 +306,49 @@ export default function OnboardingPage() {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Onboarding</h1>
           <p className="text-sm text-gray-500 mt-0.5">Seguimiento de ingreso — primeros 90 días</p>
         </div>
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
-        >
-          <Plus size={16} />
-          Nuevo proceso
-        </button>
+        {tab === 'procesos' && (
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+          >
+            <Plus size={16} />
+            Nuevo proceso
+          </button>
+        )}
       </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200 mb-6">
+        {([
+          ['procesos',     'Procesos'],
+          ['herramientas', 'Herramientas'],
+        ] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'herramientas' && (
+        <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
+            <Wrench size={22} className="text-gray-400" />
+          </div>
+          <p className="text-sm font-medium text-gray-500">Próximamente</p>
+          <p className="text-xs text-gray-400">El módulo de herramientas estará disponible pronto.</p>
+        </div>
+      )}
+
+      {tab === 'procesos' && <>
+
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -468,6 +499,7 @@ export default function OnboardingPage() {
           onCreated={(id) => { setDrawerProcessId(id); setShowNewModal(false) }}
         />
       )}
+      </>}
     </div>
   )
 }

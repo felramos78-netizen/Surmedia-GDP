@@ -1,11 +1,10 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Search, RefreshCw, ChevronDown, Users, UserX, GitMerge, AlertTriangle, CheckCircle2, X, Eye, Save, Calendar, ChevronsUpDown, ChevronUp, DollarSign, List, Plus } from 'lucide-react'
+import { Search, RefreshCw, ChevronDown, Users, AlertTriangle, X, ChevronsUpDown, ChevronUp, LayoutList, CalendarDays, Plus } from 'lucide-react'
 import { useEmployees, useEmployeeStats, useMovements, useUpdateEmployee, type DotacionFilters } from '@/hooks/useDotacion'
 import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
 import { formatDate } from '@/lib/utils'
 import type { Employee, Contract, LegalEntity } from '@/types'
 import EmployeeDrawer from './EmployeeDrawer'
-import PayrollView from './PayrollView'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -437,14 +436,194 @@ const MONTHS = [
   { value: '10', label: 'Octubre' }, { value: '11', label: 'Noviembre' }, { value: '12', label: 'Diciembre' },
 ]
 
+// ─── Calendario de ausencias ──────────────────────────────────────────────────
+
+const DAYS_ES = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+const MONTHS_ES: Record<number, string> = {
+  1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',
+  7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre',
+}
+
+function LeaveCalendar({ items, year, month, accentColor }: {
+  items: any[]; year: string; month: string; accentColor: 'blue' | 'amber'
+}) {
+  const y = parseInt(year), m = parseInt(month)
+  const firstDay = new Date(y, m - 1, 1)
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const dow = firstDay.getDay()
+  const offset = dow === 0 ? 6 : dow - 1
+
+  const byDay: Record<number, string[]> = {}
+  for (const item of items) {
+    const start = new Date(item.startDate)
+    const end   = new Date(item.endDate)
+    start.setHours(0, 0, 0, 0); end.setHours(23, 59, 59, 999)
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = new Date(y, m - 1, d)
+      if (date >= start && date <= end) {
+        if (!byDay[d]) byDay[d] = []
+        byDay[d].push(`${item.employee.firstName} ${item.employee.lastName}`)
+      }
+    }
+  }
+
+  const cells: (number | null)[] = [
+    ...Array(offset).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ]
+  while (cells.length % 7 !== 0) cells.push(null)
+
+  const bg  = accentColor === 'blue' ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-200'
+  const txt = accentColor === 'blue' ? 'text-blue-700' : 'text-amber-700'
+
+  return (
+    <div>
+      <div className="grid grid-cols-7 mb-1">
+        {DAYS_ES.map(d => (
+          <div key={d} className="text-center text-[11px] font-medium text-gray-400 py-1">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((day, i) => (
+          <div key={i} className={`min-h-[64px] rounded-lg border p-1 transition-colors ${
+            day ? (byDay[day]?.length ? bg : 'bg-white border-gray-100') : 'border-transparent'
+          }`}>
+            {day && (
+              <>
+                <p className="text-[11px] font-medium text-gray-400 leading-none mb-1">{day}</p>
+                {(byDay[day] ?? []).slice(0, 2).map((name, j) => (
+                  <p key={j} className={`text-[10px] truncate leading-tight ${txt}`}>{name}</p>
+                ))}
+                {(byDay[day]?.length ?? 0) > 2 && (
+                  <p className="text-[10px] text-gray-400">+{byDay[day].length - 2}</p>
+                )}
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Tab de ausencias (Vacaciones / Licencias) ────────────────────────────────
+
+function LeaveTab({ type, year, month, onYearChange, onMonthChange }: {
+  type: 'vacaciones' | 'licencias'
+  year: string; month: string
+  onYearChange: (v: string) => void
+  onMonthChange: (v: string) => void
+}) {
+  const [viewMode, setViewMode] = useState<'tabla' | 'calendario'>('tabla')
+  const { data: movements, isLoading } = useMovements({ year, month })
+  const items = type === 'vacaciones' ? (movements?.vacaciones ?? []) : (movements?.licencias ?? [])
+  const accentColor = type === 'vacaciones' ? 'blue' : 'amber'
+  const emptyMsg = type === 'vacaciones' ? 'Sin vacaciones en el período' : 'Sin licencias en el período'
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <FilterSelect value={month} onChange={onMonthChange} placeholder="Mes"
+            options={MONTHS.map(m => ({ value: m.value, label: m.label }))} />
+          <FilterSelect value={year} onChange={onYearChange} placeholder="Año"
+            options={YEARS.map(y => ({ value: String(y), label: String(y) }))} />
+        </div>
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white">
+          <button onClick={() => setViewMode('tabla')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === 'tabla' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+            <LayoutList size={14} />Tabla
+          </button>
+          <button onClick={() => setViewMode('calendario')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === 'calendario' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+            <CalendarDays size={14} />Calendario
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="py-16 text-center">
+          <RefreshCw size={22} className="animate-spin text-blue-400 mx-auto mb-2" />
+          <p className="text-sm text-gray-400">Cargando…</p>
+        </div>
+      ) : items.length === 0 ? (
+        <div className="py-16 text-center">
+          <p className="text-sm text-gray-400">{emptyMsg}</p>
+        </div>
+      ) : viewMode === 'tabla' ? (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Colaborador</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Empresa</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Desde</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Hasta</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Días</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {items.map((item: any) => {
+                const le = item.legalEntity ?? item.employee?.workCenters?.[0]?.legalEntity
+                const leLabel = le === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : le === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : null
+                const days = item.days ?? Math.round((new Date(item.endDate).getTime() - new Date(item.startDate).getTime()) / 86400000) + 1
+                return (
+                  <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                          {`${item.employee.firstName[0]}${item.employee.lastName[0]}`.toUpperCase()}
+                        </div>
+                        <p className="text-sm font-medium text-gray-900">{item.employee.firstName} {item.employee.lastName}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {leLabel
+                        ? <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${le === 'COMUNICACIONES_SURMEDIA' ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'}`}>{leLabel}</span>
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{formatDate(item.startDate)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{formatDate(item.endDate)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-sm font-semibold ${accentColor === 'blue' ? 'text-blue-600' : 'text-amber-600'}`}>{days}d</span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
+            {items.length} registro{items.length !== 1 ? 's' : ''}
+          </div>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-800">
+              {MONTHS_ES[parseInt(month)]} {year}
+            </h3>
+            <p className="text-xs text-gray-400">{items.length} persona{items.length !== 1 ? 's' : ''} en el período</p>
+          </div>
+          <LeaveCalendar items={items} year={year} month={month} accentColor={accentColor} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Página principal ─────────────────────────────────────────────────────────
+
 export default function EmployeesPage() {
-  const [view, setView]         = useState<'dotacion' | 'remuneraciones'>('dotacion')
+  const [tab, setTab]           = useState<'personas' | 'vacaciones' | 'licencias'>('personas')
   const [filters, setFilters]   = useState<DotacionFilters>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [sortKey, setSortKey]   = useState<SortKey>('firstName')
   const [sortDir, setSortDir]   = useState<SortDir>('asc')
   const [movYear,  setMovYear]  = useState(String(new Date().getFullYear()))
   const [movMonth, setMovMonth] = useState(String(new Date().getMonth() + 1))
+  const [leaveYear,  setLeaveYear]  = useState(String(new Date().getFullYear()))
+  const [leaveMonth, setLeaveMonth] = useState(String(new Date().getMonth() + 1))
 
   const tableWrapperRef    = useRef<HTMLDivElement>(null)
   const topScrollRef       = useRef<HTMLDivElement>(null)
@@ -539,31 +718,38 @@ export default function EmployeesPage() {
     <div className="p-6 lg:p-8 space-y-6">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Dotación</h2>
-          <p className="text-gray-500 mt-1 text-sm">
-            {stats !== undefined ? `${stats.total} colaboradores en base de datos` : 'Cargando…'}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Toggle vista */}
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white">
-            <button onClick={() => setView('dotacion')}
-              className={`flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors ${view === 'dotacion' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-              <List size={15} />Dotación
-            </button>
-            <button onClick={() => setView('remuneraciones')}
-              className={`flex items-center gap-2 px-3 py-2 text-sm font-medium transition-colors ${view === 'remuneraciones' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-              <DollarSign size={15} />Remuneraciones
-            </button>
-          </div>
-        </div>
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Dotación</h2>
+        <p className="text-gray-500 mt-1 text-sm">
+          {stats !== undefined ? `${stats.total} colaboradores en base de datos` : 'Cargando…'}
+        </p>
       </div>
 
-      {view === 'remuneraciones' && <PayrollView />}
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200 -mt-2">
+        {([
+          ['personas',    'Personas'],
+          ['vacaciones',  'Vacaciones'],
+          ['licencias',   'Licencias'],
+        ] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
 
-      {view === 'dotacion' && <>
+      {tab === 'vacaciones' && (
+        <LeaveTab type="vacaciones" year={leaveYear} month={leaveMonth} onYearChange={setLeaveYear} onMonthChange={setLeaveMonth} />
+      )}
+
+      {tab === 'licencias' && (
+        <LeaveTab type="licencias" year={leaveYear} month={leaveMonth} onYearChange={setLeaveYear} onMonthChange={setLeaveMonth} />
+      )}
+
+      {tab === 'personas' && <>
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
@@ -643,35 +829,6 @@ export default function EmployeesPage() {
             }
           </div>
         </div>
-      </div>
-
-      {/* Vacaciones tomadas */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-gray-800">
-          Vacaciones tomadas — {MONTHS.find(m => m.value === movMonth)?.label} {movYear}
-        </h3>
-        {(movements?.vacaciones?.length ?? 0) === 0
-          ? <p className="text-xs text-gray-400">Sin vacaciones en el período</p>
-          : <div className="divide-y divide-gray-50">
-              <div className="grid grid-cols-5 gap-3 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                <span className="col-span-2">Colaborador</span><span>Desde</span><span>Hasta</span><span>Días</span>
-              </div>
-              {movements!.vacaciones.map((leave: any) => {
-                const leLabel = leave.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : leave.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : null
-                return (
-                  <div key={leave.id} className="grid grid-cols-5 gap-3 py-2 text-xs text-gray-700">
-                    <div className="col-span-2">
-                      <span className="font-medium">{leave.employee.firstName} {leave.employee.lastName}</span>
-                      {leLabel && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600">{leLabel}</span>}
-                    </div>
-                    <span>{formatDate(leave.startDate)}</span>
-                    <span>{formatDate(leave.endDate)}</span>
-                    <span>{leave.days} día{leave.days !== 1 ? 's' : ''}</span>
-                  </div>
-                )
-              })}
-            </div>
-        }
       </div>
 
       {/* Tabla */}

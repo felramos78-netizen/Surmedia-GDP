@@ -451,8 +451,9 @@ function exportCentrosToExcel(
     const nPrimary  = new Set(
       wcEntries.filter(e => employeeFirstCenter.get(e.employeeId) === wc.name).map(e => e.employeeId)
     ).size
-    const gastoContract  = nPrimary * CONTRACTUAL * (isMonthly ? 1 : 12)
-    const ingresos       = (wc.totalIngresos ?? 0) * (isMonthly ? 1 : 12)
+    const exportMonths   = isMonthly ? 1 : Math.max(new Set(allEntries.map(e => e.month)).size, 1)
+    const gastoContract  = nPrimary * CONTRACTUAL * exportMonths
+    const ingresos       = (wc.totalIngresos ?? 0) * exportMonths
     const diferencia     = ingresos > 0 ? ingresos - (gastoReal + gastoContract) : null
     return {
       'Centro':                wc.name,
@@ -771,17 +772,25 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
     else { setDetailSortKey(col); setDetailSortDir('asc') }
   }
 
-  // Gastos acumulados stats
-  const brutoanual    = centerAnnual.reduce((s, e) => s + e.grossSalary, 0)
-  const brutoMensual  = month ? centerEntries.reduce((s, e) => s + e.grossSalary, 0) : null
+  // Gastos acumulados stats (ponderados por centro)
+  const brutoanual = centerAnnual.reduce((s, e) => {
+    const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
+    return s + e.grossSalary * pond
+  }, 0)
+  const brutoMensual = month ? centerEntries.reduce((s, e) => {
+    const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
+    return s + e.grossSalary * pond
+  }, 0) : null
 
   const estandarAnual = centerAnnual.reduce((s, e) => {
-    const p = parsePayrollItems(e.items ?? [], e.grossSalary)
-    return s + p.sueldoBase + p.gratificacion + p.noImponiblesTotal
+    const p    = parsePayrollItems(e.items ?? [], e.grossSalary)
+    const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
+    return s + (p.sueldoBase + p.gratificacion + p.noImponiblesTotal) * pond
   }, 0)
   const estandarMensual = month ? centerEntries.reduce((s, e) => {
-    const p = parsePayrollItems(e.items ?? [], e.grossSalary)
-    return s + p.sueldoBase + p.gratificacion + p.noImponiblesTotal
+    const p    = parsePayrollItems(e.items ?? [], e.grossSalary)
+    const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
+    return s + (p.sueldoBase + p.gratificacion + p.noImponiblesTotal) * pond
   }, 0) : null
 
   // Movements filtered to this center
@@ -868,16 +877,20 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
                     {/* ── Cálculos derivados ── */}
                     {(() => {
                       const CONTRACTUAL = 160_000
-                      const nAnual      = new Set(centerAnnual.map(e => `${e.employeeId}::${e.legalEntity}`)).size
-                      const nMensual    = month ? new Set(centerEntries.map(e => `${e.employeeId}::${e.legalEntity}`)).size : null
+                      // Solo cobra contratación a quienes tienen este como su primer centro
+                      const isPrimary = (e: PayrollRawEntry) =>
+                        (e.employee.workCenters ?? []).filter(a => a.legalEntity === e.legalEntity)[0]?.workCenter?.name === wc.name
+                      const nAnual   = new Set(centerAnnual .filter(isPrimary).map(e => `${e.employeeId}::${e.legalEntity}`)).size
+                      const nMensual = month ? new Set(centerEntries.filter(isPrimary).map(e => `${e.employeeId}::${e.legalEntity}`)).size : null
 
-                      const contractAnual   = nAnual   * CONTRACTUAL * 12
-                      const contractMensual = nMensual !== null ? nMensual * CONTRACTUAL : null
+                      const contractAnual   = centerAnnual .filter(isPrimary).length * CONTRACTUAL
+                      const contractMensual = month ? centerEntries.filter(isPrimary).length * CONTRACTUAL : null
 
                       const totalGastosAnual   = brutoanual + contractAnual
                       const totalGastosMensual = brutoMensual !== null ? brutoMensual + (contractMensual ?? 0) : null
 
-                      const ingresosAnual  = wc.totalIngresos * 12
+                      const monthsAnual    = Math.max(new Set(annualEntries.map(e => e.month)).size, 1)
+                      const ingresosAnual  = wc.totalIngresos * monthsAnual
 
                       return (
                         <>
@@ -942,7 +955,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
                               </p>
                               <div className="space-y-2">
                                 <div className="bg-white rounded-lg border border-gray-100 p-2.5">
-                                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-1.5">$120.000 / persona</p>
+                                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-1.5">$160.000 / persona · primer centro</p>
                                   <div className="flex justify-between items-baseline">
                                     <span className="text-[10px] text-gray-400">Anual {year}</span>
                                     <span className="text-sm font-bold text-gray-900">{fmtShort(contractAnual)}</span>
@@ -1167,7 +1180,11 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
                                   <td className="px-4 py-2.5 text-xs text-gray-500 max-w-[180px] truncate" title={r.bonosNames}>{r.bonosNames}</td>
                                   <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{fmt(r.hhTotal * r.ponderacion)}</td>
                                   <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{r.hhDetail}</td>
-                                  <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{fmt(160_000)}</td>
+                                  <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">
+                                    {r.centers.split(', ')[0].trim() === wc.name
+                                      ? fmt(160_000)
+                                      : <span className="text-gray-300">—</span>}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1264,7 +1281,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function WorkCentersPage() {
-  const [tab,          setTab]          = useState<'centros' | 'remuneraciones'>('centros')
+  const [tab,          setTab]          = useState<'centros' | 'remuneraciones' | 'facturas' | 'proveedores'>('centros')
   const [year,         setYear]         = useState('')
   const [month,        setMonth]        = useState('')
   const [modal,        setModal]        = useState<'create' | WorkCenter | null>(null)
@@ -1310,6 +1327,10 @@ export default function WorkCentersPage() {
 
   const isMonthly = !!month
 
+  const monthsLoaded = useMemo(() =>
+    isMonthly ? 1 : Math.max(new Set(allEntries.map(e => e.month)).size, 1)
+  , [allEntries, isMonthly])
+
   // ── Centros tab stats ───────────────────────────────────────────────────────
 
   const ubicaciones = useMemo(() =>
@@ -1328,12 +1349,17 @@ export default function WorkCentersPage() {
       const wcEntries = allEntries.filter(e =>
         e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
       )
-      const gastoReal  = wcEntries.reduce((s, e) => s + e.grossSalary, 0)
-      const ingresos   = wc.totalIngresos
-      const diferencia = ingresos > 0 ? ingresos - gastoReal : null
-      return { wc, gastoReal, diferencia }
+      const costoReal = wcEntries.reduce((s, e) => {
+        const pond    = getPonderacion(e.employee.workCenters, e.legalEntity)
+        const isPrimary = (e.employee.workCenters ?? [])
+          .filter(a => a.legalEntity === e.legalEntity)[0]?.workCenter?.name === wc.name
+        return s + e.grossSalary * pond + (isPrimary ? 160_000 : 0)
+      }, 0)
+      const ingresos   = wc.totalIngresos * monthsLoaded
+      const diferencia = ingresos > 0 ? ingresos - costoReal : null
+      return { wc, costoReal, ingresos, diferencia }
     })
-  , [filtered, allEntries])
+  , [filtered, allEntries, monthsLoaded])
 
   const sortedCenters = useMemo(() =>
     [...enrichedCenters].sort((a, b) => {
@@ -1344,8 +1370,8 @@ export default function WorkCentersPage() {
         case 'costType':  cmp = a.wc.costType.localeCompare(b.wc.costType); break
         case 'personal':  cmp = (a.wc.totalPersonnel ?? 0) - (b.wc.totalPersonnel ?? 0); break
         case 'cargos':    cmp = (a.wc.positions?.length ?? 0) - (b.wc.positions?.length ?? 0); break
-        case 'ingresos':  cmp = (a.wc.totalIngresos) - (b.wc.totalIngresos); break
-        case 'gasto':     cmp = a.gastoReal - b.gastoReal; break
+        case 'ingresos':  cmp = a.ingresos - b.ingresos; break
+        case 'gasto':     cmp = a.costoReal - b.costoReal; break
         case 'diferencia':cmp = (a.diferencia ?? -Infinity) - (b.diferencia ?? -Infinity); break
       }
       return cSortDir === 'asc' ? cmp : -cmp
@@ -1466,7 +1492,12 @@ export default function WorkCentersPage() {
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
-        {([['centros', 'Centros'], ['remuneraciones', 'Remuneraciones']] as const).map(([key, label]) => (
+        {([
+          ['centros',       'Centros'],
+          ['remuneraciones','Remuneraciones'],
+          ['facturas',      'Facturas'],
+          ['proveedores',   'Proveedores'],
+        ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -1509,9 +1540,10 @@ export default function WorkCentersPage() {
               return ed && periodStart && nextPeriodStart && ed >= periodStart && ed < nextPeriodStart
             }).map(e => e.employeeId)).size
             const contratacionN    = uniquePeople || centers.reduce((s, c) => s + (c.totalPersonnel ?? 0), 0)
-            const contratacionCost = contratacionN * 160_000 * (month ? 1 : 12)
-            const totalGastos      = payrollStats.total + uniquePeople * 160_000 * (month ? 1 : 12)
-            const totalIngresos    = centers.reduce((s, c) => s + c.totalIngresos, 0) * (month ? 1 : 12)
+            const uniquePersonMonths = new Set(allEntries.map(e => `${e.employeeId}-${e.year}-${e.month}`)).size
+            const contratacionCost = uniquePersonMonths * 160_000
+            const totalGastos      = payrollStats.total + contratacionCost
+            const totalIngresos    = centers.reduce((s, c) => s + c.totalIngresos, 0) * monthsLoaded
             const diferencia       = totalIngresos - totalGastos
             const dPos             = diferencia >= 0
             const label            = year ? (month ? `${MONTHS_LABEL[Number(month)]} ${year}` : `Anual ${year}`) : ''
@@ -1611,8 +1643,8 @@ export default function WorkCentersPage() {
                   <div className={C}>
                     <div className={H}><span className={hl}><Briefcase size={10}/>Gastos Contratación</span>{label&&<span className={sub}>{label}</span>}</div>
                     <div className="p-4 flex-1">
-                      <p className="text-2xl font-bold text-violet-700">{contratacionN>0?fmtShort(contratacionCost):noData}</p>
-                      {contratacionN>0&&<><p className="text-xs text-gray-500 mt-1">{contratacionN} personas · $160K c/u</p><p className="text-[10px] text-gray-300 mt-0.5">Sin duplicados entre empresas</p></>}
+                      <p className="text-2xl font-bold text-violet-700">{uniquePersonMonths>0?fmtShort(contratacionCost):noData}</p>
+                      {uniquePersonMonths>0&&<p className="text-xs text-gray-500 mt-1">{uniquePersonMonths} persona-mes · $160K c/u</p>}
                     </div>
                   </div>
                 )
@@ -1929,7 +1961,7 @@ export default function WorkCentersPage() {
                       {cTh('Personal', 'personal')}
                       {cTh('Cargos', 'cargos')}
                       {cTh('Ingresos', 'ingresos', true)}
-                      {cTh(periodoLabel ? `Gasto ${periodoLabel}` : 'Gasto período', 'gasto', true)}
+                      {cTh(periodoLabel ? `Costos ${periodoLabel}` : 'Costos período', 'gasto', true)}
                       <th
                         onClick={() => handleCenterSort('diferencia')}
                         className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap text-right ${cSortKey === 'diferencia' ? 'text-blue-600' : 'text-gray-500'} hover:text-gray-700`}
@@ -1946,7 +1978,7 @@ export default function WorkCentersPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {sortedCenters.map(({ wc, gastoReal, diferencia }) => {
+                    {sortedCenters.map(({ wc, costoReal, ingresos, diferencia }) => {
                       const isSelected = selectedWC?.id === wc.id
                       return (
                         <Fragment key={wc.id}>
@@ -1990,10 +2022,10 @@ export default function WorkCentersPage() {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-700 text-right">
-                              {wc.totalIngresos > 0 ? fmtShort(wc.totalIngresos) : <span className="text-gray-300">—</span>}
+                              {ingresos > 0 ? fmtShort(ingresos) : <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-4 py-3 text-sm font-medium text-gray-900 text-right">
-                              {year ? fmtShort(gastoReal) : <span className="text-gray-300">—</span>}
+                              {year ? fmtShort(costoReal) : <span className="text-gray-300">—</span>}
                             </td>
                             <td className="px-4 py-3 text-right">
                               {year && diferencia !== null ? (
@@ -2042,8 +2074,8 @@ export default function WorkCentersPage() {
                     })}
                   </tbody>
                   {year && sortedCenters.length > 0 && (() => {
-                    const totalGasto    = sortedCenters.reduce((s, { gastoReal }) => s + gastoReal, 0)
-                    const totalIngresos = sortedCenters.reduce((s, { wc }) => s + (wc.totalIngresos), 0)
+                    const totalGasto    = sortedCenters.reduce((s, { costoReal }) => s + costoReal, 0)
+                    const totalIngresos = sortedCenters.reduce((s, { ingresos }) => s + ingresos, 0)
                     const totalDiff     = totalIngresos > 0 ? totalIngresos - totalGasto : null
                     return (
                       <tfoot>
@@ -2209,6 +2241,28 @@ export default function WorkCentersPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ══════════════ TAB: FACTURAS ══════════════ */}
+      {tab === 'facturas' && (
+        <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
+            <span className="text-2xl">🧾</span>
+          </div>
+          <p className="text-sm font-medium text-gray-500">Próximamente</p>
+          <p className="text-xs text-gray-400">El módulo de facturas estará disponible pronto.</p>
+        </div>
+      )}
+
+      {/* ══════════════ TAB: PROVEEDORES ══════════════ */}
+      {tab === 'proveedores' && (
+        <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
+            <span className="text-2xl">🤝</span>
+          </div>
+          <p className="text-sm font-medium text-gray-500">Próximamente</p>
+          <p className="text-xs text-gray-400">El módulo de proveedores estará disponible pronto.</p>
         </div>
       )}
 

@@ -1,0 +1,543 @@
+import type { FastifyPluginAsync } from 'fastify'
+import * as XLSX from 'xlsx'
+import * as fs from 'fs'
+import * as path from 'path'
+
+function resolveReportesDir(): string {
+  const candidates = [
+    path.join(process.cwd(), '..', 'reportes'),        // cwd = backend → ../reportes
+    path.join(process.cwd(), 'reportes'),              // cwd = project root
+    path.resolve(__dirname, '../../../reportes'),
+    path.resolve(__dirname, '../../../../reportes'),
+  ]
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c
+  }
+  return candidates[0]
+}
+const REPORTES_DIR = resolveReportesDir()
+
+const FOLDERS = [
+  { dir: 'Comunicaciones', entity: 'COMUNICACIONES_SURMEDIA' as const },
+  { dir: 'Consultoría',    entity: 'SURMEDIA_CONSULTORIA'    as const },
+]
+type LegalEntityKey = 'COMUNICACIONES_SURMEDIA' | 'SURMEDIA_CONSULTORIA'
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function normalizeRut(raw: unknown): string {
+  const s = String(raw ?? '').trim()
+  const clean = s.replace(/\./g, '')
+  const [body, dv] = clean.split('-')
+  if (!body || !dv) return s
+  return `${body.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}-${dv.toUpperCase()}`
+}
+
+// Excel serial number → JS Date (UTC)
+function serialToDate(val: unknown): Date | null {
+  if (!val) return null
+  if (val instanceof Date) return val
+  const n = Number(val)
+  if (!n || isNaN(n)) return null
+  return new Date((n - 25569) * 86400 * 1000)
+}
+
+// Incluye variantes mayús/minús del dígito verificador para queries case-sensitive
+function rutVariants(ruts: string[]): string[] {
+  const set = new Set<string>()
+  for (const r of ruts) { set.add(r); set.add(r.toLowerCase()); set.add(r.toUpperCase()) }
+  return [...set]
+}
+// Normaliza RUT de DB a mayúsculas para comparar con normalizeRut()
+const upRut = (r: string) => r.replace(/-([a-z])$/, (_, dv: string) => `-${dv.toUpperCase()}`)
+
+function latestFile(folder: string, keyword: string): string | null {
+  if (!fs.existsSync(folder)) return null
+  const f = fs.readdirSync(folder).filter(n => n.includes(keyword)).sort().reverse()[0]
+  return f ? path.join(folder, f) : null
+}
+
+// ── Sueldos parser ────────────────────────────────────────────────────────────
+
+interface SueldosRow {
+  key: string
+  legalEntity: LegalEntityKey
+  rut: string
+  nombre: string
+  year: number
+  month: number
+  grossSalary: number
+  liquidSalary: number
+  items: Array<{ name: string; amount: number; taxable: boolean }>
+}
+
+function parseSueldos(): SueldosRow[] {
+  const out: SueldosRow[] = []
+  for (const { dir, entity } of FOLDERS) {
+    const fp = latestFile(path.join(REPORTES_DIR, dir), 'Sueldos')
+    if (!fp) continue
+    const wb  = XLSX.readFile(fp)
+    const ws  = wb.Sheets[wb.SheetNames[0]]
+    const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][]
+    const hdrIdx = raw.findIndex(r =>
+      String(r[0]).toLowerCase().includes('empleado') && String(r[0]).toLowerCase().includes('estado'))
+    if (hdrIdx === -1) continue
+
+    const headers = raw[hdrIdx].map((h: any) => String(h).trim())
+    const cc = (t: string) => headers.findIndex(h => h.toLowerCase().includes(t.toLowerCase()))
+    const RUT_COL = cc('número de documento'), NOM_COL = cc('nombre completo')
+    const MES_COL = cc('mes de cálculo'), LIQ_COL = cc('sueldo líquido'), BRU_COL = cc('sueldo bruto')
+    if ([RUT_COL, MES_COL, LIQ_COL, BRU_COL].some(c => c === -1)) continue
+
+    const fname   = path.basename(fp)
+    const yrMatch = fname.match(/[Ss]ueldos[^\d]*(20\d{2})/i)
+    const startYr = yrMatch ? Number(yrMatch[1]) : new Date().getFullYear()
+
+    const itemCols: Array<{ idx: number; name: string; taxable: boolean }> = []
+    headers.forEach((h, i) => {
+      if (h.startsWith('Haberes Imponibles -'))
+        itemCols.push({ idx: i, name: h.replace('Haberes Imponibles - ', ''), taxable: true })
+      else if (h.startsWith('Haberes No Imponibles -'))
+        itemCols.push({ idx: i, name: h.replace('Haberes No Imponibles - ', ''), taxable: false })
+    })
+
+    const rawRows: { rut: string; nombre: string; month: number; rowIdx: number }[] = []
+    for (let i = hdrIdx + 1; i < raw.length; i++) {
+      const r = raw[i], rut = String(r[RUT_COL] ?? '').trim()
+      if (!rut) continue
+      const month = Number(r[MES_COL]) || 0
+      if (!month) continue
+      rawRows.push({ rut: normalizeRut(rut), nombre: String(r[NOM_COL] || '').trim(), month, rowIdx: i })
+    }
+
+    // Resolve year per employee (tracks month-rollover across years)
+    const yearMap = new Map<string, number>(), prevMap = new Map<string, number>()
+    const resolvedYr = new Map<number, number>()
+    for (const { rut, month, rowIdx } of rawRows) {
+      if (!yearMap.has(rut)) yearMap.set(rut, startYr)
+      const prev = prevMap.get(rut) ?? 0
+      if (prev > 0 && month < prev) yearMap.set(rut, (yearMap.get(rut) ?? startYr) + 1)
+      prevMap.set(rut, month)
+      resolvedYr.set(rowIdx, yearMap.get(rut) ?? startYr)
+    }
+
+    for (const { rut, nombre, month, rowIdx } of rawRows) {
+      const r            = raw[rowIdx]
+      const grossSalary  = Math.round(Number(String(r[BRU_COL]).replace(/[^0-9.-]/g, '')) || 0)
+      const liquidSalary = Math.round(Number(String(r[LIQ_COL]).replace(/[^0-9.-]/g, '')) || 0)
+      if (!grossSalary && !liquidSalary) continue
+      const year  = resolvedYr.get(rowIdx) ?? startYr
+      const items = itemCols
+        .map(ic => ({ name: ic.name, amount: Number(r[ic.idx]) || 0, taxable: ic.taxable }))
+        .filter(it => it.amount !== 0)
+      out.push({ key: `${entity}|${rut}|${year}|${month}`, legalEntity: entity, rut, nombre, year, month, grossSalary, liquidSalary, items })
+    }
+  }
+  return out
+}
+
+// ── Dotación parser ───────────────────────────────────────────────────────────
+
+interface DotacionRow {
+  legalEntity: LegalEntityKey
+  rut: string
+  nombre: string
+  estado: string
+  afp: string
+  isapre: string
+  cargo: string
+  familaCargo: string
+  supervisorNombre: string
+  supervisorCargo: string
+  jornada: string
+  tipoContrato: string
+  fechaIngreso: Date | null
+  fechaVencimiento: Date | null
+}
+
+function parseDotacion(): DotacionRow[] {
+  const out: DotacionRow[] = []
+  for (const { dir, entity } of FOLDERS) {
+    const fp = latestFile(path.join(REPORTES_DIR, dir), 'Dotación')
+    if (!fp) continue
+    const wb  = XLSX.readFile(fp)
+    const ws  = wb.Sheets[wb.SheetNames[0]]
+    const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][]
+    const hdrIdx = raw.findIndex(r =>
+      String(r[0]).toLowerCase().includes('empleado') && String(r[0]).toLowerCase().includes('estado'))
+    if (hdrIdx === -1) continue
+
+    const headers = raw[hdrIdx].map((h: any) => String(h).trim())
+    const col = (exact: string) => headers.indexOf(exact)
+
+    const RUT_COL = col('Empleado - Número de Documento')
+    if (RUT_COL === -1) continue
+    const NOM_COL = col('Empleado - Nombre Completo')
+    const AFP_COL = col('Plan - Fondo de Cotización')
+    const ISA_COL = col('Plan - Fonasa/Isapre')
+    const CAR_COL = col('Trabajo - Cargo')
+    const FAM_COL = col('Trabajo - Familia de Cargo')
+    const SNM_COL = col('Trabajo - Nombre Supervisor')
+    const SCA_COL = col('Trabajo - Cargo Supervisor')
+    const JOR_COL = col('Trabajo - Jornada Laboral')
+    const TIP_COL = col('Trabajo - Tipo de Contrato')
+    const ING_COL = col('Trabajo - Fecha Ingreso Compañía')
+    const VEN_COL = col('Trabajo - Fecha Vencimiento Contrato')
+
+    for (let i = hdrIdx + 1; i < raw.length; i++) {
+      const r = raw[i]
+      const rut = String(r[RUT_COL] ?? '').trim()
+      if (!rut) continue
+      out.push({
+        legalEntity:      entity,
+        rut:              normalizeRut(rut),
+        nombre:           String(r[NOM_COL]  ?? '').trim(),
+        estado:           String(r[0]         ?? '').trim(),
+        afp:              String(r[AFP_COL]  ?? '').trim().toLowerCase(),
+        isapre:           String(r[ISA_COL]  ?? '').trim().toLowerCase(),
+        cargo:            String(r[CAR_COL]  ?? '').trim(),
+        familaCargo:      String(r[FAM_COL]  ?? '').trim(),
+        supervisorNombre: String(r[SNM_COL]  ?? '').trim(),
+        supervisorCargo:  String(r[SCA_COL]  ?? '').trim(),
+        jornada:          String(r[JOR_COL]  ?? '').trim(),
+        tipoContrato:     String(r[TIP_COL]  ?? '').trim(),
+        fechaIngreso:     serialToDate(r[ING_COL]),
+        fechaVencimiento: r[VEN_COL] ? serialToDate(r[VEN_COL]) : null,
+      })
+    }
+  }
+  return out
+}
+
+// ── Vacaciones tomadas parser ─────────────────────────────────────────────────
+
+interface VacRow {
+  key: string
+  legalEntity: LegalEntityKey
+  rut: string
+  nombre: string
+  startDate: Date
+  endDate: Date
+  days: number
+}
+
+function parseVacaciones(): VacRow[] {
+  const out: VacRow[] = []
+  for (const { dir, entity } of FOLDERS) {
+    const fp = latestFile(path.join(REPORTES_DIR, dir), 'Vacaciones tomadas')
+    if (!fp) continue
+    const wb  = XLSX.readFile(fp)
+    const ws  = wb.Sheets[wb.SheetNames[0]]
+    const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][]
+    const hdrIdx = raw.findIndex(r =>
+      r.some((c: any) => String(c).toLowerCase().includes('número de documento')))
+    if (hdrIdx === -1) continue
+
+    const headers = raw[hdrIdx].map((h: any) => String(h).trim())
+    const cc = (t: string) => headers.findIndex(h => h.toLowerCase().includes(t.toLowerCase()))
+    const RUT_COL = cc('número de documento'), NOM_COL = cc('nombre completo')
+    const INI_COL = cc('inicio'), TER_COL = cc('término')
+    if (RUT_COL === -1 || INI_COL === -1 || TER_COL === -1) continue
+
+    for (let i = hdrIdx + 1; i < raw.length; i++) {
+      const r   = raw[i]
+      const rut = String(r[RUT_COL] ?? '').trim()
+      if (!rut) continue
+      const sd = serialToDate(r[INI_COL]), ed = serialToDate(r[TER_COL])
+      if (!sd || !ed) continue
+      const days = Math.round((ed.getTime() - sd.getTime()) / 86400000) + 1
+      out.push({
+        key: `vac|${normalizeRut(rut)}|${sd.toISOString().slice(0, 10)}`,
+        legalEntity: entity,
+        rut: normalizeRut(rut),
+        nombre: String(r[NOM_COL] || '').trim(),
+        startDate: sd, endDate: ed, days,
+      })
+    }
+  }
+  return out
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+const bukRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.addHook('preHandler', fastify.authenticate)
+
+  // GET /api/buk/preview — lee todos los Excel y devuelve diff vs DB
+  fastify.get('/preview', async (_req, reply) => {
+    const sueldosRows  = parseSueldos()
+    const dotacionRows = parseDotacion()
+    const vacRows      = parseVacaciones()
+
+    // ── Sueldos diff ──────────────────────────────────────────────────────
+    const sueldosRuts = [...new Set(sueldosRows.map(r => r.rut))]
+    const [dbEmpsSueldos, dbPayroll] = await Promise.all([
+      fastify.prisma.employee.findMany({
+        where: { rut: { in: rutVariants(sueldosRuts) } },
+        select: { id: true, rut: true },
+      }),
+      fastify.prisma.payrollEntry.findMany({
+        where: { employee: { rut: { in: rutVariants(sueldosRuts) } } },
+        select: { legalEntity: true, year: true, month: true, grossSalary: true, liquidSalary: true, employee: { select: { rut: true } } },
+      }),
+    ])
+    const rutSetSueldos  = new Set(dbEmpsSueldos.map(e => upRut(e.rut)))
+    const existingPayroll = new Map(dbPayroll.map(e => [`${e.legalEntity}|${upRut(e.employee.rut)}|${e.year}|${e.month}`, e]))
+
+    const sueldosNuevos: Array<{ key: string; rut: string; nombre: string; legalEntity: LegalEntityKey; year: number; month: number; grossSalary: number; liquidSalary: number }> = []
+    const sueldosCambios: Array<{ key: string; rut: string; nombre: string; legalEntity: LegalEntityKey; year: number; month: number; antes: { grossSalary: number; liquidSalary: number }; despues: { grossSalary: number; liquidSalary: number } }> = []
+    const sueldosSincronizados: Array<{ key: string; rut: string; nombre: string; legalEntity: LegalEntityKey; year: number; month: number; grossSalary: number; liquidSalary: number }> = []
+    const sueldosSinEmpleado: string[] = []
+
+    for (const row of sueldosRows) {
+      if (!rutSetSueldos.has(row.rut)) { sueldosSinEmpleado.push(row.rut); continue }
+      const existing = existingPayroll.get(row.key)
+      if (!existing) {
+        sueldosNuevos.push({ key: row.key, rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, year: row.year, month: row.month, grossSalary: row.grossSalary, liquidSalary: row.liquidSalary })
+      } else if (existing.grossSalary !== row.grossSalary || existing.liquidSalary !== row.liquidSalary) {
+        sueldosCambios.push({
+          key: row.key, rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, year: row.year, month: row.month,
+          antes:   { grossSalary: existing.grossSalary, liquidSalary: existing.liquidSalary },
+          despues: { grossSalary: row.grossSalary,      liquidSalary: row.liquidSalary      },
+        })
+      } else {
+        sueldosSincronizados.push({ key: row.key, rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, year: row.year, month: row.month, grossSalary: row.grossSalary, liquidSalary: row.liquidSalary })
+      }
+    }
+
+    // ── Dotación diff ─────────────────────────────────────────────────────
+    const dotRuts = [...new Set(dotacionRows.map(r => r.rut))]
+    const [dbEmpsDot, dbContracts] = await Promise.all([
+      fastify.prisma.employee.findMany({
+        where: { rut: { in: rutVariants(dotRuts) } },
+        select: { id: true, rut: true, status: true, afp: true, isapre: true, jobTitle: true, jobFamily: true, supervisorName: true, supervisorTitle: true },
+      }),
+      fastify.prisma.contract.findMany({
+        where: { employee: { rut: { in: rutVariants(dotRuts) } }, isActive: true, deletedAt: null },
+        select: { employeeId: true, type: true, endDate: true, employee: { select: { rut: true } } },
+        orderBy: { startDate: 'desc' },
+      }),
+    ])
+    const rutToEmpDot    = new Map(dbEmpsDot.map(e => [upRut(e.rut), e]))
+    const rutToContract  = new Map<string, typeof dbContracts[0]>()
+    for (const c of dbContracts) if (!rutToContract.has(upRut(c.employee.rut))) rutToContract.set(upRut(c.employee.rut), c)
+
+    const dotNuevos:  Array<{ rut: string; nombre: string; legalEntity: LegalEntityKey; estado: string }> = []
+    const dotCambios: Array<{ key: string; rut: string; nombre: string; legalEntity: LegalEntityKey; campos: Array<{ campo: string; antes: string | null; despues: string | null }> }> = []
+    const seenDotRuts = new Set<string>()
+
+    for (const row of dotacionRows) {
+      if (seenDotRuts.has(row.rut)) continue
+      seenDotRuts.add(row.rut)
+      const dbEmp = rutToEmpDot.get(row.rut)
+      if (!dbEmp) { dotNuevos.push({ rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, estado: row.estado }); continue }
+
+      const campos: Array<{ campo: string; antes: string | null; despues: string | null }> = []
+      const addCampo = (campo: string, antes: string | null | undefined, despues: string) => {
+        const a = (antes ?? '').trim().toLowerCase()
+        const d = despues.trim().toLowerCase()
+        if (d && a !== d) campos.push({ campo, antes: antes ?? null, despues })
+      }
+      const excelStatus = row.estado.toLowerCase() === 'activo' ? 'ACTIVE' : 'INACTIVE'
+      if (dbEmp.status !== excelStatus) campos.push({ campo: 'Estado', antes: dbEmp.status, despues: excelStatus })
+      addCampo('AFP',       dbEmp.afp,           row.afp)
+      addCampo('Isapre',    dbEmp.isapre,         row.isapre)
+      addCampo('Cargo',     dbEmp.jobTitle,       row.cargo)
+      addCampo('Familia',   dbEmp.jobFamily,      row.familaCargo)
+      addCampo('Supervisor',dbEmp.supervisorName, row.supervisorNombre)
+
+      const contract = rutToContract.get(row.rut)
+      if (contract) {
+        const excelType = row.tipoContrato.toLowerCase().includes('plazo') ? 'PLAZO_FIJO' : 'INDEFINIDO'
+        if (contract.type !== excelType) campos.push({ campo: 'Tipo contrato', antes: contract.type, despues: excelType })
+        const excelEnd = row.fechaVencimiento ? row.fechaVencimiento.toISOString().slice(0, 10) : null
+        const dbEnd    = contract.endDate    ? contract.endDate.toISOString().slice(0, 10)    : null
+        if (dbEnd !== excelEnd) campos.push({ campo: 'Venc. contrato', antes: dbEnd, despues: excelEnd })
+      }
+      if (campos.length > 0) dotCambios.push({ key: `dotacion|${row.rut}`, rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, campos })
+    }
+
+    // ── Vacaciones diff ───────────────────────────────────────────────────
+    const vacRuts = [...new Set(vacRows.map(r => r.rut))]
+    const [dbEmpsVac, dbLeaves] = await Promise.all([
+      fastify.prisma.employee.findMany({
+        where: { rut: { in: rutVariants(vacRuts) } },
+        select: { id: true, rut: true },
+      }),
+      fastify.prisma.leave.findMany({
+        where: { type: 'VACACIONES' as any, employee: { rut: { in: rutVariants(vacRuts) } } },
+        select: { startDate: true, employee: { select: { rut: true } } },
+      }),
+    ])
+    const rutSetVac      = new Set(dbEmpsVac.map(e => upRut(e.rut)))
+    const existingLeaves = new Set(dbLeaves.map(l => `vac|${upRut(l.employee.rut)}|${l.startDate.toISOString().slice(0, 10)}`))
+
+    const vacNuevas: Array<{ key: string; rut: string; nombre: string; legalEntity: LegalEntityKey; startDate: string; endDate: string; days: number }> = []
+    const vacSinEmpleado: string[] = []
+
+    for (const row of vacRows) {
+      if (!rutSetVac.has(row.rut)) { vacSinEmpleado.push(row.rut); continue }
+      if (!existingLeaves.has(row.key))
+        vacNuevas.push({ key: row.key, rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, startDate: row.startDate.toISOString().slice(0, 10), endDate: row.endDate.toISOString().slice(0, 10), days: row.days })
+    }
+
+    return reply.send({
+      _debug: { reportesDir: REPORTES_DIR, exists: fs.existsSync(REPORTES_DIR), sueldosRowsCount: sueldosRows.length },
+      data: {
+        sueldos:   { nuevos: sueldosNuevos, cambios: sueldosCambios, sincronizados: sueldosSincronizados, sinEmpleado: [...new Set(sueldosSinEmpleado)] },
+        dotacion:  { nuevos: dotNuevos,     cambios: dotCambios },
+        vacaciones:{ nuevas: vacNuevas,     sinEmpleado: [...new Set(vacSinEmpleado)] },
+      },
+    })
+  })
+
+  // POST /api/buk/apply — aplica los cambios aprobados
+  fastify.post<{
+    Body: {
+      sueldos?:    {
+        nuevosKeys?: string[]; cambiosKeys?: string[]; sincronizadosKeys?: string[]
+        overrides?: Record<string, { grossSalary?: number; liquidSalary?: number }>
+      }
+      dotacion?:   { cambiosKeys?: string[]; nuevosKeys?: string[] }
+      vacaciones?: { nuevasKeys?: string[] }
+    }
+  }>('/apply', { config: { bodyLimit: 1_000_000 } }, async (req, reply) => {
+    const { sueldos, dotacion, vacaciones } = req.body
+    const sueldosAllKeys = new Set([
+      ...(sueldos?.nuevosKeys       ?? []),
+      ...(sueldos?.cambiosKeys      ?? []),
+      ...(sueldos?.sincronizadosKeys ?? []),
+    ])
+    const dotCambiosKeys  = new Set(dotacion?.cambiosKeys ?? [])
+    const dotNuevosKeys   = new Set(dotacion?.nuevosKeys  ?? [])
+    const vacNuevasKeys   = new Set(vacaciones?.nuevasKeys ?? [])
+    const applied = { sueldos: 0, dotacion: 0, vacaciones: 0 }
+
+    // ── Sueldos ───────────────────────────────────────────────────────────
+    if (sueldosAllKeys.size > 0) {
+      const rows = parseSueldos().filter(r => sueldosAllKeys.has(r.key))
+      const ruts = [...new Set(rows.map(r => r.rut))]
+      const emps = await fastify.prisma.employee.findMany({ where: { rut: { in: rutVariants(ruts) } }, select: { id: true, rut: true } })
+      const rutToId = new Map(emps.map(e => [upRut(e.rut), e.id]))
+      for (const row of rows) {
+        const empId = rutToId.get(row.rut)
+        if (!empId) continue
+        try {
+          const ov = sueldos?.overrides?.[row.key]
+          const gross  = ov?.grossSalary  ?? row.grossSalary
+          const liquid = ov?.liquidSalary ?? row.liquidSalary
+          await fastify.prisma.payrollEntry.upsert({
+            where: { employeeId_legalEntity_year_month: { employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month } },
+            create: { employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month, grossSalary: gross, liquidSalary: liquid, items: row.items as any },
+            update: { grossSalary: gross, liquidSalary: liquid, items: row.items as any },
+          })
+          applied.sueldos++
+        } catch { /* skip */ }
+      }
+    }
+
+    // ── Dotación ──────────────────────────────────────────────────────────
+    if (dotCambiosKeys.size > 0) {
+      const relevantRuts = [...dotCambiosKeys].map(k => k.replace('dotacion|', ''))
+      const rows = parseDotacion().filter(r => relevantRuts.includes(r.rut))
+      const emps = await fastify.prisma.employee.findMany({ where: { rut: { in: relevantRuts } }, select: { id: true, rut: true } })
+      const contracts = await fastify.prisma.contract.findMany({
+        where: { employeeId: { in: emps.map(e => e.id) }, isActive: true, deletedAt: null },
+        select: { id: true, employeeId: true },
+        orderBy: { startDate: 'desc' },
+      })
+      const empByRut        = new Map(emps.map(e => [upRut(e.rut), e]))
+      const contractByEmpId = new Map<string, string>()
+      for (const c of contracts) if (!contractByEmpId.has(c.employeeId)) contractByEmpId.set(c.employeeId, c.id)
+
+      for (const row of rows) {
+        const emp = empByRut.get(row.rut)
+        if (!emp) continue
+        const excelStatus = row.estado.toLowerCase() === 'activo' ? 'ACTIVE' : 'INACTIVE'
+        const excelType   = row.tipoContrato.toLowerCase().includes('plazo') ? 'PLAZO_FIJO' : 'INDEFINIDO'
+        await fastify.prisma.employee.update({
+          where: { id: emp.id },
+          data: {
+            status:          excelStatus as any,
+            afp:             row.afp              || undefined,
+            isapre:          row.isapre           || undefined,
+            jobTitle:        row.cargo            || undefined,
+            jobFamily:       row.familaCargo      || undefined,
+            supervisorName:  row.supervisorNombre || undefined,
+            supervisorTitle: row.supervisorCargo  || undefined,
+          },
+        })
+        const contractId = contractByEmpId.get(emp.id)
+        if (contractId) {
+          await fastify.prisma.contract.update({
+            where: { id: contractId },
+            data: { type: excelType as any, endDate: row.fechaVencimiento ?? null },
+          })
+        }
+        applied.dotacion++
+      }
+    }
+
+    // ── Dotación nuevos → crear empleados ────────────────────────────────
+    if (dotNuevosKeys.size > 0) {
+      const nuevosRuts = [...dotNuevosKeys].map(k => k.replace('dot-nuevo|', ''))
+      const rows = parseDotacion().filter(r => nuevosRuts.includes(r.rut))
+      for (const row of rows) {
+        try {
+          const parts    = row.nombre.trim().split(/\s+/)
+          const firstName = parts.length > 2 ? parts.slice(2).join(' ') : parts[0] ?? row.nombre
+          const lastName  = parts.length > 2 ? parts.slice(0, 2).join(' ') : parts.slice(1).join(' ') || '-'
+          const excelStatus = row.estado.toLowerCase() === 'activo' ? 'ACTIVE' : 'INACTIVE'
+          const excelType   = row.tipoContrato.toLowerCase().includes('plazo') ? 'PLAZO_FIJO' : 'INDEFINIDO'
+          const emp = await fastify.prisma.employee.create({
+            data: {
+              rut:            row.rut,
+              firstName,
+              lastName,
+              email:          `${row.rut.replace(/[^0-9]/g, '')}@buk.import`,
+              status:         excelStatus as any,
+              startDate:      row.fechaIngreso ?? new Date(),
+              afp:            row.afp            || undefined,
+              isapre:         row.isapre         || undefined,
+              jobTitle:       row.cargo          || undefined,
+              jobFamily:      row.familaCargo    || undefined,
+              supervisorName: row.supervisorNombre || undefined,
+              supervisorTitle:row.supervisorCargo  || undefined,
+              contracts: { create: {
+                type:      excelType as any,
+                startDate: row.fechaIngreso ?? new Date(),
+                endDate:   row.fechaVencimiento ?? null,
+                salary:    0,
+                legalEntity: row.legalEntity as any,
+              }},
+            },
+          })
+          void emp
+          applied.dotacion++
+        } catch { /* skip si ya existe */ }
+      }
+    }
+
+    // ── Vacaciones ────────────────────────────────────────────────────────
+    if (vacNuevasKeys.size > 0) {
+      const rows = parseVacaciones().filter(r => vacNuevasKeys.has(r.key))
+      const ruts = [...new Set(rows.map(r => r.rut))]
+      const emps = await fastify.prisma.employee.findMany({ where: { rut: { in: rutVariants(ruts) } }, select: { id: true, rut: true } })
+      const rutToId = new Map(emps.map(e => [upRut(e.rut), e.id]))
+      for (const row of rows) {
+        const empId = rutToId.get(row.rut)
+        if (!empId) continue
+        try {
+          await fastify.prisma.leave.create({
+            data: { employeeId: empId, type: 'VACACIONES' as any, startDate: row.startDate, endDate: row.endDate, days: row.days, status: 'APPROVED' as any, reason: 'Importado desde BUK' },
+          })
+          applied.vacaciones++
+        } catch { /* skip duplicates */ }
+      }
+    }
+
+    return reply.send({ ok: true, applied })
+  })
+}
+
+export default bukRoutes
