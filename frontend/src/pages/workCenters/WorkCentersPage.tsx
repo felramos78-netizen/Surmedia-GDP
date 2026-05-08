@@ -580,6 +580,138 @@ function exportCentrosToExcel(
   XLSX.writeFile(wb, `centros-de-trabajo${safe ? `-${safe}` : ''}.xlsx`)
 }
 
+function exportRemuneracionesToExcel(rows: WCAggRow[], centerName: string, periodoLabel: string) {
+  const CONTRACTUAL = 160_000
+  const STATUS_LABEL: Record<string, string> = {
+    ACTIVE: 'Activo', INACTIVE: 'Inactivo', ON_LEAVE: 'Con permiso', DUPLICATE: 'Duplicado',
+  }
+
+  // ── Hoja Remuneraciones: una fila por (empleado × centro) ────────────────────
+  type ExportRow = Record<string, string | number>
+  const data: ExportRow[] = []
+
+  for (const r of rows) {
+    const rawList = (r.centers && r.centers !== '—')
+      ? r.centers.split(', ').map(c => c.trim()).filter(Boolean)
+      : ['—']
+    // Si hay filtro de centro sólo mostramos ese centro; si no, expandimos
+    const targets = centerName ? [centerName] : rawList
+
+    for (const centro of targets) {
+      const isFirstCenter = rawList[0] === centro
+      data.push({
+        'Razón Social':               LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity,
+        'Estado':                     STATUS_LABEL[r.status] ?? r.status,
+        'Centro':                     centro,
+        'Colaborador':                r.employeeName,
+        'RUT':                        r.rut,
+        'Cargo':                      r.jobTitle,
+        'Ponderación':                Math.round(r.ponderacion * 100),
+        'Sueldo bruto ponderado':     Math.round(r.grossSalary     * r.ponderacion),
+        'Sueldo estándar ponderado':  Math.round(r.sueldoEstandar  * r.ponderacion),
+        'Total bonos':                Math.round(r.bonosTotal       * r.ponderacion),
+        'Bonos identificados':        r.bonosNames,
+        'Total HH extra':             Math.round(r.hhTotal          * r.ponderacion),
+        'HH extra identificadas':     r.hhDetail,
+        'Gastos contractuales':       isFirstCenter ? CONTRACTUAL : 0,
+      })
+    }
+  }
+
+  // Ordenar: Razón Social → Centro → Colaborador
+  data.sort((a, b) => {
+    const rs = String(a['Razón Social']).localeCompare(String(b['Razón Social']), 'es')
+    if (rs !== 0) return rs
+    const cs = String(a['Centro']).localeCompare(String(b['Centro']), 'es')
+    if (cs !== 0) return cs
+    return String(a['Colaborador']).localeCompare(String(b['Colaborador']), 'es')
+  })
+
+  const ws = XLSX.utils.json_to_sheet(data)
+  ws['!cols'] = [
+    { wch: 16 }, // Razón Social
+    { wch: 10 }, // Estado
+    { wch: 24 }, // Centro
+    { wch: 28 }, // Colaborador
+    { wch: 14 }, // RUT
+    { wch: 24 }, // Cargo
+    { wch: 12 }, // Ponderación
+    { wch: 22 }, // Sueldo bruto ponderado
+    { wch: 24 }, // Sueldo estándar ponderado
+    { wch: 14 }, // Total bonos
+    { wch: 30 }, // Bonos identificados
+    { wch: 14 }, // Total HH extra
+    { wch: 30 }, // HH extra identificadas
+    { wch: 20 }, // Gastos contractuales
+  ]
+  // CLP: bruto=7, estándar=8, bonos=9, HH=11, contractuales=13
+  applyClpFormat(ws, [7, 8, 9, 11, 13])
+
+  // ── Hoja Dashboard ────────────────────────────────────────────────────────────
+  const totBruto    = data.reduce((s, r) => s + (r['Sueldo bruto ponderado']    as number || 0), 0)
+  const totEstandar = data.reduce((s, r) => s + (r['Sueldo estándar ponderado'] as number || 0), 0)
+  const totBonos    = data.reduce((s, r) => s + (r['Total bonos']               as number || 0), 0)
+  const totHH       = data.reduce((s, r) => s + (r['Total HH extra']            as number || 0), 0)
+  const totContract = data.reduce((s, r) => s + (r['Gastos contractuales']      as number || 0), 0)
+  const totEmpleados = new Set(rows.map(r => `${r.employeeId}::${r.legalEntity}`)).size
+
+  const byEntity = new Map<string, { n: number; bruto: number }>()
+  const byEstado = new Map<string, { n: number; bruto: number }>()
+  const byCentro = new Map<string, { n: number; bruto: number }>()
+  for (const r of data) {
+    const addTo = (m: typeof byEntity, key: string) => {
+      const ex = m.get(key) ?? { n: 0, bruto: 0 }
+      ex.n++; ex.bruto += r['Sueldo bruto ponderado'] as number || 0
+      m.set(key, ex)
+    }
+    addTo(byEntity, String(r['Razón Social']))
+    addTo(byEstado, String(r['Estado']))
+    addTo(byCentro, String(r['Centro']))
+  }
+  const sortedEntries = (m: typeof byEntity) =>
+    [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'))
+
+  type AoaCell = string | number | null
+  const aoa: AoaCell[][] = [
+    [`DASHBOARD — REMUNERACIONES ${periodoLabel.toUpperCase()}`, '', ''],
+    [],
+    ['Métricas generales', '', 'Valor'],
+    ['Colaboradores únicos', '', totEmpleados],
+    ['Filas en reporte (con expansión)', '', data.length],
+    ['Sueldo bruto ponderado total', '', totBruto],
+    ['Sueldo estándar ponderado total', '', totEstandar],
+    ['Total bonos', '', totBonos],
+    ['Total HH extra', '', totHH],
+    ['Gastos contractuales', '', totContract],
+    [],
+    ['Por Razón Social', 'Filas', 'Sueldo Bruto Ponderado'],
+    ...sortedEntries(byEntity).map(([k, v]) => [k, v.n, v.bruto] as AoaCell[]),
+    [],
+    ['Por Estado', 'Filas', 'Sueldo Bruto Ponderado'],
+    ...sortedEntries(byEstado).map(([k, v]) => [k, v.n, v.bruto] as AoaCell[]),
+    [],
+    ['Por Centro de Trabajo', 'Filas', 'Sueldo Bruto Ponderado'],
+    ...sortedEntries(byCentro).map(([k, v]) => [k, v.n, v.bruto] as AoaCell[]),
+  ]
+
+  const dws = XLSX.utils.aoa_to_sheet(aoa)
+  dws['!cols'] = [{ wch: 36 }, { wch: 10 }, { wch: 26 }]
+  // Aplicar formato CLP a columna 2 donde sea un número grande (montos)
+  const dashRng = XLSX.utils.decode_range(dws['!ref']!)
+  for (let R = dashRng.s.r; R <= dashRng.e.r; R++) {
+    const cell = dws[XLSX.utils.encode_cell({ r: R, c: 2 })]
+    if (cell && typeof cell.v === 'number' && cell.v > 999) cell.z = '$#,##0'
+  }
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Remuneraciones')
+  XLSX.utils.book_append_sheet(wb, dws, 'Dashboard')
+
+  const safe = periodoLabel.replace(/[\s/]+/g, '-').toLowerCase()
+  const centerSafe = centerName ? centerName.replace(/[\\/?*[\]:']/g, '').slice(0, 20) + '-' : ''
+  XLSX.writeFile(wb, `remuneraciones-${centerSafe}${safe || 'todos'}.xlsx`)
+}
+
 // ─── WorkCenterModal ──────────────────────────────────────────────────────────
 
 function WorkCenterModal({ initial, onClose }: { initial?: WorkCenter | null; onClose: () => void }) {
@@ -1109,6 +1241,16 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
                         <span className="text-xs text-gray-400 shrink-0">
                           {payrollRows.length} colaborador{payrollRows.length !== 1 ? 'es' : ''} · {periodoLabel}
                         </span>
+                        {payrollRows.length > 0 && (
+                          <button
+                            onClick={() => exportRemuneracionesToExcel(payrollRows, wc.name, periodoLabel)}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
+                            title="Exportar a Excel"
+                          >
+                            <FileDown size={13} />
+                            Excel
+                          </button>
+                        )}
                       </div>
                       {payrollRows.length === 0 ? (
                         <p className="text-sm text-gray-400 text-center py-8">Sin datos de remuneraciones para este período</p>
@@ -2152,6 +2294,16 @@ export default function WorkCentersPage() {
                 <button onClick={() => { setRemSearch(''); setCenterFilter(''); setEntityFilter('') }}
                   className="text-xs text-gray-400 hover:text-gray-600 px-2 py-2">
                   Limpiar
+                </button>
+              )}
+              {rows.length > 0 && (
+                <button
+                  onClick={() => exportRemuneracionesToExcel(rows, centerFilter, periodoLabel)}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
+                  title="Exportar a Excel"
+                >
+                  <FileDown size={13} />
+                  Excel
                 </button>
               )}
             </div>

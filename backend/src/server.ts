@@ -8,6 +8,7 @@ import authenticatePlugin from './middleware/authenticate'
 import authRoutes from './routes/auth'
 import employeeRoutes from './routes/employees'
 import onboardingRoutes from './routes/onboarding'
+import publicFormsRoutes from './routes/publicForms'
 import profileRoutes from './routes/profiles'
 import payrollRoutes from './routes/payroll'
 import workCenterRoutes from './routes/workCenters'
@@ -34,6 +35,7 @@ async function bootstrap() {
   await app.register(authRoutes, { prefix: '/api/auth' })
   await app.register(employeeRoutes, { prefix: '/api/employees' })
   await app.register(onboardingRoutes, { prefix: '/api/onboarding' })
+  await app.register(publicFormsRoutes, { prefix: '/api/forms' })
   await app.register(profileRoutes,    { prefix: '/api/profiles' })
   await app.register(payrollRoutes,    { prefix: '/api/payroll' })
   await app.register(workCenterRoutes, { prefix: '/api/work-centers' })

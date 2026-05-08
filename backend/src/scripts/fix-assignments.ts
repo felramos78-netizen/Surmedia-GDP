@@ -33,11 +33,14 @@ async function main() {
     for (const c of centers) {
       const cId = wcId(c)
       if (!cId) { console.warn(`⚠ Centro no encontrado: ${c}`); continue }
-      await prisma.employeeWorkCenter.upsert({
-        where: { employeeId_workCenterId_legalEntity: { employeeId: eId, workCenterId: cId, legalEntity: legalEntity as any } },
-        update: {},
-        create: { employeeId: eId, workCenterId: cId, legalEntity: legalEntity as any },
+      const exists = await prisma.employeeWorkCenter.findFirst({
+        where: { employeeId: eId, workCenterId: cId, legalEntity: legalEntity as any, endYear: null },
       })
+      if (!exists) {
+        await prisma.employeeWorkCenter.create({
+          data: { employeeId: eId, workCenterId: cId, legalEntity: legalEntity as any },
+        })
+      }
     }
   }
 

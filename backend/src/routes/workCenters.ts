@@ -129,22 +129,42 @@ const workCenterRoutes: FastifyPluginAsync = async (fastify) => {
   )
 
   // ── POST /work-centers/:id/assign ───────────────────────────────────────────
-  fastify.post<{ Params: { id: string }; Body: { employeeId: string; legalEntity: string } }>(
+  fastify.post<{
+    Params: { id: string }
+    Body: { employeeId: string; legalEntity: string; startYear?: number; startMonth?: number; endYear?: number | null; endMonth?: number | null }
+  }>(
     '/:id/assign',
     async (req, reply) => {
-      const { employeeId, legalEntity } = req.body
-      const assignment = await fastify.prisma.employeeWorkCenter.upsert({
-        where: {
-          employeeId_workCenterId_legalEntity: {
-            employeeId,
-            workCenterId: req.params.id,
-            legalEntity: legalEntity as any,
-          },
+      const { employeeId, legalEntity, startYear, startMonth, endYear, endMonth } = req.body
+      const now = new Date()
+      const assignment = await fastify.prisma.employeeWorkCenter.create({
+        data: {
+          employeeId,
+          workCenterId: req.params.id,
+          legalEntity: legalEntity as any,
+          startYear:  startYear  ?? now.getFullYear(),
+          startMonth: startMonth ?? (now.getMonth() + 1),
+          endYear:    endYear    ?? null,
+          endMonth:   endMonth   ?? null,
         },
-        update: {},
-        create: { employeeId, workCenterId: req.params.id, legalEntity: legalEntity as any },
       })
       return reply.status(201).send({ data: assignment })
+    },
+  )
+
+  // ── PATCH /work-centers/:id/assign/:assignId — cerrar período ─────────────
+  fastify.patch<{
+    Params: { id: string; assignId: string }
+    Body: { endYear: number; endMonth: number }
+  }>(
+    '/:id/assign/:assignId',
+    async (req, reply) => {
+      const { endYear, endMonth } = req.body
+      const updated = await fastify.prisma.employeeWorkCenter.update({
+        where: { id: req.params.assignId },
+        data: { endYear, endMonth },
+      })
+      return reply.send({ data: updated })
     },
   )
 

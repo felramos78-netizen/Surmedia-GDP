@@ -28,6 +28,10 @@ export interface EmployeeWorkCenter {
   id: string
   workCenterId: string
   legalEntity: LegalEntity
+  startYear: number
+  startMonth: number
+  endYear?: number | null
+  endMonth?: number | null
   workCenter: { id: string; name: string; costType: CostType }
 }
 export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'ON_LEAVE' | 'DUPLICATE'
@@ -286,6 +290,90 @@ export interface OnboardingStats {
   completed:       number
   cancelled:       number
   finalizingSoon:  number
+}
+
+// ─── Onboarding: Email Templates ─────────────────────────────────────────────
+
+export interface EmailTemplateVariable {
+  name:    string
+  example: string
+}
+
+export interface EmailTemplate {
+  id:        string
+  key:       string
+  name:      string
+  subject:   string
+  bodyHtml:  string
+  variables: EmailTemplateVariable[]
+  isActive:  boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EmailLog {
+  id:          string
+  processId?:  string | null
+  taskId?:     string | null
+  toEmail:     string
+  subject:     string
+  status:      'SENT' | 'SKIPPED' | 'FAILED'
+  error?:      string | null
+  templateKey?: string | null
+  sentAt:      string
+}
+
+// ─── Onboarding: Template Tasks ──────────────────────────────────────────────
+
+export interface OnboardingDbTemplateTask {
+  id:              string
+  key:             string
+  period:          OnboardingPeriod
+  name:            string
+  tool?:           string | null
+  automationType:  TaskAutomationType
+  automationConfig: Record<string, any> | null
+  appliesWhen?:    string | null
+  sortOrder:       number
+  isActive:        boolean
+  createdAt:       string
+  updatedAt:       string
+}
+
+// ─── Onboarding: Forms ───────────────────────────────────────────────────────
+
+export type FormFieldType = 'text' | 'textarea' | 'date' | 'select' | 'radio' | 'checkbox'
+
+export interface FormField {
+  id:          string
+  label:       string
+  type:        FormFieldType
+  required:    boolean
+  options?:    string[]
+  placeholder?: string
+}
+
+export interface OnboardingForm {
+  id:        string
+  processId: string
+  process?:  { id: string; collaboratorName: string }
+  title:     string
+  fields:    FormField[]
+  token:     string
+  isActive:  boolean
+  responses?: FormResponse[]
+  _count?:   { responses: number }
+  createdAt: string
+  updatedAt: string
+}
+
+export interface FormResponse {
+  id:              string
+  formId:          string
+  respondentName?:  string | null
+  respondentEmail?: string | null
+  data:            Record<string, unknown>
+  submittedAt:     string
 }
 
 export interface ApiResponse<T> {

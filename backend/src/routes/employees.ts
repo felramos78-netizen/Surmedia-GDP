@@ -312,6 +312,15 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: emp })
   })
 
+  fastify.delete<{ Params: { id: string } }>('/:id', async (req, reply) => {
+    const { id } = req.params
+    await fastify.prisma.employee.update({
+      where: { id },
+      data:  { deletedAt: new Date() },
+    })
+    return reply.send({ ok: true })
+  })
+
   fastify.get<{ Params: { id: string } }>('/:id/payroll', async (req, reply) => {
     const entries = await fastify.prisma.payrollEntry.findMany({
       where: { employeeId: req.params.id },

@@ -49,6 +49,37 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   PENDING: { label: 'Pendiente',   color: 'text-gray-400' },
 }
 
+// ─── Offsets de período (días relativos a startDate) ─────────────────────────
+
+const PERIOD_OFFSETS: Record<OnboardingPeriod, { start: number; end: number }> = {
+  PRE_INGRESO: { start: -7, end: -1 },
+  DIA_1:       { start: 0,  end: 0  },
+  SEMANA_1:    { start: 1,  end: 7  },
+  MES_1:       { start: 8,  end: 30 },
+  EVALUACION:  { start: 60, end: 90 },
+}
+
+function gcalFmt(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`
+}
+
+function makeGCalUrl(title: string, start: Date, durMin: number, desc: string, guests: string[]): string {
+  const end = new Date(start.getTime() + durMin * 60_000)
+  const q = new URLSearchParams({ text: title, dates: `${gcalFmt(start)}/${gcalFmt(end)}`, details: desc })
+  if (guests.length) q.set('add', guests.join(','))
+  return `https://calendar.google.com/calendar/r/eventedit?${q}`
+}
+
+function computeTaskDate(task: OnboardingTask, base: Date): Date {
+  const cfg = task.automationConfig as Record<string, any> | null
+  const offset = typeof cfg?.daysFromStart === 'number' ? cfg.daysFromStart : PERIOD_OFFSETS[task.period].start
+  const d = new Date(base)
+  d.setDate(d.getDate() + offset)
+  d.setHours(9, 0, 0, 0)
+  return d
+}
+
 // ─── Herramientas disponibles ─────────────────────────────────────────────────
 
 const TOOLS = [
@@ -876,6 +907,250 @@ function HitosTab({ process, canEdit }: { process: OnboardingProcess; canEdit: b
   )
 }
 
+// ─── Tarjeta de tarea en vista Calendario ────────────────────────────────────
+
+function CalTaskCard({ task, process, canEdit }: { task: OnboardingTask; process: OnboardingProcess; canEdit: boolean }) {
+  const [expanded,      setExpanded]      = useState(false)
+  const [addProfileId,  setAddProfileId]  = useState('')
+  const [addRoleType,   setAddRoleType]   = useState('RESPONSABLE_HITO')
+
+  const { data: profiles = [] } = useProfiles()
+  const addAssignment           = useAddTaskAssignment()
+  const deleteAssignment        = useDeleteTaskAssignment()
+
+  const base     = new Date(process.startDate)
+  const taskDt   = computeTaskDate(task, base)
+  const isCal    = task.automationType === 'CALENDAR'
+  const cfg      = (task.automationConfig ?? {}) as Record<string, any>
+  const durMin   = (cfg.durationMinutes as number) ?? 60
+  const gcalTitle = isCal
+    ? ((cfg.title as string) ?? task.name).replace('{collaboratorName}', process.collaboratorName)
+    : ''
+  const guests = [
+    ...(process.collaboratorEmail ? [process.collaboratorEmail] : []),
+    ...(Array.isArray(cfg.attendees) ? (cfg.attendees as string[]) : []),
+  ]
+  const gcalUrl  = isCal
+    ? makeGCalUrl(gcalTitle, taskDt, durMin, `Onboarding ${process.collaboratorName} — ${task.name}`, guests)
+    : null
+
+  const assignments: TaskAssignment[] = task.assignments ?? []
+  const alreadyAssigned = assignments.map(a => `${a.profileId}:${a.roleType}`)
+  const dateLabel = taskDt.toLocaleDateString('es-CL', { weekday: 'short', day: '2-digit', month: 'short' })
+
+  return (
+    <div className={`overflow-hidden transition-colors ${task.completedAt ? 'bg-green-50/20' : 'bg-white'}`}>
+      {/* Fila compacta */}
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <button onClick={() => setExpanded(v => !v)} className="flex-1 min-w-0 flex items-center gap-2 text-left">
+          <span className="text-gray-300 flex-shrink-0">{expanded ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}</span>
+          <div className="min-w-0 flex-1">
+            <p className={`text-sm leading-tight ${task.completedAt ? 'line-through text-gray-400' : 'text-gray-800'}`}>{task.name}</p>
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              <AutoBadge type={task.automationType} />
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
+                isCal ? 'bg-purple-50 text-purple-600 border-purple-100' : 'bg-gray-50 text-gray-400 border-gray-100'
+              }`}>
+                {dateLabel}{isCal ? ` · ${durMin} min` : ''}
+              </span>
+              {task.appliesWhen && (
+                <span className="text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-500 border border-amber-100">{task.appliesWhen}</span>
+              )}
+            </div>
+            {/* Chips de perfiles (modo compacto) */}
+            {assignments.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {assignments.map(a => (
+                  <span key={a.id} className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium ${ROLE_COLORS[a.roleType] ?? 'bg-gray-100 text-gray-600'}`}>
+                    {a.profile.name.split(' ')[0]} · {ROLE_LABELS[a.roleType] ?? a.roleType}
+                  </span>
+                ))}
+              </div>
+            )}
+            {assignments.length === 0 && (
+              <p className="text-[10px] text-gray-300 italic mt-1">Sin perfiles asignados</p>
+            )}
+          </div>
+        </button>
+        {gcalUrl && (
+          <a href={gcalUrl} target="_blank" rel="noopener noreferrer"
+            title="Abrir en Google Calendar"
+            className={`flex-shrink-0 p-1.5 rounded transition-colors ${
+              task.automationStatus === 'SUCCESS' ? 'text-green-400 hover:bg-green-50' : 'text-purple-400 hover:bg-purple-50'
+            }`}>
+            <ExternalLink size={12} />
+          </a>
+        )}
+      </div>
+
+      {/* Panel expandido: detalle gcal + gestión de perfiles */}
+      {expanded && (
+        <div className="border-t border-gray-50 px-4 py-3 space-y-3 bg-gray-50/50">
+          {/* Detalle del evento Calendar */}
+          {isCal && (
+            <div className="p-2.5 bg-purple-50 rounded-lg border border-purple-100 flex items-start justify-between gap-2">
+              <div className="text-xs text-purple-700 min-w-0">
+                <p className="font-medium truncate">{gcalTitle}</p>
+                <p className="text-purple-400 mt-0.5">{durMin} min · {dateLabel}</p>
+                {guests.length > 0 && <p className="text-purple-400 mt-0.5 truncate">Invitados: {guests.join(', ')}</p>}
+              </div>
+              <a href={gcalUrl!} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs font-medium text-purple-600 hover:underline flex-shrink-0 mt-0.5">
+                <ExternalLink size={11} /> Abrir
+              </a>
+            </div>
+          )}
+
+          {/* Gestión de perfiles */}
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Perfiles del hito</p>
+            {assignments.length === 0 && <p className="text-xs text-gray-300 italic mb-2">Sin perfiles asignados</p>}
+            <div className="flex flex-col gap-1 mb-2">
+              {assignments.map(a => (
+                <div key={a.id} className="flex items-center gap-2 px-2 py-1.5 bg-white rounded-lg border border-gray-100">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-700 truncate">{a.profile.name}</p>
+                    <p className="text-[10px] text-gray-400 truncate">{a.profile.position}</p>
+                  </div>
+                  <span className={`flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${ROLE_COLORS[a.roleType] ?? 'bg-gray-100 text-gray-600'}`}>
+                    {ROLE_LABELS[a.roleType] ?? a.roleType}
+                  </span>
+                  {canEdit && (
+                    <button onClick={() => deleteAssignment.mutate({ processId: process.id, taskId: task.id, assignmentId: a.id })}
+                      className="flex-shrink-0 p-0.5 text-gray-300 hover:text-red-400 transition-colors">
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {canEdit && (
+              <div className="flex gap-1.5">
+                <select value={addProfileId} onChange={e => setAddProfileId(e.target.value)}
+                  className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-700">
+                  <option value="">Seleccionar perfil…</option>
+                  {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <select value={addRoleType} onChange={e => setAddRoleType(e.target.value)}
+                  className="w-32 flex-shrink-0 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-700">
+                  {ROLE_TYPES.map(r => (
+                    <option key={r.value} value={r.value}
+                      disabled={alreadyAssigned.includes(`${addProfileId}:${r.value}`)}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={async () => {
+                    if (!addProfileId) return
+                    try {
+                      await addAssignment.mutateAsync({ processId: process.id, taskId: task.id, profileId: addProfileId, roleType: addRoleType })
+                      setAddProfileId('')
+                    } catch {}
+                  }}
+                  disabled={!addProfileId || addAssignment.isPending}
+                  className="flex-shrink-0 p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">
+                  {addAssignment.isPending ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── CalendarioTab ────────────────────────────────────────────────────────────
+
+function CalendarioTab({ process, canEdit }: { process: OnboardingProcess; canEdit: boolean }) {
+  const startDate = new Date(process.startDate)
+  startDate.setHours(0, 0, 0, 0)
+
+  const tasks = [...process.tasks].sort((a, b) => {
+    const pi = PERIOD_ORDER.indexOf(a.period) - PERIOD_ORDER.indexOf(b.period)
+    return pi !== 0 ? pi : a.sortOrder - b.sortOrder
+  })
+
+  const tasksByPeriod = PERIOD_ORDER.reduce<Record<OnboardingPeriod, OnboardingTask[]>>(
+    (acc, p) => { acc[p] = tasks.filter(t => t.period === p); return acc },
+    {} as any
+  )
+
+  const calendarTasks = tasks.filter(t => t.automationType === 'CALENDAR')
+
+  function periodRange(period: OnboardingPeriod): string {
+    const { start, end } = PERIOD_OFFSETS[period]
+    const from = new Date(startDate); from.setDate(from.getDate() + start)
+    const to   = new Date(startDate); to.setDate(to.getDate() + end)
+    const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short' }
+    return `${from.toLocaleDateString('es-CL', opts)} – ${to.toLocaleDateString('es-CL', opts)}`
+  }
+
+  function openAllGCal() {
+    calendarTasks.forEach((t, i) => {
+      const date = computeTaskDate(t, startDate)
+      const cfg = (t.automationConfig ?? {}) as Record<string, any>
+      const title  = ((cfg.title as string) ?? t.name).replace('{collaboratorName}', process.collaboratorName)
+      const durMin = (cfg.durationMinutes as number) ?? 60
+      const guests = process.collaboratorEmail ? [process.collaboratorEmail] : []
+      const url = makeGCalUrl(title, date, durMin, `Onboarding ${process.collaboratorName} — ${t.name}`, guests)
+      setTimeout(() => window.open(url, '_blank'), i * 300)
+    })
+  }
+
+  return (
+    <div>
+      {/* Banner Google Calendar */}
+      {calendarTasks.length > 0 ? (
+        <div className="mb-4 px-3 py-2.5 bg-purple-50 border border-purple-100 rounded-xl flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs text-purple-700">
+            <Calendar size={13} />
+            <span className="font-medium">{calendarTasks.length} hito{calendarTasks.length !== 1 ? 's' : ''}</span>
+            <span className="text-purple-400">de Google Calendar en este proceso</span>
+          </div>
+          <button onClick={openAllGCal}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-white border border-purple-200 rounded-lg text-purple-700 hover:bg-purple-50 transition-colors flex-shrink-0">
+            <ExternalLink size={11} /> Abrir todos
+          </button>
+        </div>
+      ) : (
+        <div className="mb-4 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-400 flex items-center gap-2">
+          <Calendar size={13} />
+          Este proceso no tiene hitos de Google Calendar
+        </div>
+      )}
+
+      {/* Timeline por período */}
+      {PERIOD_ORDER.map(period => {
+        const periodTasks = tasksByPeriod[period]
+        if (periodTasks.length === 0) return null
+        const meta   = PERIOD_META[period]
+        const done   = periodTasks.filter(t => t.completedAt).length
+        const hasCal = periodTasks.some(t => t.automationType === 'CALENDAR')
+
+        return (
+          <div key={period} className="mb-4">
+            <div className={`flex items-center justify-between px-3 py-2 rounded-t-xl border ${meta.bgClass}`}>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-bold ${meta.colorClass}`}>{meta.label}</span>
+                <span className="text-xs text-gray-400">{periodRange(period)}</span>
+                {hasCal && <Calendar size={11} className="text-purple-400" />}
+              </div>
+              <span className="text-xs text-gray-400">{done}/{periodTasks.length}</span>
+            </div>
+            <div className="border-x border-b border-gray-100 rounded-b-xl overflow-hidden divide-y divide-gray-100">
+              {periodTasks.map(task => (
+                <CalTaskCard key={task.id} task={task} process={process} canEdit={canEdit} />
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Modal: Editar proceso ────────────────────────────────────────────────────
 
 function EditProcessModal({ process, onClose }: { process: OnboardingProcess; onClose: () => void }) {
@@ -1043,7 +1318,7 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
   const { data: process, isLoading } = useOnboardingProcess(processId)
   const updateStatus  = useUpdateOnboardingStatus()
   const deleteProcess = useDeleteOnboarding()
-  const [activeTab,    setActiveTab]    = useState<'progreso' | 'hitos'>('progreso')
+  const [activeTab,    setActiveTab]    = useState<'progreso' | 'hitos' | 'calendario'>('progreso')
   const [addingPeriod, setAddingPeriod] = useState<OnboardingPeriod | null>(null)
   const [showEdit,     setShowEdit]     = useState(false)
 
@@ -1152,6 +1427,16 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
           >
             <Users size={13} /> Hitos
           </button>
+          <button
+            onClick={() => setActiveTab('calendario')}
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${
+              activeTab === 'calendario'
+                ? 'border-purple-600 text-purple-700'
+                : 'border-transparent text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <Calendar size={13} /> Calendario
+          </button>
         </div>
 
         {/* Tab content */}
@@ -1201,6 +1486,10 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
 
           {activeTab === 'hitos' && (
             <HitosTab process={process} canEdit={canEdit} />
+          )}
+
+          {activeTab === 'calendario' && (
+            <CalendarioTab process={process} canEdit={canEdit} />
           )}
         </div>
 

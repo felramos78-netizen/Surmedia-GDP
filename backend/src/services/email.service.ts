@@ -44,7 +44,7 @@ export interface TemplateVars {
   startDate:            string
   legalEntity:          string
   expectedEndDate:      string
-  [key: string]: string
+  [key: string]: string | number
 }
 
 function baseLayout(content: string, vars: TemplateVars) {
@@ -194,3 +194,21 @@ export function templateNotificacionInterna(vars: TemplateVars & { taskName: str
     `, vars),
   }
 }
+
+// ─── Helper: construir email desde template guardado en DB ────────────────────
+// bodyHtml es el contenido interno (sin wrapper); se le aplica el baseLayout en envío.
+
+export function buildFromDbTemplate(
+  template: { subject: string; bodyHtml: string },
+  vars: Record<string, string>
+): { subject: string; html: string } {
+  const interpolate = (str: string) =>
+    str.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`)
+
+  return {
+    subject: interpolate(template.subject),
+    html: baseLayout(interpolate(template.bodyHtml), vars as TemplateVars),
+  }
+}
+
+export { baseLayout }

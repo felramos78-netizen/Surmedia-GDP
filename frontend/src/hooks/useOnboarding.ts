@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { OnboardingProcess, OnboardingStats, OnboardingTemplateTask, ApiResponse } from '@/types'
+import type {
+  OnboardingProcess, OnboardingStats, OnboardingTemplateTask, ApiResponse,
+  EmailTemplate, EmailLog, OnboardingDbTemplateTask, OnboardingForm, FormResponse,
+} from '@/types'
 
 const TASK_TEMPLATE: OnboardingTemplateTask[] = [
   { id: 'pre_carta_oferta',          period: 'PRE_INGRESO', name: 'Carta oferta recibida y aceptada',                         tool: 'Correo, Google Calendar',                automationType: 'EMAIL',        automationConfig: { emailTo: 'collaborator', template: 'bienvenida' },                                                                                                                                                                sortOrder: 1, appliesWhen: null },
@@ -33,7 +36,14 @@ const TASK_TEMPLATE: OnboardingTemplateTask[] = [
 ]
 
 export function useOnboardingTemplate() {
-  return { data: TASK_TEMPLATE, isLoading: false, isError: false, refetch: () => {} }
+  return useQuery({
+    queryKey: ['onboarding', 'template'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<OnboardingTemplateTask[]>>('/onboarding/template')
+      return data.data
+    },
+    staleTime: 1000 * 60 * 10,
+  })
 }
 
 export function useOnboardingProcesses() {
@@ -220,5 +230,155 @@ export function useDeleteOnboarding() {
       queryClient.invalidateQueries({ queryKey: ['onboarding'] })
       queryClient.invalidateQueries({ queryKey: ['onboardingStats'] })
     },
+  })
+}
+
+// ─── Email Templates ──────────────────────────────────────────────────────────
+
+export function useEmailTemplates() {
+  return useQuery({
+    queryKey: ['emailTemplates'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<EmailTemplate[]>>('/onboarding/email-templates')
+      return data.data
+    },
+  })
+}
+
+export function useUpdateEmailTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ key, ...body }: { key: string; subject?: string; bodyHtml?: string; name?: string }) => {
+      const { data } = await api.patch<ApiResponse<EmailTemplate>>(`/onboarding/email-templates/${key}`, body)
+      return data.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['emailTemplates'] }),
+  })
+}
+
+export function usePreviewEmailTemplate() {
+  return useMutation({
+    mutationFn: async (key: string) => {
+      const { data } = await api.post<ApiResponse<{ subject: string; html: string }>>(`/onboarding/email-templates/${key}/preview`)
+      return data.data
+    },
+  })
+}
+
+export function useSendTestEmail() {
+  return useMutation({
+    mutationFn: async ({ key, to }: { key: string; to: string }) => {
+      const { data } = await api.post(`/onboarding/email-templates/${key}/send-test`, { to })
+      return data
+    },
+  })
+}
+
+// ─── Email Logs ───────────────────────────────────────────────────────────────
+
+export function useEmailLogs(processId?: string) {
+  return useQuery({
+    queryKey: ['emailLogs', processId],
+    queryFn: async () => {
+      const params = processId ? `?processId=${processId}` : ''
+      const { data } = await api.get<ApiResponse<EmailLog[]>>(`/onboarding/email-logs${params}`)
+      return data.data
+    },
+  })
+}
+
+// ─── Template Tasks (DB) ─────────────────────────────────────────────────────
+
+export function useTemplateTasks() {
+  return useQuery({
+    queryKey: ['templateTasks'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<OnboardingDbTemplateTask[]>>('/onboarding/template-tasks')
+      return data.data
+    },
+    staleTime: 1000 * 60 * 10,
+  })
+}
+
+export function useUpdateTemplateTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ key, ...body }: { key: string; name?: string; isActive?: boolean; appliesWhen?: string | null }) => {
+      const { data } = await api.patch<ApiResponse<OnboardingDbTemplateTask>>(`/onboarding/template-tasks/${key}`, body)
+      return data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['templateTasks'] })
+      queryClient.invalidateQueries({ queryKey: ['onboarding', 'template'] })
+    },
+  })
+}
+
+// ─── Forms ────────────────────────────────────────────────────────────────────
+
+export function useProcessForms(processId: string | null) {
+  return useQuery({
+    queryKey: ['forms', processId],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<OnboardingForm[]>>(`/onboarding/${processId}/forms`)
+      return data.data
+    },
+    enabled: !!processId,
+  })
+}
+
+export function useAllForms() {
+  return useQuery({
+    queryKey: ['forms', 'all'],
+    queryFn: async () => {
+      // Fetch all processes, then get forms for each (or batch query)
+      // For now, no single "all forms" endpoint — returns empty, panels use processId
+      return [] as OnboardingForm[]
+    },
+  })
+}
+
+export function useCreateForm() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ processId, title, fields }: { processId: string; title: string; fields?: unknown[] }) => {
+      const { data } = await api.post<ApiResponse<OnboardingForm>>(`/onboarding/${processId}/forms`, { title, fields })
+      return data.data
+    },
+    onSuccess: (_data, vars) => queryClient.invalidateQueries({ queryKey: ['forms', vars.processId] }),
+  })
+}
+
+export function useUpdateForm() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ formId, processId, ...body }: { formId: string; processId?: string; title?: string; fields?: unknown[]; isActive?: boolean }) => {
+      const { data } = await api.patch<ApiResponse<OnboardingForm>>(`/onboarding/forms/${formId}`, body)
+      return data.data
+    },
+    onSuccess: (_data, vars) => {
+      if (vars.processId) queryClient.invalidateQueries({ queryKey: ['forms', vars.processId] })
+    },
+  })
+}
+
+export function useDeleteForm() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ formId, processId }: { formId: string; processId: string }) => {
+      await api.delete(`/onboarding/forms/${formId}`)
+    },
+    onSuccess: (_data, vars) => queryClient.invalidateQueries({ queryKey: ['forms', vars.processId] }),
+  })
+}
+
+export function useFormResponses(formId: string | null) {
+  return useQuery({
+    queryKey: ['formResponses', formId],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<FormResponse[]>>(`/onboarding/forms/${formId}/responses`)
+      return data.data
+    },
+    enabled: !!formId,
   })
 }

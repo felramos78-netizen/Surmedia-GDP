@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Building2,
-  Briefcase, CreditCard, User, Clock, ChevronDown, Pencil, X, Check,
+  Briefcase, CreditCard, User, Clock, ChevronDown, Pencil, X, Check, Trash2,
 } from 'lucide-react'
-import { useEmployee, useEmployeePayroll, useUpdateEmployee, type EmployeePatch } from '@/hooks/useDotacion'
+import { useEmployee, useEmployeePayroll, useUpdateEmployee, useDeleteEmployee, type EmployeePatch } from '@/hooks/useDotacion'
 import { formatDate, formatCLP } from '@/lib/utils'
 import type { Contract, LegalEntity, PayrollItem, Leave, Employee, VacationBalance } from '@/types'
 
@@ -357,6 +357,17 @@ function PayrollMonthCard({ entry }: {
       </button>
       {open && (
         <div className="border-t border-gray-100 px-5 py-4 space-y-3 bg-gray-50/60">
+          {/* Resumen sueldo */}
+          <div className="grid grid-cols-2 gap-3 pb-2">
+            <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+              <p className="text-[11px] text-gray-400">Sueldo líquido</p>
+              <p className="text-sm font-bold text-gray-900">{formatCLP(entry.liquidSalary)}</p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+              <p className="text-[11px] text-gray-400">Sueldo bruto</p>
+              <p className="text-sm font-bold text-gray-700">{formatCLP(entry.grossSalary)}</p>
+            </div>
+          </div>
           {bonusItems.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-blue-600 mb-2">Bonos — {formatCLP(totalBonuses)}</p>
@@ -403,9 +414,11 @@ export default function ColaboradorDetallePage() {
   const [editing, setEditing] = useState(false)
   const [form,    setForm]    = useState<FormData>({})
 
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const { data: emp, isLoading } = useEmployee(id ?? null)
   const { data: payroll = [] }   = useEmployeePayroll(id ?? null)
   const update = useUpdateEmployee()
+  const remove = useDeleteEmployee()
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
@@ -497,13 +510,40 @@ export default function ColaboradorDetallePage() {
                 </span>
               ))}
               {!editing ? (
-                <button
-                  onClick={startEdit}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
-                >
-                  <Pencil size={14} />
-                  Editar
-                </button>
+                <>
+                  {confirmDelete ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-red-600 font-medium">¿Eliminar colaborador?</span>
+                      <button
+                        onClick={async () => { await remove.mutateAsync(id!); navigate('/colaboradores') }}
+                        disabled={remove.isPending}
+                        className="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                      >
+                        {remove.isPending ? 'Eliminando…' : 'Sí, eliminar'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(false)}
+                        className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDelete(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-red-200 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                  <button
+                    onClick={startEdit}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
+                  >
+                    <Pencil size={14} />
+                    Editar
+                  </button>
+                </>
               ) : (
                 <>
                   <button
@@ -574,32 +614,82 @@ export default function ColaboradorDetallePage() {
         )}
 
         {tab === 'Remuneraciones' && (() => {
-          // Centros con sueldo ponderado: agrupar por razón social y dividir el último sueldo líquido
-          const centersByEntity = new Map<string, typeof emp.workCenters>()
-          for (const wc of (emp.workCenters ?? [])) {
-            if (!centersByEntity.has(wc.legalEntity)) centersByEntity.set(wc.legalEntity, [])
-            centersByEntity.get(wc.legalEntity)!.push(wc)
+          // Centros activos en un período dado
+          function centersForPeriod(year: number, month: number) {
+            return (emp.workCenters ?? []).filter(wc => {
+              const afterStart = wc.startYear < year || (wc.startYear === year && wc.startMonth <= month)
+              const beforeEnd  = wc.endYear == null || wc.endYear > year || (wc.endYear === year && (wc.endMonth ?? 12) >= month)
+              return afterStart && beforeEnd
+            })
           }
+
+          // Último mes con liquidación por entidad
           const latestByEntity = new Map<string, typeof payroll[0]>()
           for (const entry of payroll) {
             const ex = latestByEntity.get(entry.legalEntity)
             if (!ex || entry.year > ex.year || (entry.year === ex.year && entry.month > ex.month))
               latestByEntity.set(entry.legalEntity, entry)
           }
-          const hasCentros = (emp.workCenters?.length ?? 0) > 0
+
+          // Centros vigentes usando el último mes de liquidación de cada entidad
+          const centersByEntity = new Map<string, typeof emp.workCenters>()
+          for (const [entity, latest] of latestByEntity.entries()) {
+            const active = centersForPeriod(latest.year, latest.month)
+              .filter(wc => wc.legalEntity === entity)
+            if (active.length > 0) centersByEntity.set(entity, active)
+          }
+          // Entidades sin liquidación pero con centros vigentes
+          for (const wc of (emp.workCenters ?? [])) {
+            if (!centersByEntity.has(wc.legalEntity) && wc.endYear == null) {
+              if (!centersByEntity.has(wc.legalEntity)) centersByEntity.set(wc.legalEntity, [])
+              if (!centersByEntity.get(wc.legalEntity)!.find(x => x.id === wc.id))
+                centersByEntity.get(wc.legalEntity)!.push(wc)
+            }
+          }
+          const hasCentros = centersByEntity.size > 0
+
+          // Totales año en curso y último mes
+          const currentYear  = new Date().getFullYear()
+          const ytdTotal     = payroll.filter(e => e.year === currentYear).reduce((s, e) => s + e.liquidSalary, 0)
+          const latestMonth  = payroll.reduce<typeof payroll[0] | null>((best, e) =>
+            !best || e.year > best.year || (e.year === best.year && e.month > best.month) ? e : best, null)
+          const monthTotal   = latestMonth
+            ? payroll.filter(e => e.year === latestMonth.year && e.month === latestMonth.month)
+                     .reduce((s, e) => s + e.liquidSalary, 0)
+            : 0
 
           return (
             <div className="space-y-6">
+              {/* Totales resumen */}
+              {payroll.length > 0 && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white border border-gray-100 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 mb-1">
+                      Total {latestMonth ? `${MONTH_NAMES[latestMonth.month - 1]} ${latestMonth.year}` : 'último mes'}
+                    </p>
+                    <p className="text-2xl font-bold text-gray-900">{formatCLP(monthTotal)}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">líquido total</p>
+                  </div>
+                  <div className="bg-white border border-gray-100 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 mb-1">Acumulado {currentYear}</p>
+                    <p className="text-2xl font-bold text-gray-900">{formatCLP(ytdTotal)}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {payroll.filter(e => e.year === currentYear).length} mes{payroll.filter(e => e.year === currentYear).length !== 1 ? 'es' : ''}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {hasCentros && (
                 <div>
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-                    Centros — costo ponderado
+                    Centros — sueldo ponderado
                   </p>
                   <div className="grid grid-cols-2 gap-3">
                     {[...centersByEntity.entries()].flatMap(([entity, centers]) => {
                       const latest  = latestByEntity.get(entity)
                       const share   = latest ? Math.round(latest.liquidSalary / centers.length) : null
-                      const month   = latest ? `${MONTH_NAMES[latest.month - 1]} ${latest.year}` : null
+                      const monthLbl = latest ? `${MONTH_NAMES[latest.month - 1]} ${latest.year}` : null
                       return centers.map(wc => (
                         <div key={wc.id} className="bg-white border border-gray-100 rounded-xl p-4">
                           <div className="flex items-start justify-between gap-2 mb-3">
@@ -607,6 +697,10 @@ export default function ColaboradorDetallePage() {
                               <p className="font-medium text-gray-800 text-sm">{wc.workCenter.name}</p>
                               <p className="text-xs text-gray-400 mt-0.5">
                                 {wc.workCenter.costType === 'DIRECTO' ? 'Directo' : 'Indirecto'}
+                                {wc.endYear == null
+                                  ? ` · desde ${MONTH_NAMES[wc.startMonth - 1]} ${wc.startYear}`
+                                  : ` · ${MONTH_NAMES[wc.startMonth - 1]} ${wc.startYear} → ${MONTH_NAMES[(wc.endMonth ?? 12) - 1]} ${wc.endYear}`
+                                }
                               </p>
                             </div>
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${ENTITY_COLOR[wc.legalEntity]}`}>
@@ -617,7 +711,7 @@ export default function ColaboradorDetallePage() {
                             <>
                               <p className="text-xl font-bold text-gray-900">{formatCLP(share)}</p>
                               <p className="text-xs text-gray-400 mt-0.5">
-                                {month}
+                                {monthLbl}
                                 {centers.length > 1 && ` · 1/${centers.length} del líquido`}
                               </p>
                             </>

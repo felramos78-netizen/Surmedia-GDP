@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { runTaskAutomation } from '../services/automation.service'
 import { getFormResponses } from '../services/sheets.service'
+import { sendEmail, buildFromDbTemplate } from '../services/email.service'
 
 // ─── Plantilla oficial de hitos (workflow Surmedia) ──────────────────────────
 // Cada hito tiene: id estable, período, nombre, herramienta, tipo de automatización,
@@ -295,9 +296,203 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
 
   const prisma = fastify.prisma as any
 
-  // GET /template — devuelve los hitos disponibles para el checklist de creación
+  // ─── TEMPLATE TASKS (DB-backed, editable) ──────────────────────────────────
+
+  // GET /template — backward-compat: devuelve desde DB (auto-seed si vacío), fallback estático
   fastify.get('/template', async (_req, reply) => {
-    return reply.send({ data: TASK_TEMPLATE })
+    try {
+      let tasks = await prisma.onboardingTemplateTask.findMany({
+        where: { isActive: true },
+        orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
+      })
+      if (tasks.length === 0) {
+        await prisma.onboardingTemplateTask.createMany({
+          data: TASK_TEMPLATE.map(t => ({
+            key: t.id, period: t.period, name: t.name, tool: t.tool ?? null,
+            automationType: t.automationType, automationConfig: t.automationConfig ?? null,
+            appliesWhen: t.appliesWhen ?? null, sortOrder: t.sortOrder,
+          })),
+          skipDuplicates: true,
+        })
+        tasks = await prisma.onboardingTemplateTask.findMany({
+          where: { isActive: true },
+          orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
+        })
+      }
+      return reply.send({ data: tasks.map((t: any) => ({ ...t, id: t.key })) })
+    } catch {
+      // Tabla aún no creada — devuelve la plantilla estática
+      return reply.send({ data: TASK_TEMPLATE.map(t => ({ ...t, key: t.id, isActive: true })) })
+    }
+  })
+
+  // GET /template-tasks — gestión completa (incluye inactivos)
+  fastify.get('/template-tasks', async (_req, reply) => {
+    try {
+      let tasks = await prisma.onboardingTemplateTask.findMany({
+        orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
+      })
+      if (tasks.length === 0) {
+        await prisma.onboardingTemplateTask.createMany({
+          data: TASK_TEMPLATE.map(t => ({
+            key: t.id, period: t.period, name: t.name, tool: t.tool ?? null,
+            automationType: t.automationType, automationConfig: t.automationConfig ?? null,
+            appliesWhen: t.appliesWhen ?? null, sortOrder: t.sortOrder,
+          })),
+          skipDuplicates: true,
+        })
+        tasks = await prisma.onboardingTemplateTask.findMany({
+          orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
+        })
+      }
+      return reply.send({ data: tasks })
+    } catch {
+      return reply.send({ data: TASK_TEMPLATE.map(t => ({ ...t, key: t.id, isActive: true })) })
+    }
+  })
+
+  // PATCH /template-tasks/:key — editar hito de plantilla
+  fastify.patch<{
+    Params: { key: string }
+    Body: { name?: string; isActive?: boolean; appliesWhen?: string | null; period?: string }
+  }>('/template-tasks/:key', async (req, reply) => {
+    const { name, isActive, appliesWhen, period } = req.body
+    const data: Record<string, any> = {}
+    if (name       !== undefined) data.name       = name.trim()
+    if (isActive   !== undefined) data.isActive   = isActive
+    if (appliesWhen !== undefined) data.appliesWhen = appliesWhen
+    if (period     !== undefined) data.period     = period
+    const task = await prisma.onboardingTemplateTask.update({ where: { key: req.params.key }, data })
+    return reply.send({ data: task })
+  })
+
+  // ─── EMAIL TEMPLATES ─────────────────────────────────────────────────────────
+
+  // GET /email-templates — listar (auto-seed si vacío)
+  fastify.get('/email-templates', async (_req, reply) => {
+    let templates = await prisma.emailTemplate.findMany({ orderBy: { key: 'asc' } })
+    if (templates.length === 0) {
+      // Auto-seed defaults
+      const defaults = [
+        { key: 'bienvenida',          name: 'Bienvenida al colaborador',    subject: '¡Bienvenido/a a Surmedia, {collaboratorName}!',             bodyHtml: '<p>Hola <strong>{collaboratorName}</strong>,</p><p>Estamos muy emocionados de que te sumes a nuestro equipo. Tu fecha de ingreso es el <strong>{startDate}</strong>.</p><div class="info-card"><div class="info-row"><span class="info-label">Cargo:</span><span class="info-value">{collaboratorPosition}</span></div><div class="info-row"><span class="info-label">Empresa:</span><span class="info-value">{legalEntity}</span></div><div class="info-row"><span class="info-label">Ingreso:</span><span class="info-value">{startDate}</span></div></div><p>¡Nos vemos pronto!</p><p><strong>Equipo de Personas · Surmedia</strong></p>', variables: [] },
+        { key: 'coordinacion_interna',name: 'Coordinación interna',         subject: 'GDP: Nuevo ingreso — {collaboratorName} ({startDate})',      bodyHtml: '<h2>Nuevo colaborador ingresando</h2><div class="info-card"><div class="info-row"><span class="info-label">Nombre:</span><span class="info-value">{collaboratorName}</span></div><div class="info-row"><span class="info-label">Cargo:</span><span class="info-value">{collaboratorPosition}</span></div><div class="info-row"><span class="info-label">Email:</span><span class="info-value">{collaboratorEmail}</span></div><div class="info-row"><span class="info-label">Empresa:</span><span class="info-value">{legalEntity}</span></div><div class="info-row"><span class="info-label">Ingreso:</span><span class="info-value">{startDate}</span></div></div><p>Por favor coordina los preparativos de recepción.</p>', variables: [] },
+        { key: 'seguro_complementario',name: 'Seguro complementario',       subject: 'Surmedia: Completa tu formulario de seguro complementario',  bodyHtml: '<p>Hola <strong>{collaboratorName}</strong>,</p><p>Como parte de los beneficios de Surmedia, tienes acceso a un <strong>seguro complementario de salud</strong>. Nuestro equipo de Personas te enviará el formulario directamente. Por favor complétalo dentro de los primeros 7 días de ingreso.</p><p>Ante cualquier duda, escríbenos a <a href="mailto:rrhh@surmedia.cl">rrhh@surmedia.cl</a>.</p>', variables: [] },
+        { key: 'mentor_asignado',     name: 'Mentor asignado',              subject: 'Surmedia: Tu mentor durante el período de inducción',        bodyHtml: '<p>Hola <strong>{collaboratorName}</strong>,</p><p>Hemos asignado a un mentor para acompañarte durante tus primeros meses en Surmedia.</p><p>No dudes en contactar a tu mentor cuando lo necesites. ¡Estamos todos para apoyarte!</p>', variables: [] },
+        { key: 'checkpoint',          name: 'Checkpoint de seguimiento',    subject: 'GDP: Checkpoint día {dayNumber} — {collaboratorName}',       bodyHtml: '<h2>Checkpoint de onboarding — Día {dayNumber}</h2><p>El colaborador <strong>{collaboratorName}</strong> cumple <strong>{dayNumber} días</strong> en Surmedia. Es momento de realizar el checkpoint de seguimiento.</p><div class="info-card"><div class="info-row"><span class="info-label">Cargo:</span><span class="info-value">{collaboratorPosition}</span></div><div class="info-row"><span class="info-label">Empresa:</span><span class="info-value">{legalEntity}</span></div><div class="info-row"><span class="info-label">Ingreso:</span><span class="info-value">{startDate}</span></div></div><p>Por favor agenda una reunión de feedback con el colaborador y su jefatura directa.</p>', variables: [] },
+        { key: 'notificacion_interna',name: 'Notificación interna genérica',subject: 'GDP: Acción requerida — {taskName} · {collaboratorName}',    bodyHtml: '<h2>Acción requerida en proceso de onboarding</h2><div class="info-card"><div class="info-row"><span class="info-label">Colaborador:</span><span class="info-value">{collaboratorName}</span></div><div class="info-row"><span class="info-label">Hito:</span><span class="info-value">{taskName}</span></div></div><p>{instruction}</p>', variables: [] },
+      ]
+      await prisma.emailTemplate.createMany({ data: defaults, skipDuplicates: true })
+      templates = await prisma.emailTemplate.findMany({ orderBy: { key: 'asc' } })
+    }
+    return reply.send({ data: templates })
+  })
+
+  // PATCH /email-templates/:key — actualizar subject y/o bodyHtml
+  fastify.patch<{
+    Params: { key: string }
+    Body: { subject?: string; bodyHtml?: string; name?: string }
+  }>('/email-templates/:key', async (req, reply) => {
+    const data: Record<string, any> = {}
+    if (req.body.subject  !== undefined) data.subject  = req.body.subject
+    if (req.body.bodyHtml !== undefined) data.bodyHtml = req.body.bodyHtml
+    if (req.body.name     !== undefined) data.name     = req.body.name
+    const tpl = await prisma.emailTemplate.update({ where: { key: req.params.key }, data })
+    return reply.send({ data: tpl })
+  })
+
+  // POST /email-templates/:key/preview — renderizar con datos de ejemplo
+  fastify.post<{ Params: { key: string } }>('/email-templates/:key/preview', async (req, reply) => {
+    const tpl = await prisma.emailTemplate.findUnique({ where: { key: req.params.key } })
+    if (!tpl) return reply.status(404).send({ message: 'Template no encontrado' })
+    const sampleVars: Record<string, string> = {
+      collaboratorName:     'Juan Pérez Ejemplo',
+      collaboratorPosition: 'Diseñador Gráfico',
+      collaboratorEmail:    'juan.perez@surmedia.cl',
+      legalEntity:          'Comunicaciones Surmedia Spa',
+      startDate:            '15 de mayo de 2026',
+      expectedEndDate:      '13 de agosto de 2026',
+      dayNumber:            '30',
+      taskName:             'Foto individual corporativa',
+      instruction:          'Por favor realiza esta acción antes del viernes.',
+    }
+    const { subject, html } = buildFromDbTemplate(tpl, sampleVars)
+    return reply.send({ data: { subject, html } })
+  })
+
+  // POST /email-templates/:key/send-test — enviar email de prueba
+  fastify.post<{
+    Params: { key: string }
+    Body: { to: string }
+  }>('/email-templates/:key/send-test', async (req, reply) => {
+    const tpl = await prisma.emailTemplate.findUnique({ where: { key: req.params.key } })
+    if (!tpl) return reply.status(404).send({ message: 'Template no encontrado' })
+    const sampleVars: Record<string, string> = {
+      collaboratorName: 'Juan Pérez Ejemplo', collaboratorPosition: 'Diseñador Gráfico',
+      collaboratorEmail: req.body.to, legalEntity: 'Comunicaciones Surmedia Spa',
+      startDate: '15 de mayo de 2026', expectedEndDate: '13 de agosto de 2026',
+      dayNumber: '30', taskName: 'Foto individual corporativa', instruction: 'Acción de prueba.',
+    }
+    const { subject, html } = buildFromDbTemplate(tpl, sampleVars)
+    try {
+      await sendEmail({ to: req.body.to, subject: `[PRUEBA] ${subject}`, html })
+      return reply.send({ data: { sent: true, to: req.body.to } })
+    } catch (err: any) {
+      return reply.status(500).send({ message: `Error al enviar: ${err.message}` })
+    }
+  })
+
+  // ─── EMAIL LOGS ───────────────────────────────────────────────────────────────
+
+  // GET /email-logs — historial de envíos
+  fastify.get<{ Querystring: { processId?: string; limit?: string } }>('/email-logs', async (req, reply) => {
+    const where: Record<string, any> = {}
+    if (req.query.processId) where.processId = req.query.processId
+    const logs = await prisma.emailLog.findMany({
+      where,
+      orderBy: { sentAt: 'desc' },
+      take: Number(req.query.limit ?? 100),
+    })
+    return reply.send({ data: logs })
+  })
+
+  // ─── FORMS ───────────────────────────────────────────────────────────────────
+
+  // GET /forms/:formId — detalle de formulario (auth)
+  fastify.get<{ Params: { formId: string } }>('/forms/:formId', async (req, reply) => {
+    const form = await prisma.onboardingForm.findUnique({
+      where: { id: req.params.formId },
+      include: { process: { select: { collaboratorName: true, id: true } } },
+    })
+    if (!form) return reply.status(404).send({ message: 'Formulario no encontrado' })
+    return reply.send({ data: form })
+  })
+
+  // PATCH /forms/:formId — actualizar formulario
+  fastify.patch<{
+    Params: { formId: string }
+    Body: { title?: string; fields?: unknown[]; isActive?: boolean }
+  }>('/forms/:formId', async (req, reply) => {
+    const data: Record<string, any> = {}
+    if (req.body.title    !== undefined) data.title    = req.body.title.trim()
+    if (req.body.fields   !== undefined) data.fields   = req.body.fields
+    if (req.body.isActive !== undefined) data.isActive = req.body.isActive
+    const form = await prisma.onboardingForm.update({ where: { id: req.params.formId }, data })
+    return reply.send({ data: form })
+  })
+
+  // DELETE /forms/:formId — eliminar formulario
+  fastify.delete<{ Params: { formId: string } }>('/forms/:formId', async (req, reply) => {
+    await prisma.onboardingForm.delete({ where: { id: req.params.formId } })
+    return reply.status(204).send()
+  })
+
+  // GET /forms/:formId/responses — respuestas del formulario
+  fastify.get<{ Params: { formId: string } }>('/forms/:formId/responses', async (req, reply) => {
+    const responses = await prisma.formResponse.findMany({
+      where: { formId: req.params.formId },
+      orderBy: { submittedAt: 'desc' },
+    })
+    return reply.send({ data: responses })
   })
 
   // GET / — lista todos los procesos
@@ -509,6 +704,29 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.status(204).send()
   })
 
+  // GET /:id/forms — listar formularios del proceso
+  fastify.get<{ Params: { id: string } }>('/:id/forms', async (req, reply) => {
+    const forms = await prisma.onboardingForm.findMany({
+      where: { processId: req.params.id },
+      include: { _count: { select: { responses: true } } },
+      orderBy: { createdAt: 'desc' },
+    })
+    return reply.send({ data: forms })
+  })
+
+  // POST /:id/forms — crear formulario para un proceso
+  fastify.post<{
+    Params: { id: string }
+    Body: { title: string; fields?: unknown[] }
+  }>('/:id/forms', async (req, reply) => {
+    const process = await prisma.onboardingProcess.findUnique({ where: { id: req.params.id } })
+    if (!process) return reply.status(404).send({ message: 'Proceso no encontrado' })
+    const form = await prisma.onboardingForm.create({
+      data: { processId: req.params.id, title: req.body.title.trim(), fields: req.body.fields ?? [] },
+    })
+    return reply.status(201).send({ data: form })
+  })
+
   // POST /:id/tasks/:taskId/automate — ejecutar automatización de un hito
   fastify.post<{ Params: { id: string; taskId: string } }>('/:id/tasks/:taskId/automate', async (req, reply) => {
     const process = await prisma.onboardingProcess.findFirst({
@@ -521,22 +739,69 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     })
     if (!task) return reply.status(404).send({ message: 'Hito no encontrado' })
 
-    // Actualizar estado a RUNNING
-    await prisma.onboardingTask.update({
-      where: { id: task.id },
-      data:  { automationStatus: 'RUNNING' },
-    })
+    await prisma.onboardingTask.update({ where: { id: task.id }, data: { automationStatus: 'RUNNING' } })
 
-    const result = await runTaskAutomation(task, process)
+    // Intentar usar template DB para emails
+    let result: Awaited<ReturnType<typeof runTaskAutomation>>
+    if (task.automationType === 'EMAIL') {
+      const templateKey = (task.automationConfig as any)?.template as string | undefined
+      const dbTemplate = templateKey
+        ? await prisma.emailTemplate.findUnique({ where: { key: templateKey } }).catch(() => null)
+        : null
 
-    // Guardar resultado
+      if (dbTemplate) {
+        const vars: Record<string, string> = {
+          collaboratorName:     process.collaboratorName,
+          collaboratorPosition: process.collaboratorPosition ?? '—',
+          collaboratorEmail:    process.collaboratorEmail ?? '—',
+          legalEntity:          process.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : process.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Surmedia Consultoría Spa' : '—',
+          startDate:            new Date(process.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
+          expectedEndDate:      '',
+          taskName:             task.name,
+          instruction:          (task.automationConfig as any)?.instruction ?? '',
+        }
+        const emailTo = (task.automationConfig as any)?.emailTo as string
+        const rrhhFallback = globalThis.process?.env?.SMTP_USER ?? 'rrhh@surmedia.cl'
+        const recipient = emailTo === 'collaborator' ? process.collaboratorEmail : rrhhFallback
+        if (!recipient) {
+          result = { status: 'SKIPPED', message: 'El colaborador no tiene email registrado', detail: {} }
+        } else {
+          try {
+            const { subject, html } = buildFromDbTemplate(dbTemplate, vars)
+            const sent = await sendEmail({ to: recipient, subject, html })
+            result = { status: 'SUCCESS', message: `Correo enviado a ${recipient}`, detail: { to: recipient, subject, messageId: sent.messageId } }
+          } catch (err: any) {
+            result = { status: 'FAILED', message: err.message, detail: { error: String(err) } }
+          }
+        }
+      } else {
+        result = await runTaskAutomation(task, process)
+      }
+    } else {
+      result = await runTaskAutomation(task, process)
+    }
+
+    // Log de email
+    if (task.automationType === 'EMAIL') {
+      prisma.emailLog.create({
+        data: {
+          processId:   process.id,
+          taskId:      task.id,
+          toEmail:     (result.detail as any)?.to ?? '?',
+          subject:     (result.detail as any)?.subject ?? task.name,
+          status:      result.status === 'SUCCESS' ? 'SENT' : result.status === 'SKIPPED' ? 'SKIPPED' : 'FAILED',
+          error:       result.status === 'FAILED' ? result.message : null,
+          templateKey: (task.automationConfig as any)?.template ?? null,
+        },
+      }).catch(() => {})
+    }
+
     const updatedTask = await prisma.onboardingTask.update({
       where: { id: task.id },
-      data:  {
+      data: {
         automationStatus: result.status,
         automationResult: result,
         automatedAt:      new Date(),
-        // Si la automatización fue exitosa y es del tipo adecuado, marcar como completado
         ...(result.status === 'SUCCESS' && task.automationType === 'EMAIL'
           ? { completedAt: new Date(), completedBy: 'automation' }
           : {}),

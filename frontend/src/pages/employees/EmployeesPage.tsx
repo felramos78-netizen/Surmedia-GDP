@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Search, RefreshCw, ChevronDown, Users, AlertTriangle, X, ChevronsUpDown, ChevronUp, LayoutList, CalendarDays, Plus } from 'lucide-react'
+import { Search, RefreshCw, ChevronDown, Users, AlertTriangle, X, ChevronsUpDown, ChevronUp, LayoutList, CalendarDays, Download } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { useEmployees, useEmployeeStats, useMovements, useUpdateEmployee, type DotacionFilters } from '@/hooks/useDotacion'
 import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
 import { formatDate } from '@/lib/utils'
@@ -94,6 +95,43 @@ function FilterSelect({ value, onChange, options, placeholder }: {
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
+        className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+      >
+        <option value="">{placeholder}</option>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+    </div>
+  )
+}
+
+// ─── PeriodFilter — selector combinado Mes/Año ───────────────────────────────
+
+function PeriodFilter({ year, month, onYearChange, onMonthChange, placeholder = 'Período activo' }: {
+  year: string; month: string
+  onYearChange: (v: string) => void
+  onMonthChange: (v: string) => void
+  placeholder?: string
+}) {
+  const options: { value: string; label: string }[] = []
+  const now = new Date()
+  for (let i = 0; i < 36; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const y = String(d.getFullYear())
+    const m = String(d.getMonth() + 1)
+    const label = `${MONTHS.find(mo => mo.value === m)?.label} ${y}`
+    options.push({ value: `${y}-${m}`, label })
+  }
+  const value = year && month ? `${year}-${month}` : ''
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={e => {
+          const [y, m] = e.target.value ? e.target.value.split('-') : ['', '']
+          onYearChange(y ?? '')
+          onMonthChange(m ?? '')
+        }}
         className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
       >
         <option value="">{placeholder}</option>
@@ -425,6 +463,48 @@ function EmployeeRow({ emp, onClick, preferLegalEntity }: { emp: Employee; onCli
   )
 }
 
+// ─── Exportar a Excel ────────────────────────────────────────────────────────
+
+function exportToExcel(employees: Employee[], year: string, month: string) {
+  const MONTH_NAMES_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+  const CONTRACT_MAP: Record<string, string> = { INDEFINIDO: 'Indefinido', PLAZO_FIJO: 'Plazo fijo', HONORARIOS: 'Honorarios', PRACTICA: 'Práctica' }
+  const ENTITY_MAP: Record<string, string> = { COMUNICACIONES_SURMEDIA: 'Comunicaciones', SURMEDIA_CONSULTORIA: 'Consultoría' }
+
+  const rows = employees.map(emp => {
+    const pc = primaryContract(emp.contracts)
+    return {
+      'RUT':              emp.rut,
+      'Apellidos':        emp.lastName,
+      'Nombres':          emp.firstName,
+      'Estado':           emp.status === 'ACTIVE' ? 'Activo' : emp.status === 'INACTIVE' ? 'Inactivo' : emp.status === 'DUPLICATE' ? 'Duplicado' : emp.status,
+      'Vínculo':          emp.vinculo ?? '',
+      'Cargo':            emp.jobTitle ?? '',
+      'Familia de Cargo': emp.jobFamily ?? '',
+      'Razón Social':     pc?.legalEntity ? (ENTITY_MAP[pc.legalEntity] ?? pc.legalEntity) : '',
+      'Tipo Contrato':    pc?.type ? (CONTRACT_MAP[pc.type] ?? pc.type) : '',
+      'Fecha Ingreso':    emp.startDate ? formatDate(emp.startDate) : '',
+      'Fecha Término':    emp.endDate ? formatDate(emp.endDate) : '',
+      'Ciudad':           emp.city ?? '',
+      'Centro de Costos': emp.costCenter ?? '',
+      'Centros GDP':      emp.workCenters?.map(w => w.workCenter.name).join(', ') ?? '',
+      'Supervisor':       emp.supervisorName ?? '',
+      'Jornada':          emp.workSchedule ?? '',
+      'AFP':              emp.afp ?? '',
+      'Isapre/Fonasa':    emp.isapre ?? '',
+      'Exclusividad':     emp.exclusive == null ? '' : emp.exclusive ? 'Sí' : 'No',
+      'Correo':           emp.email,
+    }
+  })
+
+  const ws = XLSX.utils.json_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Dotación')
+
+  const monthLabel = month ? MONTH_NAMES_ES[parseInt(month) - 1] : ''
+  const fileName = `Dotacion_${monthLabel}_${year}.xlsx`
+  XLSX.writeFile(wb, fileName)
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 // Años disponibles para filtro (últimos 10 años)
@@ -524,12 +604,11 @@ function LeaveTab({ type, year, month, onYearChange, onMonthChange }: {
     <div className="space-y-4">
       {/* Controls */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <FilterSelect value={month} onChange={onMonthChange} placeholder="Mes"
-            options={MONTHS.map(m => ({ value: m.value, label: m.label }))} />
-          <FilterSelect value={year} onChange={onYearChange} placeholder="Año"
-            options={YEARS.map(y => ({ value: String(y), label: String(y) }))} />
-        </div>
+        <PeriodFilter
+          year={year} month={month}
+          onYearChange={onYearChange} onMonthChange={onMonthChange}
+          placeholder="Mes y año"
+        />
         <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white">
           <button onClick={() => setViewMode('tabla')}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === 'tabla' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
@@ -615,23 +694,23 @@ function LeaveTab({ type, year, month, onYearChange, onMonthChange }: {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function EmployeesPage() {
+  const now = new Date()
   const [tab, setTab]           = useState<'personas' | 'vacaciones' | 'licencias'>('personas')
   const [filters, setFilters]   = useState<DotacionFilters>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [sortKey, setSortKey]   = useState<SortKey>('firstName')
   const [sortDir, setSortDir]   = useState<SortDir>('asc')
-  const [movYear,  setMovYear]  = useState(String(new Date().getFullYear()))
-  const [movMonth, setMovMonth] = useState(String(new Date().getMonth() + 1))
-  const [leaveYear,  setLeaveYear]  = useState(String(new Date().getFullYear()))
-  const [leaveMonth, setLeaveMonth] = useState(String(new Date().getMonth() + 1))
+  // Período global: controla tabla, movimientos y tabs de ausencias
+  const [periodYear,  setPeriodYear]  = useState(String(now.getFullYear()))
+  const [periodMonth, setPeriodMonth] = useState(String(now.getMonth() + 1))
 
   const tableWrapperRef    = useRef<HTMLDivElement>(null)
   const topScrollRef       = useRef<HTMLDivElement>(null)
   const topScrollInnerRef  = useRef<HTMLDivElement>(null)
 
-  const { data, isLoading, isError } = useEmployees(filters)
+  const { data, isLoading, isError } = useEmployees({ ...filters, activeYear: periodYear, activeMonth: periodMonth })
   const { data: stats } = useEmployeeStats()
-  const { data: movements } = useMovements({ year: movYear, month: movMonth })
+  const { data: movements } = useMovements({ year: periodYear, month: periodMonth })
   const allEmployees = data?.data ?? []
 
   function setFilter(key: 'search' | 'departmentId', value: string) {
@@ -642,8 +721,9 @@ export default function EmployeesPage() {
     setFilters(prev => ({ ...prev, [key]: values.length > 0 ? values : undefined }))
   }
 
-  function setScalarFilter(key: 'activeYear' | 'activeMonth', value: string) {
-    setFilters(prev => ({ ...prev, [key]: value || undefined }))
+  function setPeriod(year: string, month: string) {
+    if (year) setPeriodYear(year)
+    if (month) setPeriodMonth(month)
   }
 
   // Dual-scroll sync: top scrollbar mirrors table horizontal scroll
@@ -709,20 +789,27 @@ export default function EmployeesPage() {
     filters.status?.length ||
     filters.legalEntity?.length ||
     filters.contractType?.length ||
-    filters.departmentId ||
-    filters.activeYear ||
-    filters.activeMonth
+    filters.departmentId
   )
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
 
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Dotación</h2>
-        <p className="text-gray-500 mt-1 text-sm">
-          {stats !== undefined ? `${stats.total} colaboradores en base de datos` : 'Cargando…'}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Dotación</h2>
+          <p className="text-gray-500 mt-1 text-sm">
+            {stats !== undefined ? `${stats.total} colaboradores en base de datos` : 'Cargando…'}
+          </p>
+        </div>
+        <button
+          onClick={() => exportToExcel(employees, periodYear, periodMonth)}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors flex-shrink-0"
+        >
+          <Download size={15} />
+          Exportar
+        </button>
       </div>
 
       {/* Tabs */}
@@ -742,11 +829,11 @@ export default function EmployeesPage() {
       </div>
 
       {tab === 'vacaciones' && (
-        <LeaveTab type="vacaciones" year={leaveYear} month={leaveMonth} onYearChange={setLeaveYear} onMonthChange={setLeaveMonth} />
+        <LeaveTab type="vacaciones" year={periodYear} month={periodMonth} onYearChange={y => setPeriod(y, periodMonth)} onMonthChange={m => setPeriod(periodYear, m)} />
       )}
 
       {tab === 'licencias' && (
-        <LeaveTab type="licencias" year={leaveYear} month={leaveMonth} onYearChange={setLeaveYear} onMonthChange={setLeaveMonth} />
+        <LeaveTab type="licencias" year={periodYear} month={periodMonth} onYearChange={y => setPeriod(y, periodMonth)} onMonthChange={m => setPeriod(periodYear, m)} />
       )}
 
       {tab === 'personas' && <>
@@ -772,12 +859,7 @@ export default function EmployeesPage() {
       <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h3 className="text-sm font-semibold text-gray-800">Ingresos y Salidas</h3>
-          <div className="flex items-center gap-2">
-            <FilterSelect value={movMonth} onChange={setMovMonth} placeholder="Mes"
-              options={MONTHS} />
-            <FilterSelect value={movYear} onChange={setMovYear} placeholder="Año"
-              options={YEARS.map(y => ({ value: String(y), label: String(y) }))} />
-          </div>
+          <span className="text-xs text-gray-400">{MONTHS.find(m => m.value === periodMonth)?.label} {periodYear}</span>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Ingresos */}
@@ -862,13 +944,11 @@ export default function EmployeesPage() {
             placeholder="Tipo de contrato"
             options={[{ value: 'INDEFINIDO', label: 'Indefinido' }, { value: 'PLAZO_FIJO', label: 'Plazo fijo' }, { value: 'HONORARIOS', label: 'Honorarios' }, { value: 'PRACTICA', label: 'Práctica' }]}
           />
-          <FilterSelect value={filters.activeYear ?? ''} onChange={v => setScalarFilter('activeYear', v)}
-            placeholder="Año activo"
-            options={YEARS.map(y => ({ value: String(y), label: String(y) }))}
-          />
-          <FilterSelect value={filters.activeMonth ?? ''} onChange={v => setScalarFilter('activeMonth', v)}
-            placeholder="Mes activo"
-            options={MONTHS}
+          <PeriodFilter
+            year={periodYear}
+            month={periodMonth}
+            onYearChange={y => setPeriod(y, periodMonth)}
+            onMonthChange={m => setPeriod(periodYear, m)}
           />
           {hasFilters && (
             <button onClick={() => setFilters({})}

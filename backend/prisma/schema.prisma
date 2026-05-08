@@ -139,9 +139,13 @@ model EmployeeWorkCenter {
   workCenter   WorkCenter  @relation(fields: [workCenterId], references: [id], onDelete: Cascade)
   workCenterId String
   legalEntity  LegalEntity
+  // Período de asignación (mes/año). endYear+endMonth null = vigente
+  startYear    Int         @default(2000)
+  startMonth   Int         @default(1)
+  endYear      Int?
+  endMonth     Int?
   createdAt    DateTime    @default(now())
 
-  @@unique([employeeId, workCenterId, legalEntity])
   @@map("employee_work_centers")
 }
 
@@ -416,6 +420,7 @@ model OnboardingProcess {
   expectedEndDate      DateTime
   completedAt          DateTime?
   tasks                OnboardingTask[]
+  forms                OnboardingForm[]
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 
@@ -489,6 +494,90 @@ model ProfileRole {
   roleType  String  // ENVIA_CORREOS | RECIBE_CORREOS | COPIA_CORREOS | PREPARA_ADM_FISICA | RESPONSABLE_HITO
 
   @@map("profile_roles")
+}
+
+// ─────────────────────────────────────────────
+// Onboarding: Plantilla de hitos (editable)
+// ─────────────────────────────────────────────
+
+model OnboardingTemplateTask {
+  id               String             @id @default(uuid())
+  key              String             @unique
+  period           OnboardingPeriod
+  name             String
+  tool             String?
+  automationType   TaskAutomationType @default(MANUAL)
+  automationConfig Json?
+  appliesWhen      String?
+  sortOrder        Int                @default(0)
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@map("onboarding_template_tasks")
+}
+
+// ─────────────────────────────────────────────
+// Templates de email y log de envíos
+// ─────────────────────────────────────────────
+
+model EmailTemplate {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  name      String
+  subject   String
+  bodyHtml  String
+  variables Json     @default("[]")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("email_templates")
+}
+
+model EmailLog {
+  id          String   @id @default(uuid())
+  processId   String?
+  taskId      String?
+  toEmail     String
+  subject     String
+  status      String
+  error       String?
+  templateKey String?
+  sentAt      DateTime @default(now())
+
+  @@map("email_logs")
+}
+
+// ─────────────────────────────────────────────
+// Formularios de onboarding
+// ─────────────────────────────────────────────
+
+model OnboardingForm {
+  id        String            @id @default(uuid())
+  processId String
+  process   OnboardingProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  title     String
+  fields    Json              @default("[]")
+  token     String            @unique @default(uuid())
+  isActive  Boolean           @default(true)
+  responses FormResponse[]
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@map("onboarding_forms")
+}
+
+model FormResponse {
+  id              String         @id @default(uuid())
+  form            OnboardingForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId          String
+  respondentName  String?
+  respondentEmail String?
+  data            Json           @default("{}")
+  submittedAt     DateTime       @default(now())
+
+  @@map("form_responses")
 }
 
 model SyncLog {

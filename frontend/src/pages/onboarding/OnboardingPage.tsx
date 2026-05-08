@@ -9,6 +9,8 @@ import {
 } from '@/hooks/useOnboarding'
 import type { OnboardingProcess, OnboardingTemplateTask, OnboardingPeriod, TaskAutomationType } from '@/types'
 import OnboardingDrawer from './OnboardingDrawer'
+import HitosTab from './tabs/HitosTab'
+import AutomatizacionTab from './tabs/AutomatizacionTab'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,11 +64,12 @@ const PERIOD_COLORS: Record<OnboardingPeriod, string> = {
 }
 
 const AUTO_CONFIG: Record<TaskAutomationType, { icon: React.ReactNode; label: string; cls: string }> = {
-  EMAIL:     { icon: <Mail size={10} />,       label: 'Email',    cls: 'bg-blue-100 text-blue-700' },
-  CALENDAR:  { icon: <Calendar size={10} />,   label: 'Calendar', cls: 'bg-purple-100 text-purple-700' },
-  BUK_CHECK: { icon: <RefreshCw size={10} />,  label: 'BUK',      cls: 'bg-orange-100 text-orange-700' },
-  EXTERNAL:  { icon: <Globe size={10} />,      label: 'Externo',  cls: 'bg-cyan-100 text-cyan-700' },
-  MANUAL:    { icon: <Wrench size={10} />,     label: 'Manual',   cls: 'bg-gray-100 text-gray-500' },
+  EMAIL:        { icon: <Mail size={10} />,       label: 'Email',    cls: 'bg-blue-100 text-blue-700' },
+  CALENDAR:     { icon: <Calendar size={10} />,   label: 'Calendar', cls: 'bg-purple-100 text-purple-700' },
+  BUK_CHECK:    { icon: <RefreshCw size={10} />,  label: 'BUK',      cls: 'bg-orange-100 text-orange-700' },
+  EXTERNAL:     { icon: <Globe size={10} />,      label: 'Externo',  cls: 'bg-cyan-100 text-cyan-700' },
+  MANUAL:       { icon: <Wrench size={10} />,     label: 'Manual',   cls: 'bg-gray-100 text-gray-500' },
+  SHEET_VERIFY: { icon: <Globe size={10} />,      label: 'Sheets',   cls: 'bg-green-100 text-green-700' },
 }
 
 function AutoBadge({ type }: { type: TaskAutomationType }) {
@@ -85,7 +88,8 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
     collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '', collaboratorPosition: '',
     collaboratorPhone: '', legalEntity: '', costCenter: '', startDate: '', notes: '',
   })
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selected,        setSelected]        = useState<Set<string>>(new Set())
+  const [createdProcess,  setCreatedProcess]  = useState<import('@/types').OnboardingProcess | null>(null)
 
   const { data: template = [], isLoading: templateLoading, isError: templateError, refetch: refetchTemplate } = useOnboardingTemplate()
   const createOnboarding = useCreateOnboarding()
@@ -123,7 +127,7 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
         notes:                form.notes.trim() || undefined,
         selectedTaskIds:      Array.from(selected),
       })
-      onCreated(process.id); onClose()
+      setCreatedProcess(process)
     } catch (err: any) {
       alert(err?.response?.data?.message ?? 'Error al crear el proceso')
     }
@@ -150,8 +154,99 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
         </div>
 
+        {/* ── Paso 2: confirmación de Google Calendar ── */}
+        {createdProcess && (() => {
+          const startDate = new Date(createdProcess.startDate)
+          const calTasks  = (createdProcess.tasks ?? []).filter((t: any) => t.automationType === 'CALENDAR')
+
+          const gcalFmt = (d: Date) => {
+            const p = (n: number) => String(n).padStart(2, '0')
+            return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`
+          }
+
+          const periodStarts: Record<string, number> = {
+            PRE_INGRESO: -7, DIA_1: 0, SEMANA_1: 1, MES_1: 8, EVALUACION: 60,
+          }
+
+          function makeUrl(task: any): string {
+            const cfg = task.automationConfig ?? {}
+            const offset = typeof cfg.daysFromStart === 'number' ? cfg.daysFromStart : (periodStarts[task.period] ?? 0)
+            const start  = new Date(startDate); start.setDate(start.getDate() + offset); start.setHours(9, 0, 0, 0)
+            const durMin = cfg.durationMinutes ?? 60
+            const end    = new Date(start.getTime() + durMin * 60_000)
+            const title  = (cfg.title ?? task.name).replace('{collaboratorName}', createdProcess.collaboratorName)
+            const q = new URLSearchParams({
+              text: title,
+              dates: `${gcalFmt(start)}/${gcalFmt(end)}`,
+              details: `Onboarding ${createdProcess.collaboratorName} — ${task.name}`,
+            })
+            if (createdProcess.collaboratorEmail) q.set('add', createdProcess.collaboratorEmail)
+            return `https://calendar.google.com/calendar/r/eventedit?${q}`
+          }
+
+          const openAll = () => calTasks.forEach((t: any, i: number) => setTimeout(() => window.open(makeUrl(t), '_blank'), i * 300))
+          const finalize = () => { onCreated(createdProcess.id); onClose() }
+
+          return (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                {/* Éxito */}
+                <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
+                  <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center text-green-600 flex-shrink-0">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-green-800">Proceso iniciado</p>
+                    <p className="text-xs text-green-600">{createdProcess.collaboratorName} · {createdProcess.tasks?.length ?? 0} hitos creados</p>
+                  </div>
+                </div>
+
+                {/* Hitos de Calendar */}
+                {calTasks.length > 0 ? (
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800 mb-1">¿Cargar hitos a Google Calendar?</p>
+                    <p className="text-xs text-gray-400 mb-3">Se detectaron {calTasks.length} hito{calTasks.length !== 1 ? 's' : ''} que generan eventos de calendario.</p>
+                    <div className="space-y-1.5 mb-4">
+                      {calTasks.map((t: any) => {
+                        const cfg    = t.automationConfig ?? {}
+                        const offset = typeof cfg.daysFromStart === 'number' ? cfg.daysFromStart : (periodStarts[t.period] ?? 0)
+                        const date   = new Date(startDate); date.setDate(date.getDate() + offset)
+                        const label  = date.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })
+                        return (
+                          <div key={t.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg">
+                            <div>
+                              <p className="text-xs font-medium text-purple-800">{t.name}</p>
+                              <p className="text-[10px] text-purple-400">{label} · {cfg.durationMinutes ?? 60} min</p>
+                            </div>
+                            <a href={makeUrl(t)} target="_blank" rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-xs text-purple-600 hover:underline flex-shrink-0">
+                              <Calendar size={11} /> Abrir
+                            </a>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <button onClick={openAll}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">
+                      <Calendar size={14} /> Abrir todos en Google Calendar
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">Este proceso no tiene hitos de Google Calendar.</p>
+                )}
+              </div>
+              <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+                <button onClick={finalize}
+                  className="px-5 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
+                  {calTasks.length > 0 ? 'Ahora no, ir al proceso' : 'Ir al proceso'}
+                </button>
+              </div>
+            </div>
+          )
+        })()}
+
         {/* Body */}
-        <div className="overflow-y-auto flex-1 p-6 space-y-6">
+        {!createdProcess && <div className="overflow-y-auto flex-1 p-6 space-y-6">
 
           {/* Datos del colaborador */}
           <div className="grid grid-cols-2 gap-4">
@@ -268,8 +363,8 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 flex-shrink-0">
+        {/* Footer (solo en paso 1) */}
+        {!createdProcess && <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 flex-shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
           <button
             onClick={handleSubmit}
@@ -281,7 +376,7 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
               : <><Rocket size={14} /> Iniciar onboarding ({selected.size} hitos)</>
             }
           </button>
-        </div>
+        </div>}
       </div>
     </div>
   )
@@ -290,7 +385,7 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
 // ─── Página principal ──────────────────────────────────────────────────────────
 
 export default function OnboardingPage() {
-  const [tab, setTab]                         = useState<'procesos' | 'herramientas'>('procesos')
+  const [tab, setTab]                         = useState<'procesos' | 'hitos' | 'automatizacion'>('procesos')
   const [drawerProcessId, setDrawerProcessId] = useState<string | null>(null)
   const [showNewModal, setShowNewModal]       = useState(false)
   const [filterStatus, setFilterStatus]       = useState<string>('IN_PROGRESS')
@@ -322,11 +417,12 @@ export default function OnboardingPage() {
         )}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs principales */}
       <div className="flex border-b border-gray-200 mb-6">
         {([
-          ['procesos',     'Procesos'],
-          ['herramientas', 'Herramientas'],
+          ['procesos',      'Procesos'],
+          ['hitos',         'Hitos'],
+          ['automatizacion','Automatización'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
@@ -337,18 +433,14 @@ export default function OnboardingPage() {
         ))}
       </div>
 
-      {tab === 'herramientas' && (
-        <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
-            <Wrench size={22} className="text-gray-400" />
-          </div>
-          <p className="text-sm font-medium text-gray-500">Próximamente</p>
-          <p className="text-xs text-gray-400">El módulo de herramientas estará disponible pronto.</p>
-        </div>
-      )}
+      {/* ── Tab: Hitos ── */}
+      {tab === 'hitos' && <HitosTab />}
 
+      {/* ── Tab: Automatización ── */}
+      {tab === 'automatizacion' && <AutomatizacionTab processes={processes ?? []} />}
+
+      {/* ── Tab: Procesos ── */}
       {tab === 'procesos' && <>
-
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -484,15 +576,9 @@ export default function OnboardingPage() {
         )}
       </div>
 
-      {/* Drawer */}
       {drawerProcessId && (
-        <OnboardingDrawer
-          processId={drawerProcessId}
-          onClose={() => setDrawerProcessId(null)}
-        />
+        <OnboardingDrawer processId={drawerProcessId} onClose={() => setDrawerProcessId(null)} />
       )}
-
-      {/* New process modal */}
       {showNewModal && (
         <NewProcessModal
           onClose={() => setShowNewModal(false)}

@@ -1,4 +1,5 @@
 import { sendEmail, templateBienvenida, templateCoordinacionInterna, templateCheckpoint, templateSeguroComplementario, templateMentorAsignado, templateNotificacionInterna } from './email.service'
+import { createCalendarEvent } from './calendar.service'
 
 // ─── Tipos de automatización ──────────────────────────────────────────────────
 
@@ -27,16 +28,16 @@ export interface AutomationResult {
 // ─── Punto de entrada ─────────────────────────────────────────────────────────
 
 export async function runTaskAutomation(
-  task:    AutomationTask,
-  process: AutomationProcess
+  task: AutomationTask,
+  proc: AutomationProcess
 ): Promise<AutomationResult> {
   const type = task.automationType
 
   try {
-    if (type === 'EMAIL')     return await runEmailAutomation(task, process)
-    if (type === 'CALENDAR')  return runCalendarAutomation(task, process)
-    if (type === 'BUK_CHECK') return runBukCheckAutomation(task, process)
-    if (type === 'EXTERNAL')  return runExternalAutomation(task, process)
+    if (type === 'EMAIL')     return await runEmailAutomation(task, proc)
+    if (type === 'CALENDAR')  return await runCalendarAutomation(task, proc)
+    if (type === 'BUK_CHECK') return runBukCheckAutomation(task, proc)
+    if (type === 'EXTERNAL')  return runExternalAutomation(task, proc)
 
     return { status: 'SKIPPED', message: 'Hito de tipo MANUAL — no requiere automatización', detail: {} }
   } catch (err: any) {
@@ -129,35 +130,51 @@ async function runEmailAutomation(task: AutomationTask, proc: AutomationProcess)
 }
 
 // ─── CALENDAR ─────────────────────────────────────────────────────────────────
-// Requiere configuración de Google Calendar API con OAuth o Service Account.
-// Se ejecuta cuando GOOGLE_CALENDAR_ENABLED=true y las credenciales están configuradas.
+// Requiere GOOGLE_CALENDAR_ENABLED=true y Service Account con Domain-Wide Delegation.
+// Ver: backend/src/services/calendar.service.ts
 
-function runCalendarAutomation(task: AutomationTask, proc: AutomationProcess): AutomationResult {
-  const cfg = task.automationConfig ?? {}
+async function runCalendarAutomation(task: AutomationTask, proc: AutomationProcess): Promise<AutomationResult> {
+  const cfg     = task.automationConfig ?? {}
   const enabled = process.env.GOOGLE_CALENDAR_ENABLED === 'true'
+
+  const title           = (cfg.title as string ?? task.name).replace('{collaboratorName}', proc.collaboratorName)
+  const daysFromStart   = (cfg.daysFromStart as number) ?? 0
+  const durationMinutes = (cfg.durationMinutes as number) ?? 60
+  const attendees       = (cfg.attendees as string[]) ?? []
+  const eventDate       = new Date(proc.startDate.getTime() + daysFromStart * 86_400_000)
 
   if (!enabled) {
     return {
       status:  'SKIPPED',
-      message: 'Google Calendar no está habilitado. Configura GOOGLE_CALENDAR_ENABLED=true y las credenciales OAuth.',
+      message: 'Google Calendar no está habilitado. Configura GOOGLE_CALENDAR_ENABLED=true y las credenciales de Service Account.',
       detail:  {
-        wouldCreate: {
-          title:            (cfg.title as string ?? task.name).replace('{collaboratorName}', proc.collaboratorName),
-          daysFromStart:    cfg.daysFromStart ?? 0,
-          durationMinutes:  cfg.durationMinutes ?? 60,
-          eventDate:        new Date(proc.startDate.getTime() + (cfg.daysFromStart ?? 0) * 86_400_000).toISOString(),
-          attendees:        cfg.attendees ?? [],
-        },
+        wouldCreate: { title, daysFromStart, durationMinutes, eventDate: eventDate.toISOString(), attendees },
       },
     }
   }
 
-  // TODO: implementar con googleapis cuando GOOGLE_CALENDAR_ENABLED=true
-  // Ver: backend/src/services/calendar.service.ts (pendiente)
-  return {
-    status:  'FAILED',
-    message: 'Integración Google Calendar pendiente de implementar.',
-    detail:  {},
+  try {
+    const result = await createCalendarEvent({
+      title,
+      description: `Hito de onboarding: ${task.name}\nColaborador: ${proc.collaboratorName}`,
+      startDate:        eventDate,
+      durationMinutes,
+      attendees,
+      location:         cfg.location as string | undefined,
+      impersonateAs:    cfg.impersonateAs as string | undefined,
+    })
+
+    return {
+      status:  'SUCCESS',
+      message: `Evento creado en Google Calendar para el ${eventDate.toLocaleDateString('es-CL')}`,
+      detail:  result,
+    }
+  } catch (err: any) {
+    return {
+      status:  'FAILED',
+      message: `Error al crear evento en Calendar: ${err.message ?? String(err)}`,
+      detail:  { error: String(err) },
+    }
   }
 }
 

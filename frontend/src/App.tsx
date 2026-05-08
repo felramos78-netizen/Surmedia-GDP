@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AppLayout from '@/layouts/AppLayout'
 import EmployeesPage from '@/pages/employees/EmployeesPage'
 import OnboardingPage from '@/pages/onboarding/OnboardingPage'
+import FormPublicPage from '@/pages/onboarding/FormPublicPage'
 import ProfilesPage from '@/pages/profiles/ProfilesPage'
 import WorkCentersPage from '@/pages/workCenters/WorkCentersPage'
 import ImportablesPage from '@/pages/buk/BukPage'
@@ -30,6 +31,8 @@ export default function App() {
             <Route path="/buk"                 element={<ImportablesPage />} />
             <Route path="/" element={<Navigate to="/employees" replace />} />
           </Route>
+          {/* Ruta pública — sin AppLayout ni autenticación */}
+          <Route path="/forms/:token" element={<FormPublicPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
