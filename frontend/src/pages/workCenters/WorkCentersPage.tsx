@@ -11,7 +11,7 @@ import {
   useWorkCenters, useCreateWorkCenter, useUpdateWorkCenter, useDeleteWorkCenter,
   useAddIngreso, useUpdateIngreso, useDeleteIngreso,
 } from '@/hooks/useWorkCenters'
-import { usePayrollTable, usePayrollYears, useMovements, useExpiringContracts } from '@/hooks/useDotacion'
+import { usePayrollTable, usePayrollYears, useMovements, useExpiringContracts, useEmployeeStats } from '@/hooks/useDotacion'
 import type { WorkCenter, WorkCenterIngreso, CostType, LegalEntity, PayrollRawEntry, PayrollItem, EmployeeStatus } from '@/types'
 
 // ─── Formatting ───────────────────────────────────────────────────────────────
@@ -820,7 +820,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
   year: string; month: string
   onEdit: () => void; onClose: () => void
 }) {
-  const [outerTab,  setOuterTab]  = useState<'personas' | 'honorarios' | 'compras'>('personas')
+  const [outerTab,  setOuterTab]  = useState<'personas' | 'honorarios'>('personas')
   const [personTab, setPersonTab] = useState<'sueldos' | 'movimientos' | 'provisiones'>('sueldos')
 
   // Ingresos state
@@ -968,9 +968,9 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
         </div>
       </div>
 
-      {/* Outer tabs: Personas | Honorarios | Compras */}
+      {/* Outer tabs: Personas | Honorarios */}
       <div className="flex border-b border-gray-100">
-        {(['personas', 'honorarios', 'compras'] as const).map(key => (
+        {(['personas', 'honorarios'] as const).map(key => (
           <button key={key} onClick={() => setOuterTab(key)}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors capitalize ${
               outerTab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -1408,13 +1408,6 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
           </div>
         )}
 
-        {/* ══ COMPRAS ══ */}
-        {outerTab === 'compras' && (
-          <div className="py-10 text-center">
-            <p className="text-sm text-gray-400">Próximamente</p>
-          </div>
-        )}
-
       </div>
     </div>
   )
@@ -1423,7 +1416,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function WorkCentersPage() {
-  const [tab,          setTab]          = useState<'centros' | 'remuneraciones' | 'facturas' | 'proveedores'>('centros')
+  const [tab,          setTab]          = useState<'centros' | 'remuneraciones' | 'honorarios'>('centros')
   const [year,         setYear]         = useState('')
   const [month,        setMonth]        = useState('')
   const [modal,        setModal]        = useState<'create' | WorkCenter | null>(null)
@@ -1453,6 +1446,7 @@ export default function WorkCentersPage() {
 
   const { data: centers = [], isLoading: centersLoading } = useWorkCenters()
   const { data: years   = [] }                             = usePayrollYears()
+  const { data: empStats }                                 = useEmployeeStats()
   const deleteWC                                           = useDeleteWorkCenter()
   const updateWC                                           = useUpdateWorkCenter()
 
@@ -1637,8 +1631,7 @@ export default function WorkCentersPage() {
         {([
           ['centros',       'Centros'],
           ['remuneraciones','Remuneraciones'],
-          ['facturas',      'Facturas'],
-          ['proveedores',   'Proveedores'],
+          ['honorarios',    'Honorarios'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
@@ -1751,13 +1744,13 @@ export default function WorkCentersPage() {
 
                 case 'colaboradores': return (
                   <div className={C}>
-                    <div className={H}><span className={hl}><Users size={10}/>Colaboradores</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className={H}><span className={hl}><Users size={10}/>Colaboradores</span><span className={sub}>{new Date().toLocaleDateString('es-CL',{day:'2-digit',month:'short',year:'numeric'})}</span></div>
                     <div className="p-4 flex-1">
-                      <p className="text-2xl font-bold text-gray-900">{uniquePeople || centers.reduce((s,c)=>s+(c.totalPersonnel??0),0)}</p>
+                      <p className="text-2xl font-bold text-gray-900">{empStats?.active ?? centers.reduce((s,c)=>s+(c.totalPersonnel??0),0)}</p>
                       {uniquePeople > 0
                         ? <>
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs text-gray-700 font-medium">{totalActive} activos</span>
+                              <span className="text-xs text-gray-500">{uniquePeople} Sueldos Brutos</span>
                               {totalBajas > 0 && (
                                 <span className="text-[10px] font-semibold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-full">
                                   {totalBajas} {totalBajas === 1 ? 'baja' : 'bajas'}
@@ -1766,16 +1759,25 @@ export default function WorkCentersPage() {
                             </div>
                             <div className="mt-2 space-y-1">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">{comActive}</span>
+                                <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">{empStats?.activeComunicaciones ?? comActive}</span>
                                 <span className="text-[10px] text-gray-400">Comunicaciones</span>
                               </div>
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full">{conActive}</span>
+                                <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full">{empStats?.activeConsultoria ?? conActive}</span>
                                 <span className="text-[10px] text-gray-400">Consultoría</span>
                               </div>
                             </div>
                           </>
-                        : <p className="text-xs text-gray-400 mt-1">Selecciona un período</p>
+                        : <div className="mt-2 space-y-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">{empStats?.activeComunicaciones ?? '—'}</span>
+                              <span className="text-[10px] text-gray-400">Comunicaciones</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full">{empStats?.activeConsultoria ?? '—'}</span>
+                              <span className="text-[10px] text-gray-400">Consultoría</span>
+                            </div>
+                          </div>
                       }
                     </div>
                   </div>
@@ -1813,7 +1815,7 @@ export default function WorkCentersPage() {
 
                 case 'total-payroll': return (
                   <div className={C}>
-                    <div className={H}><span className={hl}><BarChart2 size={10}/>Gasto Total</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className={H}><span className={hl}><BarChart2 size={10}/>Sueldos</span>{label&&<span className={sub}>{label}</span>}</div>
                     <div className="p-4 flex-1">
                       <p className="text-2xl font-bold text-gray-900">{payrollStats.total>0?fmtShort(payrollStats.total):noData}</p>
                       {payrollStats.total>0&&<p className="text-xs text-gray-400 mt-1">Sueldos brutos</p>}
@@ -1823,7 +1825,7 @@ export default function WorkCentersPage() {
 
                 case 'fin-gastos': return (
                   <div className={C}>
-                    <div className={H}><span className={hl}><TrendingDown size={10} className="text-red-400"/>Total Gastos</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className={H}><span className={hl}><TrendingDown size={10} className="text-red-400"/>Total Capital Humano</span>{label&&<span className={sub}>{label}</span>}</div>
                     <div className="p-4 flex-1">
                       <p className="text-2xl font-bold text-gray-900">{year?fmtShort(totalGastos):noData}</p>
                       <p className="text-[10px] text-gray-300 mt-1">Sueldos + contratación</p>
@@ -2396,25 +2398,14 @@ export default function WorkCentersPage() {
         </div>
       )}
 
-      {/* ══════════════ TAB: FACTURAS ══════════════ */}
-      {tab === 'facturas' && (
+      {/* ══════════════ TAB: HONORARIOS ══════════════ */}
+      {tab === 'honorarios' && (
         <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
           <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
-            <span className="text-2xl">🧾</span>
+            <span className="text-2xl">📄</span>
           </div>
           <p className="text-sm font-medium text-gray-500">Próximamente</p>
-          <p className="text-xs text-gray-400">El módulo de facturas estará disponible pronto.</p>
-        </div>
-      )}
-
-      {/* ══════════════ TAB: PROVEEDORES ══════════════ */}
-      {tab === 'proveedores' && (
-        <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
-            <span className="text-2xl">🤝</span>
-          </div>
-          <p className="text-sm font-medium text-gray-500">Próximamente</p>
-          <p className="text-xs text-gray-400">El módulo de proveedores estará disponible pronto.</p>
+          <p className="text-xs text-gray-400">El módulo de honorarios estará disponible pronto.</p>
         </div>
       )}
 

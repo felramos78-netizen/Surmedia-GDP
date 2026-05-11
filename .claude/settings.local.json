@@ -23,7 +23,9 @@
       "PowerShell(Get-Process *)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(node --env-file=.env -e ' *)"
+      "Bash(node --env-file=.env -e ' *)",
+      "Bash(dir C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src\\\\hooks *)",
+      "Bash(dir \"C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src\\\\pages\\\\onboarding\\\\tabs\" /b)"
     ]
   }
 }

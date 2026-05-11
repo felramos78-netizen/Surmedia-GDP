@@ -216,6 +216,16 @@ export interface TaskAssignment {
   createdAt: string
 }
 
+export interface SubTaskInstance {
+  id:                  string
+  name:                string
+  responsableProfileId?: string | null
+  tool?:               string | null
+  plantilla?:          string | null
+  sortOrder:           number
+  completedAt:         string | null
+}
+
 export interface OnboardingTask {
   id:               string
   processId:        string
@@ -233,11 +243,13 @@ export interface OnboardingTask {
   completedAt?:     string | null
   completedBy?:     string | null
   completedNote?:   string | null
+  subTasks?:        SubTaskInstance[]
   assignments?:     TaskAssignment[]
 }
 
 export interface OnboardingProcess {
   id:                   string
+  collaboratorRut?:           string | null
   collaboratorName:           string
   collaboratorEmail?:         string | null
   collaboratorPersonalEmail?: string | null
@@ -254,6 +266,20 @@ export interface OnboardingProcess {
   tasks:                OnboardingTask[]
   createdAt:            string
   updatedAt:            string
+}
+
+export interface OnboardingSheetTemplate {
+  id:             string
+  key:            string
+  name:           string
+  url:            string
+  rutColumn:      string
+  columnMappings: Record<string, string>
+  sheetName?:     string | null
+  description?:   string | null
+  isActive:       boolean
+  createdAt:      string
+  updatedAt:      string
 }
 
 export interface ProfileRole {
@@ -325,6 +351,17 @@ export interface EmailLog {
 
 // ─── Onboarding: Template Tasks ──────────────────────────────────────────────
 
+export interface OnboardingTemplateSubTask {
+  id:                  string
+  templateTaskId:      string
+  name:                string
+  responsableProfileId?: string | null
+  responsable?:        { id: string; name: string } | null
+  tool?:               string | null
+  plantilla?:          string | null
+  sortOrder:           number
+}
+
 export interface OnboardingDbTemplateTask {
   id:              string
   key:             string
@@ -336,6 +373,11 @@ export interface OnboardingDbTemplateTask {
   appliesWhen?:    string | null
   sortOrder:       number
   isActive:        boolean
+  taskType:        string
+  responsableProfileId?: string | null
+  responsable?:    { id: string; name: string; position?: string } | null
+  appliesTo:       string[]
+  subTasks:        OnboardingTemplateSubTask[]
   createdAt:       string
   updatedAt:       string
 }

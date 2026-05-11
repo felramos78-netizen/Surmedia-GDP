@@ -9,6 +9,7 @@ import WorkCentersPage from '@/pages/workCenters/WorkCentersPage'
 import ImportablesPage from '@/pages/buk/BukPage'
 import ColaboradoresPage from '@/pages/colaboradores/ColaboradoresPage'
 import ColaboradorDetallePage from '@/pages/colaboradores/ColaboradorDetallePage'
+import CalendarioPage from '@/pages/calendario/CalendarioPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="/perfiles"            element={<ProfilesPage />} />
             <Route path="/centros-trabajo"     element={<WorkCentersPage />} />
             <Route path="/buk"                 element={<ImportablesPage />} />
+            <Route path="/calendario"          element={<CalendarioPage />} />
             <Route path="/" element={<Navigate to="/employees" replace />} />
           </Route>
           {/* Ruta pública — sin AppLayout ni autenticación */}

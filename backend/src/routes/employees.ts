@@ -98,6 +98,17 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     } })
   })
 
+  // GET /api/employees/job-titles — lista única de cargos existentes
+  fastify.get('/job-titles', async (_req, reply) => {
+    const rows = await fastify.prisma.employee.findMany({
+      where: { deletedAt: null, jobTitle: { not: null } },
+      select: { jobTitle: true },
+      distinct: ['jobTitle'],
+      orderBy: { jobTitle: 'asc' },
+    })
+    return reply.send({ data: rows.map(r => r.jobTitle as string) })
+  })
+
   // GET /api/employees/expiring-contracts — PLAZO_FIJO contracts expiring in next 3 months
   fastify.get('/expiring-contracts', async (_req, reply) => {
     const today  = new Date()

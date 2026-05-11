@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Users, FileText, UserPlus,
   Settings, Building2, Contact, Landmark, FileSpreadsheet, UserCircle2,
-  RefreshCw, CheckCircle2, AlertTriangle, X,
+  RefreshCw, CheckCircle2, AlertTriangle, X, CalendarDays,
 } from 'lucide-react'
 import { useImportStore } from '@/store/importStore'
 
@@ -13,6 +13,7 @@ const navItems = [
   { to: '/colaboradores',    icon: UserCircle2,      label: 'Colaboradores' },
   { to: '/centros-trabajo',  icon: Landmark,         label: 'Centros de Trabajo' },
   { to: '/recruitment',      icon: UserPlus,         label: 'Reclutamiento' },
+  { to: '/calendario',       icon: CalendarDays,     label: 'Calendario' },
   { to: '/onboarding',       icon: Building2,        label: 'Onboarding' },
   { to: '/perfiles',         icon: Contact,          label: 'Perfiles' },
   { to: '/buk',              icon: FileSpreadsheet,  label: 'Importables Excel' },

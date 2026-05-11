@@ -379,11 +379,30 @@ El dashboard del módulo muestra viñetas arrastrables con métricas por centro.
 
 ### Onboarding (`/onboarding`)
 
-Seguimiento del proceso de ingreso de nuevos colaboradores durante los primeros 90 días. El proceso se divide en 5 períodos secuenciales:
+Seguimiento del proceso de ingreso de nuevos colaboradores durante los primeros 90 días. El **Día 1** es el día de ingreso del colaborador (campo `startDate` del proceso).
 
-`PRE_INGRESO` → `DIA_1` → `SEMANA_1` → `MES_1` → `EVALUACION`
+#### Segmentos del proceso
 
-Cada proceso se crea a partir de una **plantilla global de hitos** (`OnboardingTask`). Al crear un proceso, el usuario puede seleccionar qué hitos aplican (por período completo o uno a uno). El proceso **no requiere** que el colaborador exista en la DB de empleados — se registra con nombre libre y se vincula a un `Employee` en forma posterior.
+El proceso se organiza en **4 segmentos temporales**. En el esquema Prisma se modelan con 5 `OnboardingPeriod`, donde `DIA_1` y `SEMANA_1` son sub-tramos del mismo segmento "Primera Semana":
+
+| Segmento | Período(s) DB | Tramo | Tipo de hitos |
+|---|---|---|---|
+| **Pre Ingreso** | `PRE_INGRESO` | Mínimo 7 días antes del Día 1 | Mixto: "Carta oferta recibida y aceptada" es **fecha específica**; el resto (documentos, coordinación, BUK, correo empresa, etc.) son **plazos** |
+| **Primera Semana** | `DIA_1` | Día 1 exacto (fecha de ingreso) | Todos **fecha específica** — ocurren el día de ingreso: bienvenida, EPP, inducción jefatura, kit, firmas, computador, etc. |
+| **Primera Semana** | `SEMANA_1` | Días 2–5 hábiles | Todos **plazos** — a completar durante la primera semana: foto, SSO, presentación empresa, seguro, Pluxee, foto web |
+| **Primer Mes** | `MES_1` | Hasta el Día 30 | Mixto: "Checkpoint 1 · Día 30" es **fecha específica**; "Mentor asignado" y "Café virtual con directores" son **plazos** |
+| **Segundo Mes** | `EVALUACION` | Días 60 y 90 | Todos **fecha específica** — "Checkpoint 2 · Día 60" y "Feedback 3 meses · Día 90" |
+
+**Hito de fecha específica:** se ejecuta en una fecha fija y normalmente genera un evento de Google Calendar (`automationType: CALENDAR` con `daysFromStart`, o es acción puntual del Día 1).  
+**Hito de plazo:** debe completarse antes del fin del segmento; no tiene fecha exacta asignada (`automationType: EMAIL`, `MANUAL`, `BUK_CHECK`, `SHEET_VERIFY`, `EXTERNAL`).
+
+> **Nota de fechas:** el `startDate` se almacena como mediodía UTC (`T12:00:00Z`) para evitar desfases de zona horaria en el frontend (Chile UTC-3/UTC-4).
+
+#### Creación de procesos
+
+Cada proceso se crea a partir de una **plantilla global de hitos** (`OnboardingTemplateTask`). Al crear un proceso, el usuario puede seleccionar qué hitos aplican (por período completo o uno a uno). El proceso **no requiere** que el colaborador exista en la DB de empleados — se registra con nombre libre y se vincula a un `Employee` en forma posterior.
+
+El formulario de creación exige: nombre completo y empresa (`legalEntity`) como campos obligatorios. "Centro de Trabajo" es un dropdown con los `WorkCenter` existentes. "Cargo" es un dropdown con los `jobTitle` únicos existentes en la DB, con opción de ingresar uno nuevo manualmente.
 
 Tipos de automatización por hito: `MANUAL`, `EMAIL`, `CALENDAR`, `BUK_CHECK`, `EXTERNAL`, `SHEET_VERIFY`. **Ninguna automatización está operativa aún; toda la lógica de `automation.service.ts` y `email.service.ts` está en desarrollo.**
 
@@ -405,6 +424,38 @@ Se les asignan roles cruzando **ÁREA** × **TIPO DE ROL**:
 - **Tipos de rol:** `ENVIA_CORREOS`, `RECIBE_CORREOS`, `COPIA_CORREOS`, `PREPARA_ADM_FISICA`, `RESPONSABLE_HITO`
 
 Un perfil puede tener múltiples combinaciones área+rol. Estas combinaciones se usan para asignar automáticamente responsabilidades cuando se crea un proceso de onboarding.
+
+---
+
+### Calendario (`/calendario`)
+
+Módulo transversal de vista de fechas relevantes de toda la organización. Centraliza en un solo calendario visual todas las fuentes de datos temporales de GDP.
+
+**Vistas:** Mes (BUK-style: barras horizontales que se extienden entre días), Semana (misma grilla para 7 días, sin límite de lanes), Día (listado detallado). Navegación con `<` `>` y botón "Hoy". Hacer clic en un día desde vista Mes/Semana navega a la vista Día de ese día.
+
+**Fuentes de datos** — endpoint `GET /api/calendar?start=YYYY-MM-DD&end=YYYY-MM-DD` (`backend/src/routes/calendar.ts`):
+
+| Tipo | Descripción | Color |
+|---|---|---|
+| `VACACIONES` | `Leave` de tipo VACACIONES (aprobadas o pendientes) | verde |
+| `LICENCIA_MEDICA` / `_MATERNIDAD` / `_PATERNIDAD` | `Leave` de tipos licencia | naranja / rosado / violeta |
+| `PERMISO` / `OTRO` | Otros tipos de `Leave` | amarillo / gris |
+| `INGRESO` | Colaboradores con `startDate` en el rango (status ACTIVE/ON_LEAVE) | azul |
+| `SALIDA` | Colaboradores con `endDate` en el rango | rojo |
+| `ONBOARDING` | 5 hitos por proceso activo: Pre-ingreso (−7d), Ingreso (0d), Semana 1 (+1d), Mes 1 (+8d), Evaluación (+60d) | índigo/violeta |
+| `ONBOARDING_TASK` | Tareas tipo CALENDAR de procesos activos con su `daysFromStart` | violeta |
+| `VENCIMIENTO` | Contratos activos con `endDate` en el rango | ámbar |
+| `FECHA_RELEVANTE` | Fechas recurrentes mensuales hardcodeadas en el backend: Pagos Antofagasta (d31), Pagos Santiago (d5), Revisión Honorarios (d20), Pagos Servicios Prov. (d25) | cian |
+
+**Filtros** (panel derecho): 8 categorías con checkbox coloreado, independientes entre sí. Todos activos por defecto.
+
+**Carga a Google Calendar por perfil:** botón "Cargar a Calendar" en el header. Abre un modal donde:
+1. Se selecciona un `Profile` existente (dropdown con todos los perfiles)
+2. Se muestran los eventos filtrados del rango actual con checkboxes (todos marcados por defecto)
+3. Cada evento tiene un link individual a Google Calendar (visible al hover) con el email del perfil como invitado
+4. "Abrir en Google Calendar" abre todos los seleccionados como eventos new-tab usando la URL de GCal con `add=profile.email`
+
+> **Fechas relevantes:** para agregar o modificar las fechas recurrentes hardcodeadas, editar `RECURRING` en `backend/src/routes/calendar.ts`. Cuando se implemente CRUD de fechas relevantes, se requerirá un nuevo modelo Prisma `CalendarEvent`.
 
 ---
 

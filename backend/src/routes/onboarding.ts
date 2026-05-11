@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { runTaskAutomation } from '../services/automation.service'
-import { getFormResponses } from '../services/sheets.service'
+import { getFormResponses, getSheetRowsByUrl, findRowByRut, mapRowToEmployee } from '../services/sheets.service'
 import { sendEmail, buildFromDbTemplate } from '../services/email.service'
 
 // ─── Plantilla oficial de hitos (workflow Surmedia) ──────────────────────────
@@ -326,11 +326,23 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
+  const TASK_TYPE_MAP: Record<string, string> = {
+    pre_carta_oferta: 'FECHA_ESPECIFICA',
+    day1_bienvenida: 'FECHA_ESPECIFICA', day1_epp: 'FECHA_ESPECIFICA', day1_induccion_jefatura: 'FECHA_ESPECIFICA',
+    day1_enrolamiento: 'FECHA_ESPECIFICA', day1_kit: 'FECHA_ESPECIFICA', day1_adobe: 'FECHA_ESPECIFICA',
+    day1_induccion_corporativa: 'FECHA_ESPECIFICA', day1_firmas: 'FECHA_ESPECIFICA', day1_computador: 'FECHA_ESPECIFICA',
+    eval_checkpoint30: 'FECHA_ESPECIFICA', eval_checkpoint60: 'FECHA_ESPECIFICA', eval_feedback90: 'FECHA_ESPECIFICA',
+  }
+
   // GET /template-tasks — gestión completa (incluye inactivos)
   fastify.get('/template-tasks', async (_req, reply) => {
     try {
       let tasks = await prisma.onboardingTemplateTask.findMany({
         orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
+        include: {
+          subTasks:   { orderBy: { sortOrder: 'asc' }, include: { responsable: { select: { id: true, name: true } } } },
+          responsable: { select: { id: true, name: true, position: true } },
+        },
       })
       if (tasks.length === 0) {
         await prisma.onboardingTemplateTask.createMany({
@@ -338,32 +350,135 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
             key: t.id, period: t.period, name: t.name, tool: t.tool ?? null,
             automationType: t.automationType, automationConfig: t.automationConfig ?? null,
             appliesWhen: t.appliesWhen ?? null, sortOrder: t.sortOrder,
+            taskType: TASK_TYPE_MAP[t.id] ?? 'PLAZO',
           })),
           skipDuplicates: true,
         })
         tasks = await prisma.onboardingTemplateTask.findMany({
           orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
+          include: {
+            subTasks:    { orderBy: { sortOrder: 'asc' }, include: { responsable: { select: { id: true, name: true } } } },
+            responsable: { select: { id: true, name: true, position: true } },
+          },
         })
       }
       return reply.send({ data: tasks })
     } catch {
-      return reply.send({ data: TASK_TEMPLATE.map(t => ({ ...t, key: t.id, isActive: true })) })
+      return reply.send({ data: TASK_TEMPLATE.map(t => ({ ...t, key: t.id, isActive: true, taskType: TASK_TYPE_MAP[t.id] ?? 'PLAZO', appliesTo: [], subTasks: [] })) })
     }
+  })
+
+  // POST /template-tasks — crear nuevo hito de plantilla
+  fastify.post<{
+    Body: {
+      name: string; period: string; taskType?: string; tool?: string; automationType?: string
+      automationConfig?: Record<string, any> | null
+      responsableProfileId?: string | null; appliesTo?: string[]; appliesWhen?: string | null
+      subTasks?: Array<{ name: string; responsableProfileId?: string | null; tool?: string | null; plantilla?: string | null; sortOrder?: number }>
+    }
+  }>('/template-tasks', async (req, reply) => {
+    const { name, period, taskType = 'PLAZO', tool, automationType, automationConfig, responsableProfileId, appliesTo = [], appliesWhen, subTasks = [] } = req.body
+    if (!name?.trim()) return reply.status(400).send({ message: 'El nombre es requerido' })
+
+    // Generar key único
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 30)
+    const key  = `custom_${slug}_${Date.now().toString(36)}`
+
+    const last = await prisma.onboardingTemplateTask.findFirst({
+      where: { period }, orderBy: { sortOrder: 'desc' },
+    })
+
+    const task = await prisma.onboardingTemplateTask.create({
+      data: {
+        key,
+        name:                name.trim(),
+        period:              period as any,
+        taskType,
+        tool:                tool?.trim() || null,
+        automationType:      automationType as any ?? 'MANUAL',
+        automationConfig:    automationConfig ?? null,
+        responsableProfileId: responsableProfileId || null,
+        appliesTo:           appliesTo,
+        appliesWhen:         appliesWhen || null,
+        sortOrder:           (last?.sortOrder ?? 0) + 1,
+        subTasks: {
+          create: subTasks.map((st, i) => ({
+            name: st.name.trim(), tool: st.tool || null, plantilla: st.plantilla || null,
+            responsableProfileId: st.responsableProfileId || null,
+            sortOrder: st.sortOrder ?? i,
+          })),
+        },
+      },
+      include: {
+        subTasks:    { orderBy: { sortOrder: 'asc' }, include: { responsable: { select: { id: true, name: true } } } },
+        responsable: { select: { id: true, name: true, position: true } },
+      },
+    })
+    return reply.status(201).send({ data: task })
   })
 
   // PATCH /template-tasks/:key — editar hito de plantilla
   fastify.patch<{
     Params: { key: string }
-    Body: { name?: string; isActive?: boolean; appliesWhen?: string | null; period?: string }
+    Body: {
+      name?: string; isActive?: boolean; appliesWhen?: string | null; period?: string
+      taskType?: string; responsableProfileId?: string | null; appliesTo?: string[]
+      tool?: string | null; automationType?: string; automationConfig?: Record<string, any> | null
+      subTasks?: Array<{ id?: string; name: string; responsableProfileId?: string | null; tool?: string | null; plantilla?: string | null; sortOrder?: number }>
+    }
   }>('/template-tasks/:key', async (req, reply) => {
-    const { name, isActive, appliesWhen, period } = req.body
+    const { name, isActive, appliesWhen, period, taskType, responsableProfileId, appliesTo, tool, automationType, automationConfig, subTasks } = req.body
     const data: Record<string, any> = {}
-    if (name       !== undefined) data.name       = name.trim()
-    if (isActive   !== undefined) data.isActive   = isActive
-    if (appliesWhen !== undefined) data.appliesWhen = appliesWhen
-    if (period     !== undefined) data.period     = period
-    const task = await prisma.onboardingTemplateTask.update({ where: { key: req.params.key }, data })
-    return reply.send({ data: task })
+    if (name                !== undefined) data.name                = name.trim()
+    if (isActive            !== undefined) data.isActive            = isActive
+    if (appliesWhen         !== undefined) data.appliesWhen         = appliesWhen
+    if (period              !== undefined) data.period              = period
+    if (taskType            !== undefined) data.taskType            = taskType
+    if (responsableProfileId !== undefined) data.responsableProfileId = responsableProfileId || null
+    if (appliesTo           !== undefined) data.appliesTo           = appliesTo
+    if (tool                !== undefined) data.tool                = tool || null
+    if (automationType      !== undefined) data.automationType      = automationType
+    if (automationConfig    !== undefined) data.automationConfig    = automationConfig
+
+    const task = await prisma.onboardingTemplateTask.findUnique({ where: { key: req.params.key }, select: { id: true } })
+    if (!task) return reply.status(404).send({ message: 'Hito no encontrado' })
+
+    if (subTasks !== undefined) {
+      // Replace all subtasks
+      await prisma.onboardingTemplateSubTask.deleteMany({ where: { templateTaskId: task.id } })
+      if (subTasks.length > 0) {
+        await prisma.onboardingTemplateSubTask.createMany({
+          data: subTasks.map((st, i) => ({
+            templateTaskId:      task.id,
+            name:                st.name.trim(),
+            tool:                st.tool || null,
+            plantilla:           st.plantilla || null,
+            responsableProfileId: st.responsableProfileId || null,
+            sortOrder:           st.sortOrder ?? i,
+          })),
+        })
+      }
+    }
+
+    const updated = await prisma.onboardingTemplateTask.update({
+      where: { key: req.params.key },
+      data,
+      include: {
+        subTasks:    { orderBy: { sortOrder: 'asc' }, include: { responsable: { select: { id: true, name: true } } } },
+        responsable: { select: { id: true, name: true, position: true } },
+      },
+    })
+    return reply.send({ data: updated })
+  })
+
+  // DELETE /template-tasks/:key — eliminar hito de plantilla
+  fastify.delete<{ Params: { key: string } }>('/template-tasks/:key', async (req, reply) => {
+    try {
+      await prisma.onboardingTemplateTask.delete({ where: { key: req.params.key } })
+    } catch {
+      return reply.status(404).send({ message: 'Hito no encontrado' })
+    }
+    return reply.status(204).send()
   })
 
   // ─── EMAIL TEMPLATES ─────────────────────────────────────────────────────────
@@ -387,7 +502,24 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: templates })
   })
 
-  // PATCH /email-templates/:key — actualizar subject y/o bodyHtml
+  // POST /email-templates — crear nueva plantilla
+  fastify.post<{
+    Body: { key: string; name: string; subject?: string; bodyHtml?: string }
+  }>('/email-templates', async (req, reply) => {
+    const { key, name, subject = '', bodyHtml = '' } = req.body
+    if (!key?.trim() || !name?.trim()) return reply.status(400).send({ message: 'key y name son requeridos' })
+    try {
+      const tpl = await prisma.emailTemplate.create({
+        data: { key: key.trim(), name: name.trim(), subject: subject.trim(), bodyHtml: bodyHtml.trim(), variables: [] },
+      })
+      return reply.status(201).send({ data: tpl })
+    } catch (err: any) {
+      if (err.code === 'P2002') return reply.status(409).send({ message: 'Ya existe una plantilla con ese key' })
+      throw err
+    }
+  })
+
+  // PATCH /email-templates/:key — actualizar campos
   fastify.patch<{
     Params: { key: string }
     Body: { subject?: string; bodyHtml?: string; name?: string }
@@ -396,15 +528,31 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     if (req.body.subject  !== undefined) data.subject  = req.body.subject
     if (req.body.bodyHtml !== undefined) data.bodyHtml = req.body.bodyHtml
     if (req.body.name     !== undefined) data.name     = req.body.name
-    const tpl = await prisma.emailTemplate.update({ where: { key: req.params.key }, data })
-    return reply.send({ data: tpl })
+    try {
+      const tpl = await prisma.emailTemplate.update({ where: { key: req.params.key }, data })
+      return reply.send({ data: tpl })
+    } catch {
+      return reply.status(404).send({ message: 'Plantilla no encontrada' })
+    }
   })
 
-  // POST /email-templates/:key/preview — renderizar con datos de ejemplo
-  fastify.post<{ Params: { key: string } }>('/email-templates/:key/preview', async (req, reply) => {
-    const tpl = await prisma.emailTemplate.findUnique({ where: { key: req.params.key } })
-    if (!tpl) return reply.status(404).send({ message: 'Template no encontrado' })
-    const sampleVars: Record<string, string> = {
+  // DELETE /email-templates/:key
+  fastify.delete<{ Params: { key: string } }>('/email-templates/:key', async (req, reply) => {
+    try {
+      await prisma.emailTemplate.delete({ where: { key: req.params.key } })
+    } catch {
+      return reply.status(404).send({ message: 'Plantilla no encontrada' })
+    }
+    return reply.status(204).send()
+  })
+
+  // Sample vars helper — incluye todos los campos del sistema
+  function makeSampleVars(overrides: Record<string, string> = {}): Record<string, string> {
+    const now = new Date()
+    const fmt = (d: Date) => d.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+    const hour = now.getHours()
+    return {
+      // Legacy camelCase (backward compat)
       collaboratorName:     'Juan Pérez Ejemplo',
       collaboratorPosition: 'Diseñador Gráfico',
       collaboratorEmail:    'juan.perez@surmedia.cl',
@@ -414,8 +562,41 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       dayNumber:            '30',
       taskName:             'Foto individual corporativa',
       instruction:          'Por favor realiza esta acción antes del viernes.',
+      // Nueva sintaxis "varName"
+      nombre:               'Juan Pérez Ejemplo',
+      primerNombre:         'Juan',
+      apellido:             'Pérez Ejemplo',
+      rut:                  '12.345.678-9',
+      cargo:                'Diseñador Gráfico',
+      empresa:              'Comunicaciones Surmedia Spa',
+      email:                'juan.perez@surmedia.cl',
+      emailPersonal:        'juanperez@gmail.com',
+      telefono:             '+56 9 8765 4321',
+      jornada:              'Mensual 40.0 hrs. (L, M, M, J, V)',
+      supervisor:           'María López González',
+      afp:                  'Habitat',
+      isapre:               'Banmédica',
+      ciudad:               'Santiago',
+      comuna:               'Las Condes',
+      centroTrabajo:        'Digital Surmedia',
+      tipoCentro:           'Directo',
+      fechaIngreso:         '15 de mayo de 2026',
+      fechaIngresoCorta:    '15/05/2026',
+      fechaActual:          fmt(now),
+      año:                  now.getFullYear().toString(),
+      saludoHorario:        hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
+      diaNumero:            '30',
+      nombreHito:           'Foto individual corporativa',
+      instruccion:          'Por favor realiza esta acción antes del viernes.',
+      ...overrides,
     }
-    const { subject, html } = buildFromDbTemplate(tpl, sampleVars)
+  }
+
+  // POST /email-templates/:key/preview — renderizar con datos de ejemplo
+  fastify.post<{ Params: { key: string } }>('/email-templates/:key/preview', async (req, reply) => {
+    const tpl = await prisma.emailTemplate.findUnique({ where: { key: req.params.key } })
+    if (!tpl) return reply.status(404).send({ message: 'Template no encontrado' })
+    const { subject, html } = buildFromDbTemplate(tpl, makeSampleVars())
     return reply.send({ data: { subject, html } })
   })
 
@@ -426,13 +607,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
   }>('/email-templates/:key/send-test', async (req, reply) => {
     const tpl = await prisma.emailTemplate.findUnique({ where: { key: req.params.key } })
     if (!tpl) return reply.status(404).send({ message: 'Template no encontrado' })
-    const sampleVars: Record<string, string> = {
-      collaboratorName: 'Juan Pérez Ejemplo', collaboratorPosition: 'Diseñador Gráfico',
-      collaboratorEmail: req.body.to, legalEntity: 'Comunicaciones Surmedia Spa',
-      startDate: '15 de mayo de 2026', expectedEndDate: '13 de agosto de 2026',
-      dayNumber: '30', taskName: 'Foto individual corporativa', instruction: 'Acción de prueba.',
-    }
-    const { subject, html } = buildFromDbTemplate(tpl, sampleVars)
+    const { subject, html } = buildFromDbTemplate(tpl, makeSampleVars({ collaboratorEmail: req.body.to, email: req.body.to }))
     try {
       await sendEmail({ to: req.body.to, subject: `[PRUEBA] ${subject}`, html })
       return reply.send({ data: { sent: true, to: req.body.to } })
@@ -453,6 +628,195 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       take: Number(req.query.limit ?? 100),
     })
     return reply.send({ data: logs })
+  })
+
+  // ─── SHEET TEMPLATES ────────────────────────────────────────────────────────
+
+  // Default column mappings for the two known Surmedia sheets
+  const DEFAULT_MAPPINGS: Record<string, Record<string, string>> = {
+    'ficha-personal': {
+      'Nombres':                         'firstName',
+      'Apellido paterno':                '_apellidoPaterno',
+      'Apellido materno':                '_apellidoMaterno',
+      'Sexo':                            'gender',
+      'Fecha de Nacimiento':             'birthDate',
+      'Nacionalidad':                    'nationality',
+      'Email Personal':                  'personalEmail',
+      'Celular':                         'phone',
+      'Dirección calle':                 '_direccionCalle',
+      'Dirección numero':                '_direccionNumero',
+      'Dirección departamento':          '_direccionDepto',
+      'Dirección comuna':                'commune',
+      'Dirección ciudad':                'city',
+      'Información Previsional (AFP)':   'afp',
+      'Sistema de salud (Isapre o Fonasa)': 'isapre',
+    },
+    'datos-contractuales': {
+      'Correo del empleado Empresa': 'email',
+      'Cargo':                       'jobTitle',
+      'Jornada':                     'workSchedule',
+      'Jefe':                        'supervisorName',
+    },
+  }
+
+  // GET /sheet-templates
+  fastify.get('/sheet-templates', async (_req, reply) => {
+    try {
+      let sheets = await prisma.onboardingSheetTemplate.findMany({ orderBy: { createdAt: 'asc' } })
+      // Auto-seed the two known sheets if empty
+      if (sheets.length === 0) {
+        await prisma.onboardingSheetTemplate.createMany({
+          data: [
+            {
+              key:          'ficha-personal',
+              name:         'Ficha Personal del Ingresante',
+              url:          'https://docs.google.com/spreadsheets/d/1Y08GbGyu5B0incj7MaX9-Rd047tAxvkq5phAm6euvvI/edit?usp=sharing',
+              rutColumn:    'RUT',
+              columnMappings: DEFAULT_MAPPINGS['ficha-personal'],
+              description:  'Formulario con datos personales: dirección, previsión, banco, documentos.',
+            },
+            {
+              key:          'datos-contractuales',
+              name:         'Datos Contractuales',
+              url:          'https://docs.google.com/spreadsheets/d/1sFjwX1aUNgrgszItuXGw7_mIcejQh7JgjiGWQZxLA_8/edit?usp=sharing',
+              rutColumn:    'RUT del empleado',
+              columnMappings: DEFAULT_MAPPINGS['datos-contractuales'],
+              description:  'Formulario con cargo, jornada, jefe, sueldo y datos contractuales.',
+            },
+          ],
+          skipDuplicates: true,
+        })
+        sheets = await prisma.onboardingSheetTemplate.findMany({ orderBy: { createdAt: 'asc' } })
+      }
+      return reply.send({ data: sheets })
+    } catch {
+      return reply.send({ data: [] })
+    }
+  })
+
+  // POST /sheet-templates
+  fastify.post<{
+    Body: { key: string; name: string; url: string; rutColumn?: string; description?: string; sheetName?: string }
+  }>('/sheet-templates', async (req, reply) => {
+    const { key, name, url, rutColumn = 'RUT', description, sheetName } = req.body
+    if (!key?.trim() || !name?.trim() || !url?.trim()) return reply.status(400).send({ message: 'key, name y url son requeridos' })
+    try {
+      const sheet = await prisma.onboardingSheetTemplate.create({
+        data: { key: key.trim(), name: name.trim(), url: url.trim(), rutColumn, description: description?.trim() || null, sheetName: sheetName?.trim() || null },
+      })
+      return reply.status(201).send({ data: sheet })
+    } catch (err: any) {
+      if (err.code === 'P2002') return reply.status(409).send({ message: 'Ya existe un sheet con ese key' })
+      throw err
+    }
+  })
+
+  // PATCH /sheet-templates/:key
+  fastify.patch<{
+    Params: { key: string }
+    Body: { name?: string; url?: string; rutColumn?: string; description?: string; sheetName?: string; isActive?: boolean }
+  }>('/sheet-templates/:key', async (req, reply) => {
+    const data: Record<string, any> = {}
+    if (req.body.name        !== undefined) data.name        = req.body.name.trim()
+    if (req.body.url         !== undefined) data.url         = req.body.url.trim()
+    if (req.body.rutColumn   !== undefined) data.rutColumn   = req.body.rutColumn
+    if (req.body.description !== undefined) data.description = req.body.description?.trim() || null
+    if (req.body.sheetName   !== undefined) data.sheetName   = req.body.sheetName?.trim() || null
+    if (req.body.isActive    !== undefined) data.isActive    = req.body.isActive
+    try {
+      const sheet = await prisma.onboardingSheetTemplate.update({ where: { key: req.params.key }, data })
+      return reply.send({ data: sheet })
+    } catch {
+      return reply.status(404).send({ message: 'Sheet no encontrado' })
+    }
+  })
+
+  // DELETE /sheet-templates/:key
+  fastify.delete<{ Params: { key: string } }>('/sheet-templates/:key', async (req, reply) => {
+    try {
+      await prisma.onboardingSheetTemplate.delete({ where: { key: req.params.key } })
+    } catch {
+      return reply.status(404).send({ message: 'Sheet no encontrado' })
+    }
+    return reply.status(204).send()
+  })
+
+  // POST /sheet-templates/:key/verify — buscar fila por RUT y retornar preview de actualización
+  fastify.post<{
+    Params: { key: string }
+    Body: { rut: string }
+  }>('/sheet-templates/:key/verify', async (req, reply) => {
+    const { rut } = req.body
+    if (!rut?.trim()) return reply.status(400).send({ message: 'El RUT es requerido' })
+
+    const sheet = await prisma.onboardingSheetTemplate.findUnique({ where: { key: req.params.key } }).catch(() => null)
+    if (!sheet) return reply.status(404).send({ message: 'Sheet no encontrado' })
+
+    let rows: Record<string, string>[]
+    try {
+      rows = await getSheetRowsByUrl(sheet.url, sheet.sheetName ?? undefined)
+    } catch (err: any) {
+      return reply.status(500).send({ message: `Error al leer el sheet: ${err.message}` })
+    }
+
+    const row = findRowByRut(rows, sheet.rutColumn, rut)
+    if (!row) return reply.send({ data: { found: false, rowData: null, updates: null, employeeId: null } })
+
+    const mappings = (sheet.columnMappings ?? {}) as Record<string, string>
+    const updates  = mapRowToEmployee(row, mappings)
+
+    // Buscar empleado por RUT en la DB
+    const rutDigits = rut.replace(/[\s.]/g, '').split('-')[0]
+    const employee  = await prisma.employee.findFirst({
+      where: { rut: { contains: rutDigits } },
+      select: { id: true, firstName: true, lastName: true },
+    }).catch(() => null)
+
+    return reply.send({ data: { found: true, rowData: row, updates, employeeId: employee?.id ?? null, employeeName: employee ? `${employee.firstName} ${employee.lastName}` : null } })
+  })
+
+  // POST /sheet-templates/:key/apply — aplicar actualizaciones al empleado
+  fastify.post<{
+    Params: { key: string }
+    Body: { rut: string; updates: Record<string, any> }
+  }>('/sheet-templates/:key/apply', async (req, reply) => {
+    const { rut, updates } = req.body
+    if (!rut?.trim() || !updates) return reply.status(400).send({ message: 'rut y updates son requeridos' })
+
+    const rutDigits = rut.replace(/[\s.]/g, '').split('-')[0]
+    const employee  = await prisma.employee.findFirst({
+      where: { rut: { contains: rutDigits } },
+      select: { id: true },
+    }).catch(() => null)
+    if (!employee) return reply.status(404).send({ message: 'Colaborador no encontrado en la base de datos' })
+
+    // Whitelist of updatable fields from sheets
+    const ALLOWED = new Set(['firstName', 'lastName', 'gender', 'birthDate', 'nationality', 'personalEmail', 'phone', 'address', 'commune', 'city', 'afp', 'isapre', 'email', 'jobTitle', 'workSchedule', 'supervisorName'])
+    const safe: Record<string, any> = {}
+    for (const [k, v] of Object.entries(updates)) {
+      if (ALLOWED.has(k) && v !== undefined && v !== '') safe[k] = v
+    }
+    if (Object.keys(safe).length === 0) return reply.status(400).send({ message: 'No hay campos válidos para actualizar' })
+
+    // Parse birthDate to DateTime if present
+    if (safe.birthDate) {
+      const parts = safe.birthDate.split('/')
+      if (parts.length === 3) {
+        const [d, m, y] = parts
+        safe.birthDate = new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T12:00:00.000Z`)
+      } else {
+        delete safe.birthDate
+      }
+    }
+
+    // Normalize gender
+    if (safe.gender) {
+      const g = safe.gender.toLowerCase()
+      safe.gender = g.startsWith('f') ? 'F' : g.startsWith('m') ? 'M' : safe.gender
+    }
+
+    const updated = await prisma.employee.update({ where: { id: employee.id }, data: safe, select: { id: true, firstName: true, lastName: true } })
+    return reply.send({ data: { applied: Object.keys(safe), employee: updated } })
   })
 
   // ─── FORMS ───────────────────────────────────────────────────────────────────
@@ -523,51 +887,91 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
   // POST / — crear proceso con hitos seleccionados
   fastify.post<{
     Body: {
+      collaboratorRut?:          string
       collaboratorName:          string
       collaboratorEmail?:        string
       collaboratorPersonalEmail?: string
       collaboratorPosition?:     string
       collaboratorPhone?:        string
       legalEntity?:              string
+      costCenter?:               string
       startDate?:                string
       notes?:                    string
       selectedTaskIds:           string[]
     }
   }>('/', async (req, reply) => {
-    const { collaboratorName, collaboratorEmail, collaboratorPersonalEmail, collaboratorPosition, collaboratorPhone, legalEntity, startDate, notes, selectedTaskIds } = req.body
+    const { collaboratorRut, collaboratorName, collaboratorEmail, collaboratorPersonalEmail, collaboratorPosition, collaboratorPhone, legalEntity, costCenter, startDate, notes, selectedTaskIds } = req.body
 
     if (!collaboratorName?.trim()) return reply.status(400).send({ message: 'El nombre del colaborador es requerido' })
     if (!selectedTaskIds?.length)  return reply.status(400).send({ message: 'Selecciona al menos un hito' })
 
-    const start = startDate ? new Date(startDate) : new Date()
+    // Usar mediodía UTC para evitar desfase de zona horaria al mostrar en frontend (Chile UTC-3/UTC-4)
+    const start = startDate ? new Date(startDate + 'T12:00:00.000Z') : new Date()
     const expectedEndDate = new Date(start)
     expectedEndDate.setDate(expectedEndDate.getDate() + 90)
+
+    // Auto-link employee by RUT if provided
+    let employeeId: string | null = null
+    if (collaboratorRut?.trim()) {
+      const emp = await prisma.employee.findFirst({
+        where: { rut: { contains: collaboratorRut.replace(/[\s.]/g, '').split('-')[0] } },
+        select: { id: true },
+      }).catch(() => null)
+      employeeId = emp?.id ?? null
+    }
+
+    // Intentar cargar subtareas de la plantilla DB
+    const dbSubTaskMap = new Map<string, any[]>()
+    try {
+      const dbTasks = await prisma.onboardingTemplateTask.findMany({
+        where: { key: { in: selectedTaskIds } },
+        include: { subTasks: { orderBy: { sortOrder: 'asc' } } },
+      })
+      for (const t of dbTasks as any[]) {
+        dbSubTaskMap.set(t.key, t.subTasks ?? [])
+      }
+    } catch {}
 
     // Filtrar plantilla a los IDs seleccionados, mantener orden original
     const selectedTasks = TASK_TEMPLATE.filter(t => selectedTaskIds.includes(t.id))
 
     const process = await prisma.onboardingProcess.create({
       data: {
+        collaboratorRut:           collaboratorRut?.trim() || null,
         collaboratorName:          collaboratorName.trim(),
         collaboratorEmail:         collaboratorEmail?.trim() || null,
         collaboratorPersonalEmail: collaboratorPersonalEmail?.trim() || null,
         collaboratorPosition:      collaboratorPosition?.trim() || null,
         collaboratorPhone:    collaboratorPhone?.trim() || null,
         legalEntity:          legalEntity || null,
+        costCenter:           costCenter?.trim() || null,
         notes:                notes?.trim() || null,
+        employeeId:           employeeId,
         startDate:            start,
         expectedEndDate,
         tasks: {
-          create: selectedTasks.map(t => ({
-            templateId:       t.id,
-            period:           t.period,
-            name:             t.name,
-            tool:             t.tool ?? null,
-            appliesWhen:      t.appliesWhen ?? null,
-            sortOrder:        t.sortOrder,
-            automationType:   t.automationType,
-            automationConfig: t.automationConfig ?? null,
-          })),
+          create: selectedTasks.map(t => {
+            const templateSubs = dbSubTaskMap.get(t.id) ?? []
+            return {
+              templateId:       t.id,
+              period:           t.period,
+              name:             t.name,
+              tool:             t.tool ?? null,
+              appliesWhen:      t.appliesWhen ?? null,
+              sortOrder:        t.sortOrder,
+              automationType:   t.automationType,
+              automationConfig: t.automationConfig ?? null,
+              subTasks: templateSubs.map((st: any) => ({
+                id:                  st.id,
+                name:                st.name,
+                responsableProfileId: st.responsableProfileId,
+                tool:                st.tool,
+                plantilla:           st.plantilla,
+                sortOrder:           st.sortOrder,
+                completedAt:         null,
+              })),
+            }
+          }),
         },
       },
       include: {
@@ -612,20 +1016,47 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
   // PATCH /:id/tasks/:taskId — completar / editar tarea
   fastify.patch<{
     Params: { id: string; taskId: string }
-    Body: { completed?: boolean; name?: string; tool?: string; completedNote?: string; period?: string; appliesWhen?: string | null }
+    Body: { completed?: boolean; name?: string; tool?: string; completedNote?: string; period?: string; appliesWhen?: string | null; subTasks?: any[] }
   }>('/:id/tasks/:taskId', async (req, reply) => {
-    const { completed, name, tool, completedNote, period, appliesWhen } = req.body
+    const { completed, name, tool, completedNote, period, appliesWhen, subTasks } = req.body
     const userId = (req.user as any)?.id ?? 'system'
 
+    // Fetch current subTasks if needed
+    const needCurrentTask = (subTasks !== undefined || completed !== undefined)
+    const currentTask = needCurrentTask
+      ? await prisma.onboardingTask.findUnique({ where: { id: req.params.taskId }, select: { subTasks: true } })
+      : null
+
     const updateData: Record<string, any> = {}
-    if (name          !== undefined) updateData.name        = name
-    if (tool          !== undefined) updateData.tool        = tool
+    if (name          !== undefined) updateData.name          = name
+    if (tool          !== undefined) updateData.tool          = tool
     if (completedNote !== undefined) updateData.completedNote = completedNote
-    if (period        !== undefined) updateData.period      = period
-    if (appliesWhen   !== undefined) updateData.appliesWhen = appliesWhen
-    if (completed   !== undefined) {
-      updateData.completedAt = completed ? new Date() : null
+    if (period        !== undefined) updateData.period        = period
+    if (appliesWhen   !== undefined) updateData.appliesWhen   = appliesWhen
+
+    const now    = new Date()
+    const nowISO = now.toISOString()
+
+    if (subTasks !== undefined) {
+      updateData.subTasks = subTasks
+      // Auto-complete parent if all subtasks are now done
+      if (completed === undefined && subTasks.length > 0 && subTasks.every((st: any) => !!st.completedAt)) {
+        updateData.completedAt = now
+        updateData.completedBy = userId
+      }
+    }
+
+    if (completed !== undefined) {
+      updateData.completedAt = completed ? now : null
       updateData.completedBy = completed ? userId : null
+      // Cascade completion to all subtasks
+      const existingSubs = Array.isArray((currentTask as any)?.subTasks) ? (currentTask as any).subTasks as any[] : []
+      if (existingSubs.length > 0) {
+        updateData.subTasks = existingSubs.map((st: any) => ({
+          ...st,
+          completedAt: completed ? (st.completedAt ?? nowISO) : null,
+        }))
+      }
     }
 
     const task = await prisma.onboardingTask.update({

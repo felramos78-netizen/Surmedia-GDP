@@ -1,12 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import {
   Plus, Rocket, CheckCircle2, AlertTriangle, X, ChevronRight,
-  Mail, Calendar, RefreshCw, Wrench, Globe,
+  Mail, Calendar, RefreshCw, Wrench, Globe, Search, UserCheck,
 } from 'lucide-react'
 import {
   useOnboardingProcesses, useOnboardingStats,
   useCreateOnboarding, useOnboardingTemplate,
 } from '@/hooks/useOnboarding'
+import { useJobTitles, useEmployees } from '@/hooks/useDotacion'
+import { useWorkCenters } from '@/hooks/useWorkCenters'
 import type { OnboardingProcess, OnboardingTemplateTask, OnboardingPeriod, TaskAutomationType } from '@/types'
 import OnboardingDrawer from './OnboardingDrawer'
 import HitosTab from './tabs/HitosTab'
@@ -85,14 +87,40 @@ function AutoBadge({ type }: { type: TaskAutomationType }) {
 
 function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState({
-    collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '', collaboratorPosition: '',
+    collaboratorRut: '', collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '', collaboratorPosition: '',
     collaboratorPhone: '', legalEntity: '', costCenter: '', startDate: '', notes: '',
   })
+  const [rutSearch,       setRutSearch]       = useState('')
+  const [matchedEmployee, setMatchedEmployee] = useState<{ id: string; name: string; position?: string | null; rut: string } | null>(null)
+  const [positionMode, setPositionMode] = useState<'select' | 'custom'>('select')
   const [selected,        setSelected]        = useState<Set<string>>(new Set())
   const [createdProcess,  setCreatedProcess]  = useState<import('@/types').OnboardingProcess | null>(null)
 
   const { data: template = [], isLoading: templateLoading, isError: templateError, refetch: refetchTemplate } = useOnboardingTemplate()
+  const { data: jobTitles = [] } = useJobTitles()
+  const { data: workCenters = [] } = useWorkCenters()
+  const { data: empData } = useEmployees({ search: rutSearch, status: ['ACTIVE', 'INACTIVE'] })
   const createOnboarding = useCreateOnboarding()
+
+  // When RUT typed, search for employee match
+  const employeeResults = rutSearch.length >= 4 ? (empData?.data ?? []).slice(0, 5) : []
+
+  const selectEmployee = (emp: { rut: string; firstName: string; lastName: string; jobTitle?: string | null; id: string }) => {
+    const fullName = `${emp.firstName} ${emp.lastName}`
+    setMatchedEmployee({ id: emp.id, name: fullName, position: emp.jobTitle, rut: emp.rut })
+    setForm(f => ({
+      ...f,
+      collaboratorRut:      emp.rut,
+      collaboratorName:     fullName,
+      collaboratorPosition: emp.jobTitle ?? f.collaboratorPosition,
+    }))
+    setRutSearch('')
+  }
+
+  const clearEmployee = () => {
+    setMatchedEmployee(null)
+    setForm(f => ({ ...f, collaboratorRut: '', collaboratorName: '' }))
+  }
 
   useEffect(() => {
     if (template.length > 0 && selected.size === 0)
@@ -116,6 +144,7 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const handleSubmit = async () => {
     try {
       const process = await createOnboarding.mutateAsync({
+        collaboratorRut:           form.collaboratorRut.trim() || undefined,
         collaboratorName:          form.collaboratorName.trim(),
         collaboratorEmail:         form.collaboratorEmail.trim() || undefined,
         collaboratorPersonalEmail: form.collaboratorPersonalEmail.trim() || undefined,
@@ -250,9 +279,72 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
           {/* Datos del colaborador */}
           <div className="grid grid-cols-2 gap-4">
+            {/* RUT con búsqueda */}
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                RUT <span className="text-red-400">*</span>
+              </label>
+              {matchedEmployee ? (
+                <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                  <UserCheck size={14} className="text-green-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-green-800 truncate">{matchedEmployee.name}</p>
+                    <p className="text-[10px] text-green-600">{matchedEmployee.rut} · {matchedEmployee.position ?? '—'}</p>
+                  </div>
+                  <button onClick={clearEmployee} className="p-1 text-green-500 hover:text-green-800">
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <div className="relative">
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Buscar por RUT o nombre..."
+                        value={rutSearch}
+                        onChange={e => setRutSearch(e.target.value)}
+                        className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="RUT manual (si no está en el sistema)"
+                      value={form.collaboratorRut}
+                      onChange={e => field('collaboratorRut', e.target.value)}
+                      className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  {employeeResults.length > 0 && (
+                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                      {employeeResults.map((emp: any) => (
+                        <button
+                          key={emp.id}
+                          type="button"
+                          onClick={() => selectEmployee(emp)}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
+                        >
+                          <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold flex items-center justify-center flex-shrink-0 uppercase">
+                            {emp.firstName[0]}{emp.lastName[0]}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{emp.firstName} {emp.lastName}</p>
+                            <p className="text-xs text-gray-400">{emp.rut} · {emp.jobTitle ?? '—'}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Nombre (se pre-rellena desde el colaborador seleccionado) */}
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre completo <span className="text-red-400">*</span></label>
-              <input autoFocus type="text" placeholder="Ej: Juan Pérez Soto" value={form.collaboratorName}
+              <input type="text" placeholder="Ej: Juan Pérez Soto" value={form.collaboratorName}
                 onChange={e => field('collaboratorName', e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
@@ -276,15 +368,48 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo</label>
-              <input type="text" placeholder="Ej: Diseñador Gráfico" value={form.collaboratorPosition}
-                onChange={e => field('collaboratorPosition', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              {positionMode === 'select' ? (
+                <select
+                  value={form.collaboratorPosition}
+                  onChange={e => {
+                    if (e.target.value === '__otro__') {
+                      setPositionMode('custom')
+                      field('collaboratorPosition', '')
+                    } else {
+                      field('collaboratorPosition', e.target.value)
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">Seleccionar cargo...</option>
+                  {jobTitles.map(t => <option key={t} value={t}>{t}</option>)}
+                  <option value="__otro__">Otro (ingresar manualmente)</option>
+                </select>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    autoFocus
+                    type="text"
+                    placeholder="Ej: Diseñador Gráfico"
+                    value={form.collaboratorPosition}
+                    onChange={e => field('collaboratorPosition', e.target.value)}
+                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setPositionMode('select'); field('collaboratorPosition', '') }}
+                    className="px-2 py-1 text-xs text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg"
+                  >
+                    Lista
+                  </button>
+                </div>
+              )}
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Empresa</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Empresa <span className="text-red-400">*</span></label>
               <select value={form.legalEntity} onChange={e => field('legalEntity', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
-                <option value="">Sin especificar</option>
+                className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${!form.legalEntity ? 'border-gray-300' : 'border-gray-200'}`}>
+                <option value="">Seleccionar empresa...</option>
                 <option value="COMUNICACIONES_SURMEDIA">Comunicaciones Surmedia Spa</option>
                 <option value="SURMEDIA_CONSULTORIA">Surmedia Consultoría Spa</option>
               </select>
@@ -295,10 +420,17 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Centro de costo / Proyecto</label>
-              <input value={form.costCenter} onChange={e => field('costCenter', e.target.value)}
-                placeholder="Ej: Proyecto Expansión 2026"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Centro de Trabajo</label>
+              <select
+                value={form.costCenter}
+                onChange={e => field('costCenter', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">Sin asignar</option>
+                {workCenters.map(wc => (
+                  <option key={wc.id} value={wc.name}>{wc.name}</option>
+                ))}
+              </select>
             </div>
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Notas internas</label>
@@ -361,14 +493,14 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
               </div>
             )}
           </div>
-        </div>
+        </div>}
 
         {/* Footer (solo en paso 1) */}
         {!createdProcess && <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 flex-shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
           <button
             onClick={handleSubmit}
-            disabled={!form.collaboratorName.trim() || selected.size === 0 || createOnboarding.isPending}
+            disabled={!form.collaboratorName.trim() || !form.legalEntity || selected.size === 0 || createOnboarding.isPending}
             className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {createOnboarding.isPending

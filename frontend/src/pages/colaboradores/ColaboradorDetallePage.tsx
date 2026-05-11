@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Building2,
-  Briefcase, CreditCard, User, Clock, ChevronDown, Pencil, X, Check, Trash2,
+  Briefcase, CreditCard, User, Clock, ChevronDown, Pencil, X, Check, Trash2, Plus,
 } from 'lucide-react'
 import { useEmployee, useEmployeePayroll, useUpdateEmployee, useDeleteEmployee, type EmployeePatch } from '@/hooks/useDotacion'
+import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
 import { formatDate, formatCLP } from '@/lib/utils'
-import type { Contract, LegalEntity, PayrollItem, Leave, Employee, VacationBalance } from '@/types'
+import type { Contract, LegalEntity, PayrollItem, Leave, Employee, VacationBalance, EmployeeWorkCenter } from '@/types'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ const LEAVE_STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pendiente', APPROVED: 'Aprobada', REJECTED: 'Rechazada', CANCELLED: 'Cancelada',
 }
 const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-const TABS = ['Datos', 'Contratos', 'Remuneraciones', 'Ausencias'] as const
+const TABS = ['Datos', 'Contratos', 'Remuneraciones', 'Ausencias', 'Centros'] as const
 type Tab = typeof TABS[number]
 
 // ─── Formulario de edición ────────────────────────────────────────────────────
@@ -405,6 +406,133 @@ function PayrollMonthCard({ entry }: {
   )
 }
 
+// ─── Tab Centros de trabajo ───────────────────────────────────────────────────
+
+const MONTH_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+
+function CentrosTab({ emp }: { emp: Employee }) {
+  const { data: allCenters = [] } = useWorkCenters()
+  const assign   = useAssignWorkCenter()
+  const unassign = useUnassignWorkCenter()
+
+  const [addingFor, setAddingFor]       = useState<LegalEntity | null>(null)
+  const [selectedCenter, setSelectedCenter] = useState('')
+
+  const contractEntities = Array.from(
+    new Set((emp.contracts ?? []).filter(c => c.isActive && c.legalEntity).map(c => c.legalEntity as LegalEntity))
+  )
+  const wcEntities = Array.from(new Set((emp.workCenters ?? []).map(wc => wc.legalEntity)))
+  const entities   = Array.from(new Set([...contractEntities, ...wcEntities])) as LegalEntity[]
+
+  const all: LegalEntity[] = entities.length > 0
+    ? entities
+    : ['COMUNICACIONES_SURMEDIA', 'SURMEDIA_CONSULTORIA']
+
+  function assignedFor(entity: LegalEntity) {
+    return (emp.workCenters ?? []).filter(wc => wc.legalEntity === entity)
+  }
+  function availableFor(entity: LegalEntity) {
+    const ids = new Set(assignedFor(entity).map(a => a.workCenterId))
+    return allCenters.filter(c => !ids.has(c.id))
+  }
+
+  async function handleAssign(entity: LegalEntity) {
+    if (!selectedCenter) return
+    await assign.mutateAsync({ workCenterId: selectedCenter, employeeId: emp.id, legalEntity: entity })
+    setSelectedCenter('')
+    setAddingFor(null)
+  }
+
+  async function handleUnassign(wc: EmployeeWorkCenter) {
+    await unassign.mutateAsync({ workCenterId: wc.workCenterId, employeeId: emp.id, legalEntity: wc.legalEntity })
+  }
+
+  return (
+    <div className="space-y-4">
+      {all.map(entity => {
+        const assigned  = assignedFor(entity)
+        const available = availableFor(entity)
+        const isAdding  = addingFor === entity
+
+        return (
+          <div key={entity} className="bg-white rounded-xl border border-gray-100 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${ENTITY_COLOR[entity]}`}>
+                  {ENTITY_LABEL[entity]}
+                </span>
+                <span className="text-sm font-semibold text-gray-700">Centros de trabajo</span>
+              </div>
+              {!isAdding && available.length > 0 && (
+                <button
+                  onClick={() => { setAddingFor(entity); setSelectedCenter('') }}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                >
+                  <Plus size={13} />Agregar
+                </button>
+              )}
+            </div>
+
+            {assigned.length === 0 && !isAdding && (
+              <p className="text-xs text-gray-400 italic">Sin centros asignados.</p>
+            )}
+
+            <div className="divide-y divide-gray-50">
+              {assigned.map(wc => (
+                <div key={wc.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-gray-800">{wc.workCenter.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {wc.workCenter.costType === 'DIRECTO' ? 'Directo' : 'Indirecto'}
+                      {' · '}desde {MONTH_SHORT[wc.startMonth - 1]} {wc.startYear}
+                      {wc.endYear != null && ` → ${MONTH_SHORT[(wc.endMonth ?? 12) - 1]} ${wc.endYear}`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleUnassign(wc)}
+                    disabled={unassign.isPending}
+                    className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                    title="Quitar"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {isAdding && (
+              <div className="flex gap-2 mt-3">
+                <select
+                  autoFocus
+                  value={selectedCenter}
+                  onChange={e => setSelectedCenter(e.target.value)}
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Seleccionar centro…</option>
+                  {available.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <button
+                  onClick={() => handleAssign(entity)}
+                  disabled={!selectedCenter || assign.isPending}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  <Check size={15} />
+                </button>
+                <button
+                  onClick={() => { setAddingFor(null); setSelectedCenter('') }}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 text-gray-400 transition-colors"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function ColaboradorDetallePage() {
@@ -437,6 +565,7 @@ export default function ColaboradorDetallePage() {
     Contratos:      emp.contracts?.length,
     Remuneraciones: payroll.length || undefined,
     Ausencias:      leaves.length || undefined,
+    Centros:        emp.workCenters?.length || undefined,
   }
 
   function startEdit() {
@@ -814,6 +943,10 @@ export default function ColaboradorDetallePage() {
               )
             }
           </div>
+        )}
+
+        {tab === 'Centros' && (
+          <CentrosTab emp={emp} />
         )}
 
       </div>

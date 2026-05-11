@@ -160,6 +160,17 @@ export function useUpdateEmployee() {
   })
 }
 
+export function useJobTitles() {
+  return useQuery({
+    queryKey: ['jobTitles'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<string[]>>('/employees/job-titles')
+      return data.data
+    },
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
 export function useDeleteEmployee() {
   const qc = useQueryClient()
   return useMutation({

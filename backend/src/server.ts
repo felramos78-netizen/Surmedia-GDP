@@ -13,6 +13,7 @@ import profileRoutes from './routes/profiles'
 import payrollRoutes from './routes/payroll'
 import workCenterRoutes from './routes/workCenters'
 import bukRoutes from './routes/buk'
+import calendarRoutes from './routes/calendar'
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
 
@@ -40,6 +41,7 @@ async function bootstrap() {
   await app.register(payrollRoutes,    { prefix: '/api/payroll' })
   await app.register(workCenterRoutes, { prefix: '/api/work-centers' })
   await app.register(bukRoutes,        { prefix: '/api/buk' })
+  await app.register(calendarRoutes,  { prefix: '/api/calendar' })
 
   app.get('/api/health', async () => ({ status: 'ok', env: process.env.NODE_ENV }))
 

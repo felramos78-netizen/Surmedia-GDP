@@ -196,18 +196,37 @@ export function templateNotificacionInterna(vars: TemplateVars & { taskName: str
 }
 
 // ─── Helper: construir email desde template guardado en DB ────────────────────
-// bodyHtml es el contenido interno (sin wrapper); se le aplica el baseLayout en envío.
+// Soporta dos sintaxis de variable:
+//   {varName}   — camelCase legacy
+//   "varName"   — nueva sintaxis legible en español
+
+const QUOTED_VAR_KEYS = [
+  'nombre', 'primerNombre', 'apellido', 'rut', 'cargo', 'empresa',
+  'email', 'emailPersonal', 'telefono', 'jornada', 'supervisor',
+  'afp', 'isapre', 'ciudad', 'comuna',
+  'centroTrabajo', 'tipoCentro',
+  'fechaIngreso', 'fechaIngresoCorta', 'fechaActual', 'año',
+  'saludoHorario', 'diaNumero', 'nombreHito', 'instruccion',
+]
+
+function interpolate(str: string, vars: Record<string, string>): string {
+  // {varName} legacy
+  let out = str.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`)
+  // "varName" nueva sintaxis — sólo reemplaza keys conocidas
+  if (QUOTED_VAR_KEYS.length) {
+    const pattern = new RegExp(`"(${QUOTED_VAR_KEYS.join('|')})"`, 'g')
+    out = out.replace(pattern, (_, k) => vars[k] ?? `"${k}"`)
+  }
+  return out
+}
 
 export function buildFromDbTemplate(
   template: { subject: string; bodyHtml: string },
   vars: Record<string, string>
 ): { subject: string; html: string } {
-  const interpolate = (str: string) =>
-    str.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`)
-
   return {
-    subject: interpolate(template.subject),
-    html: baseLayout(interpolate(template.bodyHtml), vars as TemplateVars),
+    subject: interpolate(template.subject, vars),
+    html: baseLayout(interpolate(template.bodyHtml, vars), vars as TemplateVars),
   }
 }
 

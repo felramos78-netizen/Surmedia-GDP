@@ -402,7 +402,8 @@ enum AutomationStatus {
 
 model OnboardingProcess {
   id                   String           @id @default(uuid())
-  // Colaborador libre — no requiere Employee en DB
+  // Colaborador — RUT obligatorio, nombre libre
+  collaboratorRut           String?
   collaboratorName          String
   collaboratorEmail         String?
   collaboratorPersonalEmail String?
@@ -411,7 +412,7 @@ model OnboardingProcess {
   costCenter                String?
   legalEntity          LegalEntity?
   notes                String?
-  // Vinculación opcional a Employee de BUK (se hace después)
+  // Vinculación opcional a Employee de BUK (se hace después o auto por RUT)
   employee             Employee?        @relation(fields: [employeeId], references: [id])
   employeeId           String?
   // Estado del proceso
@@ -447,6 +448,8 @@ model OnboardingTask {
   completedAt      DateTime?
   completedBy      String?
   completedNote    String?
+  // Sub-tareas (sólo para hitos de plazo; copiadas de la plantilla al crear el proceso)
+  subTasks         Json               @default("[]")
   assignments      OnboardingTaskAssignment[]
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -465,8 +468,10 @@ model Profile {
   email     String        @unique
   phone     String?
   notes     String?
-  roles           ProfileRole[]
-  taskAssignments OnboardingTaskAssignment[]
+  roles                    ProfileRole[]
+  taskAssignments          OnboardingTaskAssignment[]
+  templateTasksResponsable OnboardingTemplateTask[]    @relation("TemplateTaskResponsable")
+  subTasksResponsable      OnboardingTemplateSubTask[] @relation("SubTaskResponsable")
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
@@ -511,10 +516,52 @@ model OnboardingTemplateTask {
   appliesWhen      String?
   sortOrder        Int                @default(0)
   isActive         Boolean            @default(true)
+  // Nuevos campos para gestión de hitos
+  taskType              String   @default("PLAZO")  // FECHA_ESPECIFICA | PLAZO
+  responsableProfileId  String?
+  responsable           Profile? @relation("TemplateTaskResponsable", fields: [responsableProfileId], references: [id], onDelete: SetNull)
+  appliesTo             Json     @default("[]")     // string[] de jobTitles; vacío = Todos
+  subTasks              OnboardingTemplateSubTask[]
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
   @@map("onboarding_template_tasks")
+}
+
+model OnboardingTemplateSubTask {
+  id                   String                 @id @default(uuid())
+  templateTask         OnboardingTemplateTask @relation(fields: [templateTaskId], references: [id], onDelete: Cascade)
+  templateTaskId       String
+  name                 String
+  responsableProfileId String?
+  responsable          Profile?               @relation("SubTaskResponsable", fields: [responsableProfileId], references: [id], onDelete: SetNull)
+  tool                 String?
+  plantilla            String?
+  sortOrder            Int                    @default(0)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  @@map("onboarding_template_subtasks")
+}
+
+// ─────────────────────────────────────────────
+// Sheets de onboarding (repositorio global)
+// ─────────────────────────────────────────────
+
+model OnboardingSheetTemplate {
+  id             String   @id @default(uuid())
+  key            String   @unique
+  name           String
+  url            String
+  rutColumn      String   @default("RUT")
+  columnMappings Json     @default("{}")
+  sheetName      String?
+  description    String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("onboarding_sheet_templates")
 }
 
 // ─────────────────────────────────────────────

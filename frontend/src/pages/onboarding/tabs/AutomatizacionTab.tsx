@@ -3,19 +3,19 @@ import { Mail, Calendar, FileText } from 'lucide-react'
 import type { OnboardingProcess } from '@/types'
 import CorreosPanel from './CorreosPanel'
 import CalendarPanel from './CalendarPanel'
-import FormulariosPanel from './FormulariosPanel'
+import SheetsPanel from './SheetsPanel'
 
 interface Props {
   processes: OnboardingProcess[]
 }
 
 export default function AutomatizacionTab({ processes }: Props) {
-  const [sub, setSub] = useState<'correos' | 'calendar' | 'formularios'>('correos')
+  const [sub, setSub] = useState<'correos' | 'calendar' | 'sheets'>('correos')
 
   const SUB_TABS = [
-    { key: 'correos'     as const, label: 'Correos',     icon: <Mail size={14} /> },
-    { key: 'calendar'    as const, label: 'Calendar',    icon: <Calendar size={14} /> },
-    { key: 'formularios' as const, label: 'Formularios', icon: <FileText size={14} /> },
+    { key: 'correos'  as const, label: 'Correos',  icon: <Mail size={14} /> },
+    { key: 'calendar' as const, label: 'Calendar', icon: <Calendar size={14} /> },
+    { key: 'sheets'   as const, label: 'Sheets',   icon: <FileText size={14} /> },
   ]
 
   return (
@@ -38,9 +38,9 @@ export default function AutomatizacionTab({ processes }: Props) {
         ))}
       </div>
 
-      {sub === 'correos'     && <CorreosPanel />}
-      {sub === 'calendar'    && <CalendarPanel processes={processes} />}
-      {sub === 'formularios' && <FormulariosPanel processes={processes} />}
+      {sub === 'correos'  && <CorreosPanel />}
+      {sub === 'calendar' && <CalendarPanel processes={processes} />}
+      {sub === 'sheets'   && <SheetsPanel />}
     </div>
   )
 }

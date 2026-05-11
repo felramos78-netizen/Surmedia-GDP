@@ -81,6 +81,7 @@ export function useCreateOnboarding() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (body: {
+      collaboratorRut?:          string
       collaboratorName:          string
       collaboratorEmail?:        string
       collaboratorPersonalEmail?: string
@@ -107,7 +108,7 @@ export function useUpdateTask() {
   return useMutation({
     mutationFn: async ({
       processId, taskId, ...body
-    }: { processId: string; taskId: string; completed?: boolean; name?: string; tool?: string; completedNote?: string; period?: string; appliesWhen?: string | null }) => {
+    }: { processId: string; taskId: string; completed?: boolean; name?: string; tool?: string; completedNote?: string; period?: string; appliesWhen?: string | null; subTasks?: any[] }) => {
       const { data } = await api.patch(`/onboarding/${processId}/tasks/${taskId}`, body)
       return data
     },
@@ -256,6 +257,27 @@ export function useUpdateEmailTemplate() {
   })
 }
 
+export function useCreateEmailTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: { key: string; name: string; subject?: string; bodyHtml?: string }) => {
+      const { data } = await api.post<ApiResponse<EmailTemplate>>('/onboarding/email-templates', body)
+      return data.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['emailTemplates'] }),
+  })
+}
+
+export function useDeleteEmailTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (key: string) => {
+      await api.delete(`/onboarding/email-templates/${key}`)
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['emailTemplates'] }),
+  })
+}
+
 export function usePreviewEmailTemplate() {
   return useMutation({
     mutationFn: async (key: string) => {
@@ -303,13 +325,120 @@ export function useTemplateTasks() {
 export function useUpdateTemplateTask() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ key, ...body }: { key: string; name?: string; isActive?: boolean; appliesWhen?: string | null }) => {
+    mutationFn: async ({ key, ...body }: {
+      key: string; name?: string; isActive?: boolean; appliesWhen?: string | null
+      period?: string; taskType?: string; tool?: string | null; automationType?: string
+      automationConfig?: Record<string, any> | null
+      responsableProfileId?: string | null; appliesTo?: string[]
+      subTasks?: Array<{ name: string; responsableProfileId?: string | null; tool?: string | null; plantilla?: string | null; sortOrder?: number }>
+    }) => {
       const { data } = await api.patch<ApiResponse<OnboardingDbTemplateTask>>(`/onboarding/template-tasks/${key}`, body)
       return data.data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['templateTasks'] })
       queryClient.invalidateQueries({ queryKey: ['onboarding', 'template'] })
+    },
+  })
+}
+
+export function useCreateTemplateTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: {
+      name: string; period: string; taskType?: string; tool?: string | null; automationType?: string
+      automationConfig?: Record<string, any> | null
+      responsableProfileId?: string | null; appliesTo?: string[]; appliesWhen?: string | null
+      subTasks?: Array<{ name: string; responsableProfileId?: string | null; tool?: string | null; plantilla?: string | null }>
+    }) => {
+      const { data } = await api.post<ApiResponse<OnboardingDbTemplateTask>>('/onboarding/template-tasks', body)
+      return data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['templateTasks'] })
+      queryClient.invalidateQueries({ queryKey: ['onboarding', 'template'] })
+    },
+  })
+}
+
+export function useDeleteTemplateTask() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (key: string) => {
+      await api.delete(`/onboarding/template-tasks/${key}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['templateTasks'] })
+      queryClient.invalidateQueries({ queryKey: ['onboarding', 'template'] })
+    },
+  })
+}
+
+// ─── Sheet Templates ─────────────────────────────────────────────────────────
+
+import type { OnboardingSheetTemplate } from '@/types'
+
+export function useSheetTemplates() {
+  return useQuery({
+    queryKey: ['sheetTemplates'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<OnboardingSheetTemplate[]>>('/onboarding/sheet-templates')
+      return data.data
+    },
+    staleTime: 1000 * 60 * 10,
+  })
+}
+
+export function useCreateSheetTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: { key: string; name: string; url: string; rutColumn?: string; description?: string; sheetName?: string }) => {
+      const { data } = await api.post<ApiResponse<OnboardingSheetTemplate>>('/onboarding/sheet-templates', body)
+      return data.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sheetTemplates'] }),
+  })
+}
+
+export function useUpdateSheetTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ key, ...body }: { key: string; name?: string; url?: string; rutColumn?: string; description?: string; sheetName?: string; isActive?: boolean }) => {
+      const { data } = await api.patch<ApiResponse<OnboardingSheetTemplate>>(`/onboarding/sheet-templates/${key}`, body)
+      return data.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sheetTemplates'] }),
+  })
+}
+
+export function useDeleteSheetTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (key: string) => { await api.delete(`/onboarding/sheet-templates/${key}`) },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sheetTemplates'] }),
+  })
+}
+
+export function useVerifySheet() {
+  return useMutation({
+    mutationFn: async ({ key, rut }: { key: string; rut: string }) => {
+      const { data } = await api.post<ApiResponse<{
+        found:        boolean
+        rowData:      Record<string, string> | null
+        updates:      Record<string, any>   | null
+        employeeId:   string | null
+        employeeName: string | null
+      }>>(`/onboarding/sheet-templates/${key}/verify`, { rut })
+      return data.data
+    },
+  })
+}
+
+export function useApplySheetData() {
+  return useMutation({
+    mutationFn: async ({ key, rut, updates }: { key: string; rut: string; updates: Record<string, any> }) => {
+      const { data } = await api.post<ApiResponse<{ applied: string[]; employee: { id: string; firstName: string; lastName: string } }>>(`/onboarding/sheet-templates/${key}/apply`, { rut, updates })
+      return data.data
     },
   })
 }

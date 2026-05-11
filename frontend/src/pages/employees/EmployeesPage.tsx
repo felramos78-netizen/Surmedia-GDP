@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Search, RefreshCw, ChevronDown, Users, AlertTriangle, X, ChevronsUpDown, ChevronUp, LayoutList, CalendarDays, Download } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { useEmployees, useEmployeeStats, useMovements, useUpdateEmployee, type DotacionFilters } from '@/hooks/useDotacion'
@@ -107,38 +108,30 @@ function FilterSelect({ value, onChange, options, placeholder }: {
 
 // ─── PeriodFilter — selector combinado Mes/Año ───────────────────────────────
 
-function PeriodFilter({ year, month, onYearChange, onMonthChange, placeholder = 'Período activo' }: {
+function PeriodFilter({ year, month, onYearChange, onMonthChange, placeholder = 'Todo el año' }: {
   year: string; month: string
   onYearChange: (v: string) => void
   onMonthChange: (v: string) => void
   placeholder?: string
 }) {
-  const options: { value: string; label: string }[] = []
-  const now = new Date()
-  for (let i = 0; i < 36; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const y = String(d.getFullYear())
-    const m = String(d.getMonth() + 1)
-    const label = `${MONTHS.find(mo => mo.value === m)?.label} ${y}`
-    options.push({ value: `${y}-${m}`, label })
-  }
-  const value = year && month ? `${year}-${month}` : ''
   return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={e => {
-          const [y, m] = e.target.value ? e.target.value.split('-') : ['', '']
-          onYearChange(y ?? '')
-          onMonthChange(m ?? '')
-        }}
-        className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-      >
-        <option value="">{placeholder}</option>
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-      <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-    </div>
+    <>
+      <div className="relative">
+        <select value={year} onChange={e => onYearChange(e.target.value)}
+          className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+          {YEARS.map(y => <option key={y} value={String(y)}>{String(y)}</option>)}
+        </select>
+        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+      </div>
+      <div className="relative">
+        <select value={month} onChange={e => onMonthChange(e.target.value)}
+          className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+          <option value="">{placeholder}</option>
+          {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+        </select>
+        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+      </div>
+    </>
   )
 }
 
@@ -250,7 +243,7 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
   const assignedIds = new Set(assignedForEntity.map(a => a.workCenterId))
   const available = allCenters.filter(c => !assignedIds.has(c.id))
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={e => e.stopPropagation()}>
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -317,7 +310,8 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -604,21 +598,24 @@ function LeaveTab({ type, year, month, onYearChange, onMonthChange }: {
     <div className="space-y-4">
       {/* Controls */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <PeriodFilter
-          year={year} month={month}
-          onYearChange={onYearChange} onMonthChange={onMonthChange}
-          placeholder="Mes y año"
-        />
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white">
-          <button onClick={() => setViewMode('tabla')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === 'tabla' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-            <LayoutList size={14} />Tabla
-          </button>
-          <button onClick={() => setViewMode('calendario')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === 'calendario' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-            <CalendarDays size={14} />Calendario
-          </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <PeriodFilter
+            year={year} month={month}
+            onYearChange={onYearChange} onMonthChange={onMonthChange}
+          />
         </div>
+        {month && (
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white">
+            <button onClick={() => setViewMode('tabla')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === 'tabla' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+              <LayoutList size={14} />Tabla
+            </button>
+            <button onClick={() => setViewMode('calendario')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === 'calendario' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+              <CalendarDays size={14} />Calendario
+            </button>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -859,7 +856,9 @@ export default function EmployeesPage() {
       <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h3 className="text-sm font-semibold text-gray-800">Ingresos y Salidas</h3>
-          <span className="text-xs text-gray-400">{MONTHS.find(m => m.value === periodMonth)?.label} {periodYear}</span>
+          <span className="text-xs text-gray-400">
+            {periodMonth ? `${MONTHS.find(m => m.value === periodMonth)?.label} ${periodYear}` : `Anual ${periodYear}`}
+          </span>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Ingresos */}

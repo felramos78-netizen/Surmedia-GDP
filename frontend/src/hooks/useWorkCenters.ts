@@ -84,6 +84,7 @@ export function useAssignWorkCenter() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['employees'] })
+      qc.invalidateQueries({ queryKey: ['employee'] })
       qc.invalidateQueries({ queryKey: ['workCenters'] })
     },
   })
@@ -97,6 +98,7 @@ export function useUnassignWorkCenter() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['employees'] })
+      qc.invalidateQueries({ queryKey: ['employee'] })
       qc.invalidateQueries({ queryKey: ['workCenters'] })
     },
   })

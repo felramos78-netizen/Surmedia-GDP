@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react'
 import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save, FileText, ExternalLink, Users, ListChecks } from 'lucide-react'
-import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment } from '@/hooks/useOnboarding'
+import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment, useVerifySheet, useApplySheetData } from '@/hooks/useOnboarding'
 import { useProfiles, ROLE_TYPES } from '@/hooks/useProfiles'
-import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus, OnboardingProcess, TaskAssignment } from '@/types'
+import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus, OnboardingProcess, TaskAssignment, SubTaskInstance } from '@/types'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -208,128 +208,196 @@ function buildEmail(task: OnboardingTask, process: OnboardingProcess): { to: str
   return { to: recipientTo, subject: tpl.subject, body: tpl.body }
 }
 
-// ─── Modal verificación de documentos (Google Sheet) ─────────────────────────
+// ─── Modal verificación de Google Sheet ──────────────────────────────────────
 
-import api from '@/lib/api'
+const EMPLOYEE_FIELD_LABELS: Record<string, string> = {
+  firstName:     'Nombre',
+  lastName:      'Apellido',
+  email:         'Email corporativo',
+  personalEmail: 'Email personal',
+  phone:         'Teléfono',
+  birthDate:     'Fecha de nacimiento',
+  gender:        'Género',
+  nationality:   'Nacionalidad',
+  address:       'Dirección',
+  commune:       'Comuna',
+  city:          'Ciudad',
+  afp:           'AFP',
+  isapre:        'Isapre',
+  jobTitle:      'Cargo',
+  workSchedule:  'Jornada',
+  supervisorName: 'Supervisor',
+}
 
 function SheetVerifyModal({
   task, process, onClose,
 }: { task: OnboardingTask; process: OnboardingProcess; onClose: () => void }) {
-  const cfg = task.automationConfig as Record<string, any> | null
-  const nameColumn = cfg?.nameColumn ?? 'Nombre completo'
-  const docColumns: string[] = cfg?.docColumns ?? []
+  const cfg         = task.automationConfig as Record<string, any> | null
+  const templateKey = cfg?.templateKey as string | undefined
+  const rut         = process.collaboratorRut
 
-  const [rows, setRows]           = useState<Record<string, string>[] | null>(null)
-  const [error, setError]         = useState('')
-  const [selected, setSelected]   = useState<Record<string, string> | null>(null)
-  const [checked, setChecked]     = useState<Set<string>>(new Set())
-  const updateTask = useUpdateTask()
+  const verifySheet = useVerifySheet()
+  const applySheet  = useApplySheetData()
+  const updateTask  = useUpdateTask()
 
   React.useEffect(() => {
-    api.get('/onboarding/sheet/form-responses')
-      .then(r => setRows(r.data.data))
-      .catch(() => setError('No se pudo cargar el formulario'))
+    if (templateKey && rut) verifySheet.mutate({ key: templateKey, rut })
   }, [])
 
-  const handleSelect = (row: Record<string, string>) => {
-    setSelected(row)
-    setChecked(new Set())
-  }
+  const result = verifySheet.data
 
-  const toggleDoc = (col: string) => {
-    setChecked(prev => {
-      const next = new Set(prev)
-      next.has(col) ? next.delete(col) : next.add(col)
-      return next
-    })
-  }
-
-  const allChecked = docColumns.filter(c => selected?.[c]).every(c => checked.has(c))
-
-  const handleConfirm = async () => {
+  const handleApply = async () => {
+    if (!templateKey || !rut || !result?.updates) return
+    await applySheet.mutateAsync({ key: templateKey, rut, updates: result.updates })
     await updateTask.mutateAsync({ processId: process.id, taskId: task.id, completed: true })
-    onClose()
   }
+
+  const updatesCount = result?.updates ? Object.keys(result.updates).length : 0
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
-            <h2 className="text-sm font-semibold text-gray-900">Verificar documentos del formulario</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{process.collaboratorName}</p>
+            <h2 className="text-sm font-semibold text-gray-900">Verificar formulario</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {process.collaboratorName}
+              {rut && <span className="ml-1 text-gray-300">· RUT {rut}</span>}
+            </p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={15} /></button>
         </div>
 
-        <div className="overflow-y-auto px-6 py-4 flex flex-col gap-4">
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          {!rows && !error && <p className="text-sm text-gray-400">Cargando respuestas...</p>}
+        <div className="overflow-y-auto px-6 py-4 flex-1 space-y-4">
+          {/* Warnings */}
+          {!rut && (
+            <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+              <AlertTriangle size={14} />
+              Este proceso no tiene RUT asociado. Edita el proceso para agregarlo.
+            </div>
+          )}
+          {rut && !templateKey && (
+            <p className="text-sm text-gray-400">No hay plantilla de sheet configurada para este hito.</p>
+          )}
 
-          {rows && (
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                Selecciona el ingresante ({rows.length} respuestas)
-              </label>
-              <select
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                defaultValue=""
-                onChange={e => {
-                  const row = rows.find(r => r[nameColumn] === e.target.value)
-                  if (row) handleSelect(row)
-                }}
-              >
-                <option value="" disabled>Seleccionar...</option>
-                {rows.map((r, i) => (
-                  <option key={i} value={r[nameColumn]}>{r[nameColumn]}</option>
-                ))}
-              </select>
+          {/* Loading */}
+          {verifySheet.isPending && (
+            <div className="flex items-center justify-center py-12 gap-3 text-gray-400">
+              <Loader2 size={20} className="animate-spin" />
+              <span className="text-sm">Buscando en el formulario...</span>
             </div>
           )}
 
-          {selected && (
-            <div>
-              <p className="text-xs font-medium text-gray-600 mb-2">Documentos adjuntos — marca cada uno como revisado</p>
-              <div className="flex flex-col gap-2">
-                {docColumns.map(col => {
-                  const url = selected[col]
-                  const hasDoc = !!url
-                  return (
-                    <div key={col} className={`flex items-center gap-3 p-3 rounded-lg border ${checked.has(col) ? 'border-green-200 bg-green-50' : 'border-gray-100 bg-gray-50'}`}>
-                      <input
-                        type="checkbox"
-                        checked={checked.has(col)}
-                        onChange={() => hasDoc && toggleDoc(col)}
-                        disabled={!hasDoc}
-                        className="w-4 h-4 accent-green-600"
-                      />
-                      <span className={`flex-1 text-sm ${hasDoc ? 'text-gray-800' : 'text-gray-400'}`}>{col}</span>
-                      {hasDoc ? (
-                        <a href={url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                          <ExternalLink size={11} /> Ver
-                        </a>
-                      ) : (
-                        <span className="text-xs text-gray-400">No adjuntado</span>
-                      )}
-                    </div>
-                  )
-                })}
+          {/* Error */}
+          {verifySheet.isError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+              Error al conectar con Google Sheets. Verifica que el sheet esté compartido con la cuenta de servicio.
+            </div>
+          )}
+
+          {/* Not found */}
+          {result && !result.found && (
+            <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+              <AlertTriangle size={14} />
+              No se encontró el RUT <strong className="mx-1">{rut}</strong> en el formulario.
+            </div>
+          )}
+
+          {/* Found */}
+          {result?.found && result.rowData && (
+            <>
+              {/* Raw row data */}
+              <div>
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Datos en el formulario</p>
+                <div className="rounded-lg border border-gray-100 overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100">
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 w-1/2">Columna</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(result.rowData).map(([col, val]) => (
+                        <tr key={col} className="border-b border-gray-50 last:border-0">
+                          <td className="px-3 py-2 text-gray-500">{col}</td>
+                          <td className="px-3 py-2 text-gray-800">{val || <span className="text-gray-300 italic">vacío</span>}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
+
+              {/* Updates preview */}
+              {updatesCount > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Cambios que se aplicarán al perfil ({updatesCount} campos)
+                  </p>
+                  <div className="rounded-lg border border-green-100 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-green-50 border-b border-green-100">
+                          <th className="px-3 py-2 text-left font-medium text-gray-500 w-1/2">Campo del perfil</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-500">Valor a guardar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(result.updates!).map(([field, val]) => (
+                          <tr key={field} className="border-b border-green-50 last:border-0">
+                            <td className="px-3 py-2 text-gray-600 font-medium">
+                              {EMPLOYEE_FIELD_LABELS[field] ?? field}
+                            </td>
+                            <td className="px-3 py-2 text-gray-800">{String(val ?? '') || <span className="text-gray-300 italic">vacío</span>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {updatesCount === 0 && (
+                <p className="text-sm text-gray-400">No hay columnas mapeadas para actualizar en el perfil.</p>
+              )}
+            </>
+          )}
+
+          {/* Success banner */}
+          {applySheet.isSuccess && (
+            <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+              <Check size={14} />
+              Datos aplicados correctamente al perfil del colaborador.
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
-          <button
-            onClick={handleConfirm}
-            disabled={!selected || !allChecked || updateTask.isPending}
-            className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
-          >
-            {updateTask.isPending ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-            Confirmar documentos validados
-          </button>
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-gray-100">
+          <div className="text-xs text-gray-400">
+            {result?.found && result.employeeName && (
+              <span>Perfil vinculado: <span className="font-medium text-gray-600">{result.employeeName}</span></span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
+              {applySheet.isSuccess ? 'Cerrar' : 'Cancelar'}
+            </button>
+            {result?.found && updatesCount > 0 && !applySheet.isSuccess && (
+              <button
+                onClick={handleApply}
+                disabled={applySheet.isPending || updateTask.isPending}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+              >
+                {(applySheet.isPending || updateTask.isPending)
+                  ? <Loader2 size={13} className="animate-spin" />
+                  : <Check size={13} />}
+                Aplicar al perfil
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -558,6 +626,46 @@ function TaskRow({
           )}
         </div>
       </div>
+      {/* Subtasks checklist */}
+      {(task.subTasks ?? []).length > 0 && (
+        <div className="mx-3 mb-2 border-t border-gray-50 pt-2 space-y-1">
+          {(task.subTasks as SubTaskInstance[]).map((st, idx) => {
+            const isDone = !!st.completedAt
+            const handleToggleSub = () => {
+              if (!canEdit) return
+              const nowISO = new Date().toISOString()
+              const updated = (task.subTasks as SubTaskInstance[]).map((s, i) =>
+                i === idx ? { ...s, completedAt: isDone ? null : nowISO } : s
+              )
+              updateTask.mutate({ processId, taskId: task.id, subTasks: updated })
+            }
+            return (
+              <div key={st.id ?? idx} className="flex items-center gap-2">
+                <button
+                  onClick={handleToggleSub}
+                  disabled={!canEdit || updateTask.isPending}
+                  className={`flex-shrink-0 transition-colors ${isDone ? 'text-green-500' : 'text-gray-300 hover:text-gray-400'} disabled:cursor-default`}
+                >
+                  {isDone ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+                </button>
+                <span className={`text-xs ${isDone ? 'line-through text-gray-400' : 'text-gray-600'}`}>
+                  {st.name}
+                </span>
+                {st.tool && (
+                  <span className={`text-[10px] px-1 py-0.5 rounded font-medium ml-auto ${
+                    st.tool === 'EMAIL' ? 'bg-blue-50 text-blue-600' :
+                    st.tool === 'CALENDAR' ? 'bg-purple-50 text-purple-600' :
+                    st.tool === 'SHEET_VERIFY' ? 'bg-green-50 text-green-600' :
+                    'bg-gray-100 text-gray-500'
+                  }`}>
+                    {st.tool === 'EMAIL' ? 'Email' : st.tool === 'CALENDAR' ? 'Calendar' : st.tool === 'SHEET_VERIFY' ? 'Sheet' : 'Manual'}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
       {emailModal && (
         <EmailPreviewModal
           task={task}
@@ -849,308 +957,6 @@ function HitoConfigCard({ task, processId, canEdit }: { task: OnboardingTask; pr
   )
 }
 
-// ─── Pestaña: Hitos ───────────────────────────────────────────────────────────
-
-function HitosTab({ process, canEdit }: { process: OnboardingProcess; canEdit: boolean }) {
-  const [addingPeriod, setAddingPeriod] = useState<OnboardingPeriod | null>(null)
-
-  const tasks = [...process.tasks].sort((a, b) => {
-    const pi = PERIOD_ORDER.indexOf(a.period) - PERIOD_ORDER.indexOf(b.period)
-    return pi !== 0 ? pi : a.sortOrder - b.sortOrder
-  })
-
-  const tasksByPeriod = PERIOD_ORDER.reduce<Record<OnboardingPeriod, OnboardingTask[]>>(
-    (acc, p) => { acc[p] = tasks.filter(t => t.period === p); return acc },
-    {} as any
-  )
-
-  return (
-    <div className="space-y-5">
-      {PERIOD_ORDER.map(period => {
-        const periodTasks = tasksByPeriod[period]
-        const meta = PERIOD_META[period]
-        const withProfiles = periodTasks.filter(t => t.assignments && t.assignments.length > 0).length
-
-        return (
-          <div key={period}>
-            <div className="flex items-center justify-between mb-2">
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${meta.bgClass} ${meta.colorClass}`}>
-                {meta.label}
-                <span className="font-normal opacity-60">{periodTasks.length} hitos</span>
-                {withProfiles > 0 && <span className="font-normal opacity-60">· {withProfiles} con perfiles</span>}
-              </span>
-              {canEdit && (
-                <button
-                  onClick={() => setAddingPeriod(addingPeriod === period ? null : period)}
-                  className="flex items-center gap-1 text-xs text-gray-300 hover:text-blue-500 transition-colors"
-                >
-                  <Plus size={11} /> Agregar
-                </button>
-              )}
-            </div>
-
-            {periodTasks.map(task => (
-              <HitoConfigCard key={task.id} task={task} processId={process.id} canEdit={canEdit} />
-            ))}
-
-            {canEdit && addingPeriod === period && (
-              <AddTaskForm processId={process.id} period={period} onDone={() => setAddingPeriod(null)} />
-            )}
-
-            {periodTasks.length === 0 && addingPeriod !== period && (
-              <p className="text-xs text-gray-300 italic px-2">Sin hitos en este período</p>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ─── Tarjeta de tarea en vista Calendario ────────────────────────────────────
-
-function CalTaskCard({ task, process, canEdit }: { task: OnboardingTask; process: OnboardingProcess; canEdit: boolean }) {
-  const [expanded,      setExpanded]      = useState(false)
-  const [addProfileId,  setAddProfileId]  = useState('')
-  const [addRoleType,   setAddRoleType]   = useState('RESPONSABLE_HITO')
-
-  const { data: profiles = [] } = useProfiles()
-  const addAssignment           = useAddTaskAssignment()
-  const deleteAssignment        = useDeleteTaskAssignment()
-
-  const base     = new Date(process.startDate)
-  const taskDt   = computeTaskDate(task, base)
-  const isCal    = task.automationType === 'CALENDAR'
-  const cfg      = (task.automationConfig ?? {}) as Record<string, any>
-  const durMin   = (cfg.durationMinutes as number) ?? 60
-  const gcalTitle = isCal
-    ? ((cfg.title as string) ?? task.name).replace('{collaboratorName}', process.collaboratorName)
-    : ''
-  const guests = [
-    ...(process.collaboratorEmail ? [process.collaboratorEmail] : []),
-    ...(Array.isArray(cfg.attendees) ? (cfg.attendees as string[]) : []),
-  ]
-  const gcalUrl  = isCal
-    ? makeGCalUrl(gcalTitle, taskDt, durMin, `Onboarding ${process.collaboratorName} — ${task.name}`, guests)
-    : null
-
-  const assignments: TaskAssignment[] = task.assignments ?? []
-  const alreadyAssigned = assignments.map(a => `${a.profileId}:${a.roleType}`)
-  const dateLabel = taskDt.toLocaleDateString('es-CL', { weekday: 'short', day: '2-digit', month: 'short' })
-
-  return (
-    <div className={`overflow-hidden transition-colors ${task.completedAt ? 'bg-green-50/20' : 'bg-white'}`}>
-      {/* Fila compacta */}
-      <div className="flex items-center gap-2 px-3 py-2.5">
-        <button onClick={() => setExpanded(v => !v)} className="flex-1 min-w-0 flex items-center gap-2 text-left">
-          <span className="text-gray-300 flex-shrink-0">{expanded ? <ChevronUp size={13}/> : <ChevronDown size={13}/>}</span>
-          <div className="min-w-0 flex-1">
-            <p className={`text-sm leading-tight ${task.completedAt ? 'line-through text-gray-400' : 'text-gray-800'}`}>{task.name}</p>
-            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-              <AutoBadge type={task.automationType} />
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
-                isCal ? 'bg-purple-50 text-purple-600 border-purple-100' : 'bg-gray-50 text-gray-400 border-gray-100'
-              }`}>
-                {dateLabel}{isCal ? ` · ${durMin} min` : ''}
-              </span>
-              {task.appliesWhen && (
-                <span className="text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-500 border border-amber-100">{task.appliesWhen}</span>
-              )}
-            </div>
-            {/* Chips de perfiles (modo compacto) */}
-            {assignments.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                {assignments.map(a => (
-                  <span key={a.id} className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-medium ${ROLE_COLORS[a.roleType] ?? 'bg-gray-100 text-gray-600'}`}>
-                    {a.profile.name.split(' ')[0]} · {ROLE_LABELS[a.roleType] ?? a.roleType}
-                  </span>
-                ))}
-              </div>
-            )}
-            {assignments.length === 0 && (
-              <p className="text-[10px] text-gray-300 italic mt-1">Sin perfiles asignados</p>
-            )}
-          </div>
-        </button>
-        {gcalUrl && (
-          <a href={gcalUrl} target="_blank" rel="noopener noreferrer"
-            title="Abrir en Google Calendar"
-            className={`flex-shrink-0 p-1.5 rounded transition-colors ${
-              task.automationStatus === 'SUCCESS' ? 'text-green-400 hover:bg-green-50' : 'text-purple-400 hover:bg-purple-50'
-            }`}>
-            <ExternalLink size={12} />
-          </a>
-        )}
-      </div>
-
-      {/* Panel expandido: detalle gcal + gestión de perfiles */}
-      {expanded && (
-        <div className="border-t border-gray-50 px-4 py-3 space-y-3 bg-gray-50/50">
-          {/* Detalle del evento Calendar */}
-          {isCal && (
-            <div className="p-2.5 bg-purple-50 rounded-lg border border-purple-100 flex items-start justify-between gap-2">
-              <div className="text-xs text-purple-700 min-w-0">
-                <p className="font-medium truncate">{gcalTitle}</p>
-                <p className="text-purple-400 mt-0.5">{durMin} min · {dateLabel}</p>
-                {guests.length > 0 && <p className="text-purple-400 mt-0.5 truncate">Invitados: {guests.join(', ')}</p>}
-              </div>
-              <a href={gcalUrl!} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs font-medium text-purple-600 hover:underline flex-shrink-0 mt-0.5">
-                <ExternalLink size={11} /> Abrir
-              </a>
-            </div>
-          )}
-
-          {/* Gestión de perfiles */}
-          <div>
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Perfiles del hito</p>
-            {assignments.length === 0 && <p className="text-xs text-gray-300 italic mb-2">Sin perfiles asignados</p>}
-            <div className="flex flex-col gap-1 mb-2">
-              {assignments.map(a => (
-                <div key={a.id} className="flex items-center gap-2 px-2 py-1.5 bg-white rounded-lg border border-gray-100">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-gray-700 truncate">{a.profile.name}</p>
-                    <p className="text-[10px] text-gray-400 truncate">{a.profile.position}</p>
-                  </div>
-                  <span className={`flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded ${ROLE_COLORS[a.roleType] ?? 'bg-gray-100 text-gray-600'}`}>
-                    {ROLE_LABELS[a.roleType] ?? a.roleType}
-                  </span>
-                  {canEdit && (
-                    <button onClick={() => deleteAssignment.mutate({ processId: process.id, taskId: task.id, assignmentId: a.id })}
-                      className="flex-shrink-0 p-0.5 text-gray-300 hover:text-red-400 transition-colors">
-                      <X size={11} />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-            {canEdit && (
-              <div className="flex gap-1.5">
-                <select value={addProfileId} onChange={e => setAddProfileId(e.target.value)}
-                  className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-700">
-                  <option value="">Seleccionar perfil…</option>
-                  {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-                <select value={addRoleType} onChange={e => setAddRoleType(e.target.value)}
-                  className="w-32 flex-shrink-0 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-700">
-                  {ROLE_TYPES.map(r => (
-                    <option key={r.value} value={r.value}
-                      disabled={alreadyAssigned.includes(`${addProfileId}:${r.value}`)}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={async () => {
-                    if (!addProfileId) return
-                    try {
-                      await addAssignment.mutateAsync({ processId: process.id, taskId: task.id, profileId: addProfileId, roleType: addRoleType })
-                      setAddProfileId('')
-                    } catch {}
-                  }}
-                  disabled={!addProfileId || addAssignment.isPending}
-                  className="flex-shrink-0 p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">
-                  {addAssignment.isPending ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── CalendarioTab ────────────────────────────────────────────────────────────
-
-function CalendarioTab({ process, canEdit }: { process: OnboardingProcess; canEdit: boolean }) {
-  const startDate = new Date(process.startDate)
-  startDate.setHours(0, 0, 0, 0)
-
-  const tasks = [...process.tasks].sort((a, b) => {
-    const pi = PERIOD_ORDER.indexOf(a.period) - PERIOD_ORDER.indexOf(b.period)
-    return pi !== 0 ? pi : a.sortOrder - b.sortOrder
-  })
-
-  const tasksByPeriod = PERIOD_ORDER.reduce<Record<OnboardingPeriod, OnboardingTask[]>>(
-    (acc, p) => { acc[p] = tasks.filter(t => t.period === p); return acc },
-    {} as any
-  )
-
-  const calendarTasks = tasks.filter(t => t.automationType === 'CALENDAR')
-
-  function periodRange(period: OnboardingPeriod): string {
-    const { start, end } = PERIOD_OFFSETS[period]
-    const from = new Date(startDate); from.setDate(from.getDate() + start)
-    const to   = new Date(startDate); to.setDate(to.getDate() + end)
-    const opts: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short' }
-    return `${from.toLocaleDateString('es-CL', opts)} – ${to.toLocaleDateString('es-CL', opts)}`
-  }
-
-  function openAllGCal() {
-    calendarTasks.forEach((t, i) => {
-      const date = computeTaskDate(t, startDate)
-      const cfg = (t.automationConfig ?? {}) as Record<string, any>
-      const title  = ((cfg.title as string) ?? t.name).replace('{collaboratorName}', process.collaboratorName)
-      const durMin = (cfg.durationMinutes as number) ?? 60
-      const guests = process.collaboratorEmail ? [process.collaboratorEmail] : []
-      const url = makeGCalUrl(title, date, durMin, `Onboarding ${process.collaboratorName} — ${t.name}`, guests)
-      setTimeout(() => window.open(url, '_blank'), i * 300)
-    })
-  }
-
-  return (
-    <div>
-      {/* Banner Google Calendar */}
-      {calendarTasks.length > 0 ? (
-        <div className="mb-4 px-3 py-2.5 bg-purple-50 border border-purple-100 rounded-xl flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs text-purple-700">
-            <Calendar size={13} />
-            <span className="font-medium">{calendarTasks.length} hito{calendarTasks.length !== 1 ? 's' : ''}</span>
-            <span className="text-purple-400">de Google Calendar en este proceso</span>
-          </div>
-          <button onClick={openAllGCal}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-white border border-purple-200 rounded-lg text-purple-700 hover:bg-purple-50 transition-colors flex-shrink-0">
-            <ExternalLink size={11} /> Abrir todos
-          </button>
-        </div>
-      ) : (
-        <div className="mb-4 px-3 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-400 flex items-center gap-2">
-          <Calendar size={13} />
-          Este proceso no tiene hitos de Google Calendar
-        </div>
-      )}
-
-      {/* Timeline por período */}
-      {PERIOD_ORDER.map(period => {
-        const periodTasks = tasksByPeriod[period]
-        if (periodTasks.length === 0) return null
-        const meta   = PERIOD_META[period]
-        const done   = periodTasks.filter(t => t.completedAt).length
-        const hasCal = periodTasks.some(t => t.automationType === 'CALENDAR')
-
-        return (
-          <div key={period} className="mb-4">
-            <div className={`flex items-center justify-between px-3 py-2 rounded-t-xl border ${meta.bgClass}`}>
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-bold ${meta.colorClass}`}>{meta.label}</span>
-                <span className="text-xs text-gray-400">{periodRange(period)}</span>
-                {hasCal && <Calendar size={11} className="text-purple-400" />}
-              </div>
-              <span className="text-xs text-gray-400">{done}/{periodTasks.length}</span>
-            </div>
-            <div className="border-x border-b border-gray-100 rounded-b-xl overflow-hidden divide-y divide-gray-100">
-              {periodTasks.map(task => (
-                <CalTaskCard key={task.id} task={task} process={process} canEdit={canEdit} />
-              ))}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 // ─── Modal: Editar proceso ────────────────────────────────────────────────────
 
 function EditProcessModal({ process, onClose }: { process: OnboardingProcess; onClose: () => void }) {
@@ -1318,7 +1124,7 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
   const { data: process, isLoading } = useOnboardingProcess(processId)
   const updateStatus  = useUpdateOnboardingStatus()
   const deleteProcess = useDeleteOnboarding()
-  const [activeTab,    setActiveTab]    = useState<'progreso' | 'hitos' | 'calendario'>('progreso')
+  const [activeTab,    setActiveTab]    = useState<'progreso'>('progreso')
   const [addingPeriod, setAddingPeriod] = useState<OnboardingPeriod | null>(null)
   const [showEdit,     setShowEdit]     = useState(false)
 
@@ -1409,33 +1215,9 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
         <div className="flex border-b border-gray-100 px-4">
           <button
             onClick={() => setActiveTab('progreso')}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${
-              activeTab === 'progreso'
-                ? 'border-blue-600 text-blue-700'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
+            className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 border-blue-600 text-blue-700"
           >
             <ListChecks size={13} /> Progreso
-          </button>
-          <button
-            onClick={() => setActiveTab('hitos')}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${
-              activeTab === 'hitos'
-                ? 'border-blue-600 text-blue-700'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <Users size={13} /> Hitos
-          </button>
-          <button
-            onClick={() => setActiveTab('calendario')}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${
-              activeTab === 'calendario'
-                ? 'border-purple-600 text-purple-700'
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            }`}
-          >
-            <Calendar size={13} /> Calendario
           </button>
         </div>
 
@@ -1484,13 +1266,6 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
             </div>
           )}
 
-          {activeTab === 'hitos' && (
-            <HitosTab process={process} canEdit={canEdit} />
-          )}
-
-          {activeTab === 'calendario' && (
-            <CalendarioTab process={process} canEdit={canEdit} />
-          )}
         </div>
 
         {/* Footer */}
