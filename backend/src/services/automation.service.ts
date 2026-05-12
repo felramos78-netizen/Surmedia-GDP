@@ -6,6 +6,7 @@ import { createCalendarEvent } from './calendar.service'
 export interface AutomationTask {
   id:              string
   templateId:      string | null
+  period:          string
   name:            string
   automationType:  string
   automationConfig: Record<string, any> | null
@@ -138,17 +139,20 @@ async function runCalendarAutomation(task: AutomationTask, proc: AutomationProce
   const enabled = process.env.GOOGLE_CALENDAR_ENABLED === 'true'
 
   const title           = (cfg.title as string ?? task.name).replace('{collaboratorName}', proc.collaboratorName)
-  const daysFromStart   = (cfg.daysFromStart as number) ?? 0
+  const rawOffset       = (cfg.daysFromStart as number) ?? 0
   const durationMinutes = (cfg.durationMinutes as number) ?? 60
   const attendees       = (cfg.attendees as string[]) ?? []
-  const eventDate       = new Date(proc.startDate.getTime() + daysFromStart * 86_400_000)
+  
+  // Corrección PRE_INGRESO: si el offset es positivo, se toma como días ANTES del ingreso (-N)
+  const offset = (task.period === 'PRE_INGRESO' && rawOffset > 0) ? -rawOffset : rawOffset
+  const eventDate       = new Date(proc.startDate.getTime() + offset * 86_400_000)
 
   if (!enabled) {
     return {
       status:  'SKIPPED',
       message: 'Google Calendar no está habilitado. Configura GOOGLE_CALENDAR_ENABLED=true y las credenciales de Service Account.',
       detail:  {
-        wouldCreate: { title, daysFromStart, durationMinutes, eventDate: eventDate.toISOString(), attendees },
+        wouldCreate: { title, daysFromStart: offset, durationMinutes, eventDate: eventDate.toISOString(), attendees },
       },
     }
   }

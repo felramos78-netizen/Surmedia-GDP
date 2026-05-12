@@ -1,15 +1,16 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import {
-  Plus, Rocket, CheckCircle2, AlertTriangle, X, ChevronRight,
+  Plus, Rocket, CheckCircle2, AlertTriangle, X, ChevronRight, ChevronLeft,
   Mail, Calendar, RefreshCw, Wrench, Globe, Search, UserCheck,
 } from 'lucide-react'
 import {
   useOnboardingProcesses, useOnboardingStats,
-  useCreateOnboarding, useOnboardingTemplate,
+  useCreateOnboarding, useTemplateTasks,
 } from '@/hooks/useOnboarding'
 import { useJobTitles, useEmployees } from '@/hooks/useDotacion'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
-import type { OnboardingProcess, OnboardingTemplateTask, OnboardingPeriod, TaskAutomationType } from '@/types'
+import { useProfiles } from '@/hooks/useProfiles'
+import type { OnboardingProcess, OnboardingDbTemplateTask, OnboardingPeriod, TaskAutomationType, Profile } from '@/types'
 import OnboardingDrawer from './OnboardingDrawer'
 import HitosTab from './tabs/HitosTab'
 import AutomatizacionTab from './tabs/AutomatizacionTab'
@@ -85,34 +86,219 @@ function AutoBadge({ type }: { type: TaskAutomationType }) {
 
 // ─── Modal: Nuevo proceso (página única) ─────────────────────────────────────
 
+// ─── ICS helpers ─────────────────────────────────────────────────────────────
+
+interface CalItem {
+  id: string
+  name: string
+  parentName?: string | null
+  dayOffset: number
+  start: Date
+  durationMinutes: number
+  attendeeEmails: string[]
+  attendeeProfileIds: string[]
+}
+
+function icsDateFmt(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`
+}
+
+function icsDateOnly(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`
+}
+
+function generateICS(items: CalItem[], collaboratorName: string, processId: string): string {
+  const now = icsDateFmt(new Date())
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Surmedia GDP//Onboarding//ES',
+    'CALSCALE:GREGORIAN',
+  ]
+  items.forEach((item, i) => {
+    const allDay = item.durationMinutes === 0
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:onboarding-${processId}-${i}@surmedia.gdp`,
+      `DTSTAMP:${now}`,
+    )
+    if (allDay) {
+      const nextDay = new Date(item.start.getTime() + 86_400_000)
+      lines.push(
+        `DTSTART;VALUE=DATE:${icsDateOnly(item.start)}`,
+        `DTEND;VALUE=DATE:${icsDateOnly(nextDay)}`,
+      )
+    } else {
+      const end = new Date(item.start.getTime() + item.durationMinutes * 60_000)
+      lines.push(
+        `DTSTART:${icsDateFmt(item.start)}`,
+        `DTEND:${icsDateFmt(end)}`,
+      )
+    }
+    lines.push(
+      `SUMMARY:${item.name}`,
+      `DESCRIPTION:Onboarding ${collaboratorName}`,
+    )
+    item.attendeeEmails.forEach(email => lines.push(`ATTENDEE;RSVP=TRUE:mailto:${email}`))
+    lines.push('END:VEVENT')
+  })
+  lines.push('END:VCALENDAR')
+  return lines.join('\r\n')
+}
+
+function downloadICS(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click()
+  document.body.removeChild(a); URL.revokeObjectURL(url)
+}
+
+// ─── Mini calendar preview ────────────────────────────────────────────────────
+
+interface CalItemWithTime extends CalItem { resolvedStart: Date }
+
+function CalendarPreview({ items, eventTimes }: { items: CalItemWithTime[]; eventTimes: Record<string, string> }) {
+  const sorted = useMemo(() => [...items].sort((a, b) => a.resolvedStart.getTime() - b.resolvedStart.getTime()), [items])
+  const firstEvt = sorted[0]?.resolvedStart ?? new Date()
+
+  const [viewYear,  setViewYear]  = useState(firstEvt.getFullYear())
+  const [viewMonth, setViewMonth] = useState(firstEvt.getMonth())
+
+  const byDate = useMemo(() => {
+    const m = new Map<string, CalItemWithTime[]>()
+    items.forEach(item => {
+      const d = item.resolvedStart
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+      const arr = m.get(key) ?? []; arr.push(item); m.set(key, arr)
+    })
+    return m
+  }, [items])
+
+  if (items.length === 0) return null
+
+  const prevMonth = () => { if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y-1) } else setViewMonth(m => m-1) }
+  const nextMonth = () => { if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y+1) } else setViewMonth(m => m+1) }
+
+  const firstDay = new Date(viewYear, viewMonth, 1)
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const startOffset = (firstDay.getDay() + 6) % 7
+
+  const cells: Date[] = []
+  for (let i = startOffset - 1; i >= 0; i--) cells.push(new Date(viewYear, viewMonth, -i))
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(viewYear, viewMonth, d))
+  const tail = cells.length % 7 === 0 ? 0 : 7 - (cells.length % 7)
+  for (let d = 1; d <= tail; d++) cells.push(new Date(viewYear, viewMonth + 1, d))
+  const weeks: Date[][] = []
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i+7))
+
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const monthLabel = firstDay.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })
+  const hasEvents = [...byDate.keys()].some(k => {
+    const [y, mo] = k.split('-').map(Number)
+    return y === viewYear && mo - 1 === viewMonth
+  })
+
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+      {/* Navegación de mes */}
+      <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
+        <button onClick={prevMonth} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors">
+          <ChevronLeft size={13} />
+        </button>
+        <div className="text-center">
+          <p className="text-xs font-semibold text-gray-700 capitalize">{monthLabel}</p>
+          {!hasEvents && <p className="text-[9px] text-gray-300">Sin eventos</p>}
+        </div>
+        <button onClick={nextMonth} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors">
+          <ChevronRight size={13} />
+        </button>
+      </div>
+      {/* Cabecera de días */}
+      <div className="grid grid-cols-7 bg-gray-50/70 border-b border-gray-100">
+        {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d => (
+          <div key={d} className="py-1 text-center text-[9px] font-semibold text-gray-400 uppercase tracking-wide">{d}</div>
+        ))}
+      </div>
+      {/* Semanas */}
+      <div className="divide-y divide-gray-50">
+        {weeks.map((week, wi) => (
+          <div key={wi} className="grid grid-cols-7 divide-x divide-gray-50">
+            {week.map((date, di) => {
+              const inMonth = date.getMonth() === viewMonth
+              const isToday = date.getTime() === today.getTime()
+              const key = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`
+              const evs = inMonth ? (byDate.get(key) ?? []) : []
+              return (
+                <div key={di} className={`min-h-[54px] p-1 ${!inMonth ? 'bg-gray-50/30' : ''}`}>
+                  <div className={`text-[10px] font-medium w-5 h-5 flex items-center justify-center rounded-full mb-0.5 mx-auto ${
+                    isToday ? 'bg-blue-600 text-white' : inMonth ? 'text-gray-700' : 'text-gray-300'
+                  }`}>
+                    {date.getDate()}
+                  </div>
+                  {evs.slice(0, 2).map(ev => {
+                    const displayName = ev.parentName ?? ev.name
+                    const pill = ev.durationMinutes === 0 ? displayName : `${eventTimes[ev.id] ?? '09:00'} ${displayName}`
+                    return (
+                      <div key={ev.id} title={ev.parentName ? `${ev.parentName} (${ev.name})` : ev.name}
+                        className="text-[8px] leading-tight text-purple-800 bg-purple-100 rounded px-0.5 py-px truncate mb-px">
+                        {pill}
+                      </div>
+                    )
+                  })}
+                  {evs.length > 2 && <div className="text-[8px] text-gray-400">+{evs.length-2}</div>}
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal: Nuevo proceso ─────────────────────────────────────────────────────
+
 function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState({
     collaboratorRut: '', collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '', collaboratorPosition: '',
     collaboratorPhone: '', legalEntity: '', costCenter: '', startDate: '', notes: '',
   })
-  const [rutSearch,       setRutSearch]       = useState('')
-  const [matchedEmployee, setMatchedEmployee] = useState<{ id: string; name: string; position?: string | null; rut: string } | null>(null)
-  const [positionMode, setPositionMode] = useState<'select' | 'custom'>('select')
-  const [selected,        setSelected]        = useState<Set<string>>(new Set())
-  const [createdProcess,  setCreatedProcess]  = useState<import('@/types').OnboardingProcess | null>(null)
+  const [rutSearch,          setRutSearch]          = useState('')
+  const [matchedEmployee,    setMatchedEmployee]    = useState<{ id: string; name: string; position?: string | null; rut: string } | null>(null)
+  const [positionMode,       setPositionMode]       = useState<'select' | 'custom'>('select')
+  const [selected,           setSelected]           = useState<Set<string>>(new Set())
+  const [showCalendar,         setShowCalendar]         = useState(false)
+  const [eventExtraProfileIds, setEventExtraProfileIds] = useState<Record<string, string[]>>({})
+  const [eventTimes,           setEventTimes]           = useState<Record<string, string>>({})
+  const [expandedEventId,      setExpandedEventId]      = useState<string | null>(null)
 
-  const { data: template = [], isLoading: templateLoading, isError: templateError, refetch: refetchTemplate } = useOnboardingTemplate()
-  const { data: jobTitles = [] } = useJobTitles()
+  const { data: rawTemplate = [], isLoading: templateLoading, isError: templateError, refetch: refetchTemplate } = useTemplateTasks()
+  const template = rawTemplate.filter(t => t.isActive)
+  const { data: jobTitles   = [] } = useJobTitles()
   const { data: workCenters = [] } = useWorkCenters()
-  const { data: empData } = useEmployees({ search: rutSearch, status: ['ACTIVE', 'INACTIVE'] })
+  const { data: profiles    = [] } = useProfiles()
+  const { data: empData, isFetching: searchFetching } = useEmployees(
+    rutSearch.length >= 2 ? { search: rutSearch, status: ['ACTIVE', 'INACTIVE'] } : {}
+  )
   const createOnboarding = useCreateOnboarding()
 
-  // When RUT typed, search for employee match
-  const employeeResults = rutSearch.length >= 4 ? (empData?.data ?? []).slice(0, 5) : []
+  const employeeResults = rutSearch.length >= 2 ? (empData?.data ?? []).slice(0, 6) : []
 
-  const selectEmployee = (emp: { rut: string; firstName: string; lastName: string; jobTitle?: string | null; id: string }) => {
+  const selectEmployee = (emp: any) => {
     const fullName = `${emp.firstName} ${emp.lastName}`
     setMatchedEmployee({ id: emp.id, name: fullName, position: emp.jobTitle, rut: emp.rut })
     setForm(f => ({
       ...f,
-      collaboratorRut:      emp.rut,
-      collaboratorName:     fullName,
-      collaboratorPosition: emp.jobTitle ?? f.collaboratorPosition,
+      collaboratorRut:           emp.rut,
+      collaboratorName:          fullName,
+      collaboratorPosition:      emp.jobTitle ?? f.collaboratorPosition,
+      collaboratorEmail:         (!emp.email || emp.email.includes('@buk.import')) ? f.collaboratorEmail : emp.email,
+      collaboratorPhone:         emp.phone ?? f.collaboratorPhone,
+      collaboratorPersonalEmail: emp.personalEmail ?? f.collaboratorPersonalEmail,
     }))
     setRutSearch('')
   }
@@ -124,20 +310,20 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
   useEffect(() => {
     if (template.length > 0 && selected.size === 0)
-      setSelected(new Set(template.map(t => t.id)))
-  }, [template])
+      setSelected(new Set(template.map(t => t.key)))
+  }, [template.length])
 
   const field = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }))
 
-  const toggle = (id: string) => setSelected(prev => {
-    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
+  const toggle = (key: string) => setSelected(prev => {
+    const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next
   })
 
   const togglePeriod = (period: OnboardingPeriod) => {
-    const ids = template.filter(t => t.period === period).map(t => t.id)
-    const allOn = ids.every(id => selected.has(id))
+    const keys = template.filter(t => t.period === period).map(t => t.key)
+    const allOn = keys.every(k => selected.has(k))
     setSelected(prev => {
-      const next = new Set(prev); ids.forEach(id => allOn ? next.delete(id) : next.add(id)); return next
+      const next = new Set(prev); keys.forEach(k => allOn ? next.delete(k) : next.add(k)); return next
     })
   }
 
@@ -156,18 +342,63 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
         notes:                form.notes.trim() || undefined,
         selectedTaskIds:      Array.from(selected),
       })
-      setCreatedProcess(process)
+      onCreated(process.id)
+      onClose()
     } catch (err: any) {
       alert(err?.response?.data?.message ?? 'Error al crear el proceso')
     }
   }
 
   const byPeriod = useMemo(() => {
-    const map = new Map<OnboardingPeriod, OnboardingTemplateTask[]>()
+    const map = new Map<OnboardingPeriod, OnboardingDbTemplateTask[]>()
     PERIOD_ORDER.forEach(p => map.set(p, []))
-    template.forEach(t => map.get(t.period)?.push(t))
+    template.forEach(t => map.get(t.period as OnboardingPeriod)?.push(t))
     return map
   }, [template])
+
+  const calItems: CalItem[] = useMemo(() => {
+    if (!form.startDate) return []
+    const startDate = new Date(form.startDate + 'T12:00:00Z')
+    const periodStarts: Record<string, number> = {
+      PRE_INGRESO: -7, DIA_1: 0, SEMANA_1: 1, MES_1: 8, EVALUACION: 60,
+    }
+    const resolveEmailsLocal = (profileIds: string[], itemId: string): string[] => {
+      // If user has customized this event's invitees, use their full selection; otherwise use template defaults
+      const overrideIds = eventExtraProfileIds[itemId]
+      const allIds = overrideIds !== undefined ? overrideIds : (profileIds ?? [])
+      const emails: string[] = allIds
+        .map((id: string) => (profiles as Profile[]).find(p => p.id === id)?.email)
+        .filter((e): e is string => !!e)
+      const colEmail = form.collaboratorEmail.trim()
+      if (colEmail && !emails.includes(colEmail)) emails.push(colEmail)
+      return emails
+    }
+    const items: CalItem[] = []
+    template.filter(t => selected.has(t.key)).forEach(t => {
+      if (t.automationType === 'CALENDAR') {
+        const cfg = (t.automationConfig ?? {}) as Record<string, any>
+        const rawOffset = typeof cfg.daysFromStart === 'number'
+          ? (t.period === 'PRE_INGRESO' ? -cfg.daysFromStart : cfg.daysFromStart)
+          : (periodStarts[t.period] ?? 0)
+        const s = new Date(startDate); s.setDate(s.getDate() + rawOffset); s.setHours(9, 0, 0, 0)
+        items.push({ id: t.id, name: t.name, parentName: null, dayOffset: rawOffset, start: s, durationMinutes: cfg.durationMinutes ?? 60, attendeeEmails: resolveEmailsLocal(cfg.attendeeProfileIds ?? [], t.id), attendeeProfileIds: cfg.attendeeProfileIds ?? [] })
+      }
+      t.subTasks.forEach((st, si) => {
+        if (st.tool === 'CALENDAR' && st.plantilla) {
+          try {
+            const cfg = JSON.parse(st.plantilla) as Record<string, any>
+            const rawOffset = typeof cfg.daysFromStart === 'number'
+              ? (t.period === 'PRE_INGRESO' ? -cfg.daysFromStart : cfg.daysFromStart)
+              : (periodStarts[t.period] ?? 0)
+            const s = new Date(startDate); s.setDate(s.getDate() + rawOffset); s.setHours(9, 0, 0, 0)
+            const id = `${t.id}-st-${si}`
+            items.push({ id, name: st.name, parentName: t.name, dayOffset: rawOffset, start: s, durationMinutes: cfg.durationMinutes ?? 60, attendeeEmails: resolveEmailsLocal(cfg.attendeeProfileIds ?? [], id), attendeeProfileIds: cfg.attendeeProfileIds ?? [] })
+          } catch {}
+        }
+      })
+    })
+    return items.sort((a, b) => a.start.getTime() - b.start.getTime())
+  }, [template, selected, form.startDate, form.collaboratorEmail, profiles, eventExtraProfileIds])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -183,107 +414,177 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
         </div>
 
-        {/* ── Paso 2: confirmación de Google Calendar ── */}
-        {createdProcess && (() => {
-          const startDate = new Date(createdProcess.startDate)
-          const calTasks  = (createdProcess.tasks ?? []).filter((t: any) => t.automationType === 'CALENDAR')
-
-          const gcalFmt = (d: Date) => {
-            const p = (n: number) => String(n).padStart(2, '0')
-            return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`
+        {/* ── Paso 2: Vista de calendario y confirmación ── */}
+        {showCalendar && (() => {
+          const resolveStart = (item: CalItem): Date => {
+            if (item.durationMinutes === 0) return item.start
+            const time = eventTimes[item.id]
+            if (!time) return item.start
+            const [h, m] = time.split(':').map(Number)
+            const d = new Date(item.start); d.setHours(h, m, 0, 0); return d
           }
 
-          const periodStarts: Record<string, number> = {
-            PRE_INGRESO: -7, DIA_1: 0, SEMANA_1: 1, MES_1: 8, EVALUACION: 60,
-          }
+          const finalItems: CalItemWithTime[] = calItems.map(item => ({
+            ...item, resolvedStart: resolveStart(item),
+          }))
 
-          function makeUrl(task: any): string {
-            const cfg = task.automationConfig ?? {}
-            const offset = typeof cfg.daysFromStart === 'number' ? cfg.daysFromStart : (periodStarts[task.period] ?? 0)
-            const start  = new Date(startDate); start.setDate(start.getDate() + offset); start.setHours(9, 0, 0, 0)
-            const durMin = cfg.durationMinutes ?? 60
-            const end    = new Date(start.getTime() + durMin * 60_000)
-            const title  = (cfg.title ?? task.name).replace('{collaboratorName}', createdProcess.collaboratorName)
-            const q = new URLSearchParams({
-              text: title,
-              dates: `${gcalFmt(start)}/${gcalFmt(end)}`,
-              details: `Onboarding ${createdProcess.collaboratorName} — ${task.name}`,
-            })
-            if (createdProcess.collaboratorEmail) q.set('add', createdProcess.collaboratorEmail)
+          const p = (n: number) => String(n).padStart(2, '0')
+          const gcalFmt = (d: Date) => `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`
+          const dateOnly = (d: Date) => `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`
+
+          const makeUrl = (item: CalItem): string => {
+            const allDay = item.durationMinutes === 0
+            const s = resolveStart(item)
+            let dates: string
+            if (allDay) {
+              const next = new Date(s.getTime() + 86_400_000)
+              dates = `${dateOnly(s)}/${dateOnly(next)}`
+            } else {
+              const end = new Date(s.getTime() + item.durationMinutes * 60_000)
+              dates = `${gcalFmt(s)}/${gcalFmt(end)}`
+            }
+            const q = new URLSearchParams({ text: item.name, dates, details: `Onboarding ${form.collaboratorName} — ${item.name}` })
+            if (item.attendeeEmails.length > 0) q.set('add', item.attendeeEmails.join(','))
             return `https://calendar.google.com/calendar/r/eventedit?${q}`
           }
 
-          const openAll = () => calTasks.forEach((t: any, i: number) => setTimeout(() => window.open(makeUrl(t), '_blank'), i * 300))
-          const finalize = () => { onCreated(createdProcess.id); onClose() }
+          const timedMissingTime = calItems.some(item => item.durationMinutes !== 0 && !eventTimes[item.id])
 
           return (
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                {/* Éxito */}
-                <div className="flex items-center gap-3 p-4 bg-green-50 border border-green-100 rounded-xl">
-                  <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center text-green-600 flex-shrink-0">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-green-800">Proceso iniciado</p>
-                    <p className="text-xs text-green-600">{createdProcess.collaboratorName} · {createdProcess.tasks?.length ?? 0} hitos creados</p>
-                  </div>
-                </div>
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {calItems.length > 0 ? (
+                  <>
+                    <p className="text-xs text-gray-500">
+                      Se detectaron <span className="font-semibold text-purple-700">{calItems.length} evento{calItems.length !== 1 ? 's' : ''}</span> de calendario para este proceso.
+                      {timedMissingTime && <span className="ml-1 text-amber-600 font-medium">Eventos con duración requieren horario obligatorio.</span>}
+                    </p>
 
-                {/* Hitos de Calendar */}
-                {calTasks.length > 0 ? (
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800 mb-1">¿Cargar hitos a Google Calendar?</p>
-                    <p className="text-xs text-gray-400 mb-3">Se detectaron {calTasks.length} hito{calTasks.length !== 1 ? 's' : ''} que generan eventos de calendario.</p>
-                    <div className="space-y-1.5 mb-4">
-                      {calTasks.map((t: any) => {
-                        const cfg    = t.automationConfig ?? {}
-                        const offset = typeof cfg.daysFromStart === 'number' ? cfg.daysFromStart : (periodStarts[t.period] ?? 0)
-                        const date   = new Date(startDate); date.setDate(date.getDate() + offset)
-                        const label  = date.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })
+                    <CalendarPreview items={finalItems} eventTimes={eventTimes} />
+
+                    <div className="space-y-2">
+                      {calItems.map(item => {
+                        const allDay = item.durationMinutes === 0
+                        const label  = item.start.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })
+                        const isOpen = expandedEventId === item.id
+                        const missingTime = !allDay && !eventTimes[item.id]
                         return (
-                          <div key={t.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg">
-                            <div>
-                              <p className="text-xs font-medium text-purple-800">{t.name}</p>
-                              <p className="text-[10px] text-purple-400">{label} · {cfg.durationMinutes ?? 60} min</p>
+                          <div key={item.id} className={`border rounded-xl overflow-hidden ${missingTime ? 'border-amber-300' : 'border-purple-100'}`}>
+                            <div className={`flex items-center gap-2 px-3 py-2.5 ${missingTime ? 'bg-amber-50' : 'bg-purple-50/60'}`}>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-xs font-medium truncate ${missingTime ? 'text-amber-900' : 'text-purple-900'}`}>
+                                  {item.parentName ?? item.name}
+                                </p>
+                                {item.parentName && (
+                                  <p className="text-[10px] text-gray-400 truncate">({item.name})</p>
+                                )}
+                                <p className={`text-[10px] mt-0.5 ${missingTime ? 'text-amber-500' : 'text-purple-400'}`}>
+                                  {label}
+                                  <span className="ml-1 font-semibold">{item.dayOffset < 0 ? `Día ${item.dayOffset}` : item.dayOffset === 0 ? 'Día 0' : `Día +${item.dayOffset}`}</span>
+                                  {' · '}{allDay ? 'Día completo' : `${item.durationMinutes} min`}
+                                  {item.attendeeEmails.length > 0 && ` · ${item.attendeeEmails.length} invitado${item.attendeeEmails.length !== 1 ? 's' : ''}`}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <button
+                                  onClick={() => setExpandedEventId(isOpen ? null : item.id)}
+                                  className="text-[10px] text-purple-500 hover:text-purple-700 px-1.5 py-0.5 rounded border border-purple-200 hover:border-purple-300 transition-colors"
+                                >
+                                  {isOpen ? 'Cerrar' : 'Editar'}
+                                </button>
+                                <a href={makeUrl(item)} target="_blank" rel="noopener noreferrer"
+                                  className="flex items-center gap-1 text-[10px] text-purple-600 hover:underline">
+                                  <Calendar size={10} /> Abrir
+                                </a>
+                              </div>
                             </div>
-                            <a href={makeUrl(t)} target="_blank" rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-xs text-purple-600 hover:underline flex-shrink-0">
-                              <Calendar size={11} /> Abrir
-                            </a>
+
+                            {/* Hora obligatoria para eventos con duración */}
+                            {!allDay && (
+                              <div className={`px-3 py-2 border-t flex items-center gap-2 ${missingTime ? 'border-amber-200 bg-amber-50/60' : 'border-purple-50 bg-white'}`}>
+                                <span className={`text-[10px] font-semibold uppercase tracking-wide flex-shrink-0 ${missingTime ? 'text-amber-600' : 'text-gray-500'}`}>
+                                  Hora{missingTime ? ' *' : ''}
+                                </span>
+                                <input
+                                  type="time"
+                                  value={eventTimes[item.id] ?? ''}
+                                  onChange={e => setEventTimes(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className={`px-2 py-1 text-xs border rounded-lg focus:outline-none focus:ring-1 ${missingTime ? 'border-amber-300 focus:ring-amber-400' : 'border-gray-200 focus:ring-purple-400'}`}
+                                />
+                              </div>
+                            )}
+
+                            {isOpen && (() => {
+                              const checkedIds = eventExtraProfileIds[item.id] ?? item.attendeeProfileIds
+                              return (
+                                <div className="px-3 py-3 border-t border-purple-100 bg-white">
+                                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                                    Invitados
+                                    <span className="ml-1 normal-case font-normal text-purple-500">({checkedIds.length} seleccionados)</span>
+                                  </p>
+                                  <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-lg bg-gray-50 py-0.5 px-1">
+                                    {(profiles as Profile[]).map(pr => {
+                                      const checked = checkedIds.includes(pr.id)
+                                      return (
+                                        <label key={pr.id} className="flex items-center gap-2 px-1.5 py-0.5 rounded hover:bg-purple-50 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            onChange={e => {
+                                              const newIds = e.target.checked
+                                                ? [...checkedIds, pr.id]
+                                                : checkedIds.filter(id => id !== pr.id)
+                                              setEventExtraProfileIds(prev => ({ ...prev, [item.id]: newIds }))
+                                            }}
+                                            className="w-3 h-3 rounded accent-purple-600 flex-shrink-0"
+                                          />
+                                          <span className="text-[10px] text-gray-700 flex-1">{pr.name}</span>
+                                          <span className="text-[10px] text-gray-400 truncate max-w-[160px]">{pr.email}</span>
+                                        </label>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )
+                            })()}
                           </div>
                         )
                       })}
                     </div>
-                    <button onClick={openAll}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">
-                      <Calendar size={14} /> Abrir todos en Google Calendar
-                    </button>
-                  </div>
+                  </>
                 ) : (
-                  <p className="text-sm text-gray-500">Este proceso no tiene hitos de Google Calendar.</p>
+                  <div className="py-10 text-center text-sm text-gray-400">
+                    Este proceso no tiene eventos de calendario.
+                  </div>
                 )}
               </div>
-              <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
-                <button onClick={finalize}
-                  className="px-5 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
-                  {calTasks.length > 0 ? 'Ahora no, ir al proceso' : 'Ir al proceso'}
+
+              <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-shrink-0">
+                <button onClick={() => setShowCalendar(false)} className="flex items-center gap-1 px-4 py-2 text-sm text-gray-600 hover:text-gray-900">
+                  <ChevronLeft size={14} /> Volver
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={timedMissingTime || createOnboarding.isPending}
+                  className="px-5 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+                >
+                  {createOnboarding.isPending
+                    ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creando...</>
+                    : <><Rocket size={14} /> Crear proceso</>
+                  }
                 </button>
               </div>
             </div>
           )
         })()}
 
-        {/* Body */}
-        {!createdProcess && <div className="overflow-y-auto flex-1 p-6 space-y-6">
-
+        {/* Body — paso 1 */}
+        {!showCalendar && <div className="overflow-y-auto flex-1 p-6 space-y-6">
           {/* Datos del colaborador */}
           <div className="grid grid-cols-2 gap-4">
             {/* RUT con búsqueda */}
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                RUT <span className="text-red-400">*</span>
-              </label>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">RUT <span className="text-red-400">*</span></label>
               {matchedEmployee ? (
                 <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
                   <UserCheck size={14} className="text-green-600 flex-shrink-0" />
@@ -291,41 +592,27 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
                     <p className="text-sm font-medium text-green-800 truncate">{matchedEmployee.name}</p>
                     <p className="text-[10px] text-green-600">{matchedEmployee.rut} · {matchedEmployee.position ?? '—'}</p>
                   </div>
-                  <button onClick={clearEmployee} className="p-1 text-green-500 hover:text-green-800">
-                    <X size={13} />
-                  </button>
+                  <button onClick={clearEmployee} className="p-1 text-green-500 hover:text-green-800"><X size={13} /></button>
                 </div>
               ) : (
                 <div className="relative">
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        autoFocus
-                        type="text"
-                        placeholder="Buscar por RUT o nombre..."
-                        value={rutSearch}
-                        onChange={e => setRutSearch(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                      <input autoFocus type="text" placeholder="Buscar por RUT o nombre (mín. 2 caracteres)..."
+                        value={rutSearch} onChange={e => setRutSearch(e.target.value)}
+                        className="w-full pl-8 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      {searchFetching && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
                     </div>
-                    <input
-                      type="text"
-                      placeholder="RUT manual (si no está en el sistema)"
-                      value={form.collaboratorRut}
+                    <input type="text" placeholder="RUT manual" value={form.collaboratorRut}
                       onChange={e => field('collaboratorRut', e.target.value)}
-                      className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                      className="w-40 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                   {employeeResults.length > 0 && (
                     <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
                       {employeeResults.map((emp: any) => (
-                        <button
-                          key={emp.id}
-                          type="button"
-                          onClick={() => selectEmployee(emp)}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
-                        >
+                        <button key={emp.id} type="button" onClick={() => selectEmployee(emp)}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0">
                           <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold flex items-center justify-center flex-shrink-0 uppercase">
                             {emp.firstName[0]}{emp.lastName[0]}
                           </div>
@@ -341,7 +628,6 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
               )}
             </div>
 
-            {/* Nombre (se pre-rellena desde el colaborador seleccionado) */}
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre completo <span className="text-red-400">*</span></label>
               <input type="text" placeholder="Ej: Juan Pérez Soto" value={form.collaboratorName}
@@ -349,10 +635,10 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Email corporativo</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Email corporativo <span className="text-red-400">*</span></label>
               <input type="email" placeholder="juan.perez@surmedia.cl" value={form.collaboratorEmail}
                 onChange={e => field('collaboratorEmail', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.collaboratorEmail ? 'border-gray-300' : 'border-gray-200'}`} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Email personal</label>
@@ -367,41 +653,22 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo <span className="text-red-400">*</span></label>
               {positionMode === 'select' ? (
-                <select
-                  value={form.collaboratorPosition}
-                  onChange={e => {
-                    if (e.target.value === '__otro__') {
-                      setPositionMode('custom')
-                      field('collaboratorPosition', '')
-                    } else {
-                      field('collaboratorPosition', e.target.value)
-                    }
-                  }}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                >
+                <select value={form.collaboratorPosition}
+                  onChange={e => { if (e.target.value === '__otro__') { setPositionMode('custom'); field('collaboratorPosition', '') } else { field('collaboratorPosition', e.target.value) } }}
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${!form.collaboratorPosition ? 'border-gray-300' : 'border-gray-200'}`}>
                   <option value="">Seleccionar cargo...</option>
                   {jobTitles.map(t => <option key={t} value={t}>{t}</option>)}
                   <option value="__otro__">Otro (ingresar manualmente)</option>
                 </select>
               ) : (
                 <div className="flex gap-2">
-                  <input
-                    autoFocus
-                    type="text"
-                    placeholder="Ej: Diseñador Gráfico"
-                    value={form.collaboratorPosition}
+                  <input autoFocus type="text" placeholder="Ej: Diseñador Gráfico" value={form.collaboratorPosition}
                     onChange={e => field('collaboratorPosition', e.target.value)}
-                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => { setPositionMode('select'); field('collaboratorPosition', '') }}
-                    className="px-2 py-1 text-xs text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg"
-                  >
-                    Lista
-                  </button>
+                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button type="button" onClick={() => { setPositionMode('select'); field('collaboratorPosition', '') }}
+                    className="px-2 py-1 text-xs text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg">Lista</button>
                 </div>
               )}
             </div>
@@ -415,21 +682,16 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha de ingreso</label>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha de ingreso <span className="text-red-400">*</span></label>
               <input type="date" value={form.startDate} onChange={e => field('startDate', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.startDate ? 'border-gray-300' : 'border-gray-200'}`} />
             </div>
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Centro de Trabajo</label>
-              <select
-                value={form.costCenter}
-                onChange={e => field('costCenter', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="">Sin asignar</option>
-                {workCenters.map(wc => (
-                  <option key={wc.id} value={wc.name}>{wc.name}</option>
-                ))}
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Centro de Trabajo <span className="text-red-400">*</span></label>
+              <select value={form.costCenter} onChange={e => field('costCenter', e.target.value)}
+                className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${!form.costCenter ? 'border-gray-300' : 'border-gray-200'}`}>
+                <option value="">Seleccionar centro...</option>
+                {workCenters.map(wc => <option key={wc.id} value={wc.name}>{wc.name}</option>)}
               </select>
             </div>
             <div className="col-span-2">
@@ -445,8 +707,7 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Hitos del proceso</p>
             {templateLoading ? (
               <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
-                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                Cargando hitos…
+                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /> Cargando hitos…
               </div>
             ) : templateError ? (
               <div className="py-4 text-sm text-red-500 flex items-center gap-2">
@@ -458,29 +719,29 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 {PERIOD_ORDER.map(period => {
                   const tasks = byPeriod.get(period) ?? []
                   if (tasks.length === 0) return null
-                  const allOn = tasks.every(t => selected.has(t.id))
+                  const allOn = tasks.every(t => selected.has(t.key))
                   return (
                     <div key={period}>
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${PERIOD_COLORS[period]}`}>
-                          {PERIOD_LABELS[period]}
-                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${PERIOD_COLORS[period]}`}>{PERIOD_LABELS[period]}</span>
                         <button onClick={() => togglePeriod(period)} className="text-xs text-blue-600 hover:text-blue-800">
                           {allOn ? 'Quitar todos' : 'Marcar todos'}
                         </button>
                       </div>
                       <div className="space-y-1">
                         {tasks.map(task => (
-                          <label key={task.id} className={`flex items-start gap-3 p-2 rounded-lg cursor-pointer border transition-colors ${
-                            selected.has(task.id) ? 'bg-blue-50 border-blue-100' : 'border-transparent hover:bg-gray-50'
+                          <label key={task.key} className={`flex items-start gap-3 p-2 rounded-lg cursor-pointer border transition-colors ${
+                            selected.has(task.key) ? 'bg-blue-50 border-blue-100' : 'border-transparent hover:bg-gray-50'
                           }`}>
-                            <input type="checkbox" checked={selected.has(task.id)} onChange={() => toggle(task.id)}
+                            <input type="checkbox" checked={selected.has(task.key)} onChange={() => toggle(task.key)}
                               className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-blue-600 cursor-pointer" />
                             <div className="flex-1 min-w-0">
-                              <p className={`text-sm ${selected.has(task.id) ? 'text-gray-900' : 'text-gray-500'}`}>{task.name}</p>
+                              <p className={`text-sm ${selected.has(task.key) ? 'text-gray-900' : 'text-gray-500'}`}>{task.name}</p>
                               <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                                <AutoBadge type={task.automationType} />
-                                {task.tool && <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{task.tool}</span>}
+                                <AutoBadge type={task.automationType as TaskAutomationType} />
+                                {task.taskType === 'FECHA_ESPECIFICA' && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600">Fecha específica</span>
+                                )}
                                 {task.appliesWhen && <span className="text-[10px] text-gray-400 italic">{task.appliesWhen}</span>}
                               </div>
                             </div>
@@ -495,18 +756,20 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
           </div>
         </div>}
 
-        {/* Footer (solo en paso 1) */}
-        {!createdProcess && <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 flex-shrink-0">
+        {/* Footer paso 1 */}
+        {!showCalendar && <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 flex-shrink-0">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
           <button
-            onClick={handleSubmit}
-            disabled={!form.collaboratorName.trim() || !form.legalEntity || selected.size === 0 || createOnboarding.isPending}
+            onClick={() => setShowCalendar(true)}
+            disabled={
+              !form.collaboratorName.trim() || !form.legalEntity ||
+              !form.collaboratorEmail.trim() || !form.collaboratorPosition.trim() ||
+              !form.costCenter || !form.startDate ||
+              selected.size === 0
+            }
             className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
-            {createOnboarding.isPending
-              ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Creando...</>
-              : <><Rocket size={14} /> Iniciar onboarding ({selected.size} hitos)</>
-            }
+            <ChevronRight size={14} /> Continuar
           </button>
         </div>}
       </div>
@@ -524,7 +787,6 @@ export default function OnboardingPage() {
 
   const { data: processes, isLoading, isError } = useOnboardingProcesses()
   const { data: stats } = useOnboardingStats()
-  useOnboardingTemplate() // prefetch so template is ready when modal opens
 
   const filtered = (processes ?? []).filter(p =>
     filterStatus === 'ALL' ? true : p.status === filterStatus
@@ -569,7 +831,7 @@ export default function OnboardingPage() {
       {tab === 'hitos' && <HitosTab />}
 
       {/* ── Tab: Automatización ── */}
-      {tab === 'automatizacion' && <AutomatizacionTab processes={processes ?? []} />}
+      {tab === 'automatizacion' && <AutomatizacionTab />}
 
       {/* ── Tab: Procesos ── */}
       {tab === 'procesos' && <>

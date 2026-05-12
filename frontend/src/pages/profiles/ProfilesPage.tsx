@@ -1,10 +1,7 @@
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, Mail, Phone, Briefcase, X, UserCircle } from 'lucide-react'
-import { useProfiles, useCreateProfile, useUpdateProfile, useDeleteProfile, AREAS, ROLE_TYPES } from '@/hooks/useProfiles'
+import { useProfiles, useCreateProfile, useUpdateProfile, useDeleteProfile } from '@/hooks/useProfiles'
 import type { Profile } from '@/types'
-
-const AREA_LABEL: Record<string, string> = Object.fromEntries(AREAS.map(a => [a.value, a.label]))
-const ROLE_LABEL: Record<string, string> = Object.fromEntries(ROLE_TYPES.map(r => [r.value, r.label]))
 
 // ─── Modal ──────────────────────────────────────────────────────────────────
 
@@ -16,23 +13,11 @@ function ProfileModal({ profile, onClose }: { profile?: Profile; onClose: () => 
     phone:    profile?.phone    ?? '',
     notes:    profile?.notes    ?? '',
   })
-  const [roles, setRoles] = useState<{ area: string; roleType: string }[]>(
-    profile?.roles.map(r => ({ area: r.area, roleType: r.roleType })) ?? []
-  )
-  const [newRole, setNewRole] = useState({ area: 'GENERAL', roleType: 'ENVIA_CORREOS' })
-
   const create = useCreateProfile()
   const update = useUpdateProfile()
   const isEdit = !!profile
 
   const field = (k: keyof typeof form, v: string) => setForm(f => ({ ...f, [k]: v }))
-
-  const addRole = () => {
-    if (roles.some(r => r.area === newRole.area && r.roleType === newRole.roleType)) return
-    setRoles(r => [...r, { ...newRole }])
-  }
-
-  const removeRole = (i: number) => setRoles(r => r.filter((_, idx) => idx !== i))
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.position.trim() || !form.email.trim()) return
@@ -42,7 +27,6 @@ function ProfileModal({ profile, onClose }: { profile?: Profile; onClose: () => 
       email:    form.email.trim(),
       phone:    form.phone.trim() || undefined,
       notes:    form.notes.trim() || undefined,
-      roles,
     }
     if (isEdit) await update.mutateAsync({ id: profile.id, ...body })
     else         await create.mutateAsync(body)
@@ -98,39 +82,6 @@ function ProfileModal({ profile, onClose }: { profile?: Profile; onClose: () => 
             </div>
           </div>
 
-          {/* Roles */}
-          <div>
-            <p className="text-xs font-medium text-gray-600 mb-2">Roles en el proceso</p>
-            <div className="flex gap-2 mb-2">
-              <select value={newRole.area} onChange={e => setNewRole(r => ({ ...r, area: e.target.value }))}
-                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                {AREAS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
-              </select>
-              <select value={newRole.roleType} onChange={e => setNewRole(r => ({ ...r, roleType: e.target.value }))}
-                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                {ROLE_TYPES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-              <button onClick={addRole}
-                className="px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">
-                <Plus size={14} />
-              </button>
-            </div>
-            {roles.length === 0 && (
-              <p className="text-xs text-gray-400 text-center py-3">Sin roles asignados</p>
-            )}
-            <div className="flex flex-col gap-1">
-              {roles.map((r, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg text-xs">
-                  <span className="font-medium text-gray-700">{AREA_LABEL[r.area] ?? r.area}</span>
-                  <span className="text-gray-500 mx-2">·</span>
-                  <span className="text-gray-600 flex-1">{ROLE_LABEL[r.roleType] ?? r.roleType}</span>
-                  <button onClick={() => removeRole(i)} className="ml-2 p-0.5 rounded hover:bg-red-100 text-red-400">
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Footer */}
@@ -221,17 +172,6 @@ export default function ProfilesPage() {
                 )}
               </div>
 
-              {/* Roles */}
-              {p.roles.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {p.roles.map(r => (
-                    <span key={r.id}
-                      className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium">
-                      {AREA_LABEL[r.area] ?? r.area} · {ROLE_LABEL[r.roleType] ?? r.roleType}
-                    </span>
-                  ))}
-                </div>
-              )}
             </div>
           ))}
         </div>

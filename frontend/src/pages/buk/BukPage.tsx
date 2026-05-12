@@ -3,6 +3,7 @@ import {
   RefreshCw, X, CheckCircle2, AlertTriangle, Info, Check, Minus,
   FileSpreadsheet, ChevronRight, ChevronDown,
 } from 'lucide-react'
+import { SmartImportTab } from '@/pages/workCenters/SmartTab'
 import {
   fetchBukPreview,
   type BukPreviewData, type BukSueldoNuevo, type BukSueldoCambio,
@@ -605,12 +606,7 @@ export default function ImportablesPage() {
 
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         {tab === 'buk'   && <BukTab />}
-        {tab === 'smart' && (
-          <div className="flex flex-col items-center gap-3 py-12 text-gray-400">
-            <FileSpreadsheet size={32} className="text-gray-300" />
-            <p className="text-sm">Módulo Smart CTO — próximamente</p>
-          </div>
-        )}
+        {tab === 'smart' && <SmartImportTab />}
       </div>
     </div>
   )

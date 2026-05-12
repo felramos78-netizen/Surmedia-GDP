@@ -25,7 +25,12 @@
       "Bash(git commit -m ' *)",
       "Bash(node --env-file=.env -e ' *)",
       "Bash(dir C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src\\\\hooks *)",
-      "Bash(dir \"C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src\\\\pages\\\\onboarding\\\\tabs\" /b)"
+      "Bash(dir \"C:\\\\Proyecto\\\\surmedia-gdp\\\\frontend\\\\src\\\\pages\\\\onboarding\\\\tabs\" /b)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(npx vite *)",
+      "Bash(Get-ChildItem *)",
+      "Bash(node *)"
     ]
   }
 }

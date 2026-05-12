@@ -845,6 +845,7 @@ function EventDetailModal({ event, onClose }: { event: CalEvent; onClose: () => 
           {event.meta?.status      && <p>Estado: {event.meta.status === 'APPROVED' ? 'Aprobado' : 'Pendiente'}</p>}
           {event.meta?.jobTitle    && <p>Cargo: {event.meta.jobTitle}</p>}
           {event.meta?.contractType && <p>Contrato: {event.meta.contractType}</p>}
+          {event.meta?.name        && <p>Colaborador: {event.meta.name}</p>}
           {event.meta?.period      && <p>Período: {String(event.meta.period).replace('_', ' ')}</p>}
         </div>
       </div>

@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react'
-import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save, FileText, ExternalLink, Users, ListChecks } from 'lucide-react'
+import React, { useState, useRef, useMemo } from 'react'
+import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save, FileText, ExternalLink, Users, ListChecks, Download, Play } from 'lucide-react'
 import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment, useVerifySheet, useApplySheetData } from '@/hooks/useOnboarding'
 import { useProfiles, ROLE_TYPES } from '@/hooks/useProfiles'
 import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus, OnboardingProcess, TaskAssignment, SubTaskInstance } from '@/types'
@@ -73,7 +73,12 @@ function makeGCalUrl(title: string, start: Date, durMin: number, desc: string, g
 
 function computeTaskDate(task: OnboardingTask, base: Date): Date {
   const cfg = task.automationConfig as Record<string, any> | null
-  const offset = typeof cfg?.daysFromStart === 'number' ? cfg.daysFromStart : PERIOD_OFFSETS[task.period].start
+  let offset: number
+  if (typeof cfg?.daysFromStart === 'number') {
+    offset = task.period === 'PRE_INGRESO' ? -cfg.daysFromStart : cfg.daysFromStart
+  } else {
+    offset = PERIOD_OFFSETS[task.period].start
+  }
   const d = new Date(base)
   d.setDate(d.getDate() + offset)
   d.setHours(9, 0, 0, 0)
@@ -96,6 +101,69 @@ const TOOLS = [
 function fmt(d: string) { return new Date(d).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) }
 function fmtShort(d: string) { return new Date(d).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' }) }
 function daysIn(s: string) { return Math.floor((Date.now() - new Date(s).getTime()) / 864e5) }
+
+// ─── ICS helpers ──────────────────────────────────────────────────────────────
+
+function icsDateFmt(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}00`
+}
+function icsDateOnly(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`
+}
+
+function buildProcessICS(process: OnboardingProcess): string {
+  const base = new Date(process.startDate); base.setHours(12, 0, 0, 0)
+  const now = icsDateFmt(new Date())
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Surmedia GDP//Onboarding//ES', 'CALSCALE:GREGORIAN']
+  let idx = 0
+
+  const addEvent = (name: string, start: Date, durationMinutes: number) => {
+    const allDay = durationMinutes === 0
+    lines.push('BEGIN:VEVENT', `UID:onboarding-${process.id}-${idx++}@surmedia.gdp`, `DTSTAMP:${now}`)
+    if (allDay) {
+      const next = new Date(start.getTime() + 86_400_000)
+      lines.push(`DTSTART;VALUE=DATE:${icsDateOnly(start)}`, `DTEND;VALUE=DATE:${icsDateOnly(next)}`)
+    } else {
+      const end = new Date(start.getTime() + durationMinutes * 60_000)
+      lines.push(`DTSTART:${icsDateFmt(start)}`, `DTEND:${icsDateFmt(end)}`)
+    }
+    lines.push(`SUMMARY:${name}`, `DESCRIPTION:Onboarding ${process.collaboratorName}`, 'END:VEVENT')
+  }
+
+  for (const task of (process.tasks ?? [])) {
+    if (task.automationType === 'CALENDAR') {
+      const date = computeTaskDate(task, base)
+      const cfg = task.automationConfig as Record<string, any> | null
+      addEvent(task.name, date, cfg?.durationMinutes ?? 0)
+    }
+    for (const st of (task.subTasks ?? []) as SubTaskInstance[]) {
+      if (st.tool === 'CALENDAR' && st.plantilla) {
+        try {
+          const cfg = JSON.parse(st.plantilla) as Record<string, any>
+          const rawOffset = typeof cfg.daysFromStart === 'number'
+            ? (task.period === 'PRE_INGRESO' ? -cfg.daysFromStart : cfg.daysFromStart)
+            : PERIOD_OFFSETS[task.period].start
+          const d = new Date(base); d.setDate(d.getDate() + rawOffset); d.setHours(9, 0, 0, 0)
+          addEvent(st.name, d, cfg.durationMinutes ?? 0)
+        } catch {}
+      }
+    }
+  }
+
+  lines.push('END:VCALENDAR')
+  return lines.join('\r\n')
+}
+
+function downloadICS(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click()
+  document.body.removeChild(a); URL.revokeObjectURL(url)
+}
 
 // ─── Multi-select de herramientas ────────────────────────────────────────────
 
@@ -410,15 +478,20 @@ function EmailPreviewModal({
   task, process, onClose, onSent,
 }: { task: OnboardingTask; process: OnboardingProcess; onClose: () => void; onSent: () => void }) {
   const initial = buildEmail(task, process)
-  const [from,    setFrom]    = useState('rrhh@surmedia.cl')
+  const responsable = (task.assignments ?? []).find((a: any) => a.roleType === 'RESPONSABLE_HITO')
+  const [from,    setFrom]    = useState((responsable as any)?.profile?.email ?? 'rrhh@surmedia.cl')
   const [to,      setTo]      = useState(initial.to)
   const [cc,      setCc]      = useState('')
   const [subject, setSubject] = useState(initial.subject)
   const [body,    setBody]    = useState(initial.body)
-  const runAuto = useRunAutomation()
 
-  const handleSend = async () => {
-    await runAuto.mutateAsync({ processId: process.id, taskId: task.id })
+  const handleSend = () => {
+    const params = new URLSearchParams()
+    params.set('to', to)
+    if (cc) params.set('cc', cc)
+    params.set('su', subject)
+    params.set('body', body)
+    window.open(`https://mail.google.com/mail/u/0/?view=cm&authuser=${encodeURIComponent(from)}&${params.toString()}`, '_blank', 'noopener,noreferrer')
     onSent()
     onClose()
   }
@@ -463,11 +536,134 @@ function EmailPreviewModal({
         </div>
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
-          <button onClick={handleSend} disabled={runAuto.isPending || !to}
+          <button onClick={handleSend} disabled={!to}
             className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-            {runAuto.isPending ? <Loader2 size={13} className="animate-spin" /> : <Mail size={13} />}
-            {runAuto.isPending ? 'Enviando…' : 'Enviar correo'}
+            <Mail size={13} /> Abrir en Gmail
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Modal de evento de Google Calendar ──────────────────────────────────────
+
+function CalendarEventModal({
+  title: initialTitle, parentName, date, durationMinutes, defaultAttendeeIds, process: proc, onClose,
+}: {
+  title: string
+  parentName?: string | null
+  date: Date
+  durationMinutes: number
+  defaultAttendeeIds: string[]
+  process: OnboardingProcess
+  onClose: () => void
+}) {
+  const { data: profiles = [] } = useProfiles()
+  const [title, setTitle]       = useState(initialTitle)
+  const [description, setDesc]  = useState(`Onboarding ${proc.collaboratorName}`)
+  const [time, setTime]         = useState('')
+  const [extraIds, setExtraIds] = useState<string[]>([])
+  const [eventDate, setEventDate] = useState(() => {
+    const p = (n: number) => String(n).padStart(2, '0')
+    return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}`
+  })
+  const allDay = durationMinutes === 0
+
+  const attendeeEmails = [...new Set([...defaultAttendeeIds, ...extraIds])]
+    .map(id => (profiles as any[]).find(p => p.id === id)?.email)
+    .filter((e): e is string => !!e)
+  if (proc.collaboratorEmail && !attendeeEmails.includes(proc.collaboratorEmail))
+    attendeeEmails.push(proc.collaboratorEmail)
+
+  const buildUrl = () => {
+    const p2 = (n: number) => String(n).padStart(2, '0')
+    const gFmt = (d: Date) => `${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}T${p2(d.getHours())}${p2(d.getMinutes())}00`
+    const dFmt = (d: Date) => `${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}`
+    const s = new Date(eventDate + 'T12:00:00')
+    if (!allDay && time) { const [h, m] = time.split(':').map(Number); s.setHours(h, m, 0, 0) }
+    const dates = allDay
+      ? `${dFmt(s)}/${dFmt(new Date(s.getTime() + 86_400_000))}`
+      : `${gFmt(s)}/${gFmt(new Date(s.getTime() + durationMinutes * 60_000))}`
+    const q = new URLSearchParams({ text: title, dates, details: description })
+    if (attendeeEmails.length) q.set('add', attendeeEmails.join(','))
+    return `https://calendar.google.com/calendar/r/eventedit?${q}`
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">Crear evento en Google Calendar</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{parentName ? `${parentName} (${initialTitle})` : initialTitle}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={15} /></button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-4 flex flex-col gap-3 flex-1">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Título del evento</label>
+            <input value={title} onChange={e => setTitle(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" />
+          </div>
+
+          <div className="flex gap-3 items-end">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Fecha</label>
+              <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" />
+            </div>
+            {!allDay && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Hora</label>
+                <input type="time" value={time} onChange={e => setTime(e.target.value)}
+                  className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500" />
+              </div>
+            )}
+            {!allDay && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Duración</label>
+                <p className="px-3 py-2 text-sm border border-gray-100 rounded-lg bg-gray-50 text-gray-700 whitespace-nowrap">{durationMinutes} min</p>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Descripción</label>
+            <textarea value={description} onChange={e => setDesc(e.target.value)} rows={2}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Invitados <span className="font-normal text-gray-400">({attendeeEmails.length} seleccionados)</span>
+            </label>
+            <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg bg-gray-50 py-0.5 px-1">
+              {(profiles as any[]).map((pr: any) => {
+                const isDefault = defaultAttendeeIds.includes(pr.id)
+                const isExtra   = extraIds.includes(pr.id)
+                return (
+                  <label key={pr.id} className="flex items-center gap-2 px-1.5 py-0.5 rounded cursor-pointer hover:bg-purple-50">
+                    <input type="checkbox" checked={isDefault || isExtra} disabled={isDefault}
+                      onChange={e => { if (isDefault) return; setExtraIds(prev => e.target.checked ? [...prev, pr.id] : prev.filter(id => id !== pr.id)) }}
+                      className="w-3 h-3 rounded accent-purple-600 flex-shrink-0" />
+                    <span className="text-[10px] text-gray-700 flex-1 truncate">{pr.name}</span>
+                    <span className="text-[10px] text-gray-400 truncate max-w-[140px]">{pr.email}</span>
+                    {isDefault && <span className="text-[9px] text-purple-400 flex-shrink-0">por defecto</span>}
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <a href={buildUrl()} target="_blank" rel="noopener noreferrer" onClick={onClose}
+            className="flex items-center gap-2 px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+            <Calendar size={13} /> Crear en Google Calendar
+          </a>
         </div>
       </div>
     </div>
@@ -485,8 +681,10 @@ function TaskRow({
   const [editing, setEditing]         = useState(false)
   const [editName, setEditName]       = useState(task.name)
   const [showResult, setShowResult]   = useState(false)
-  const [emailModal, setEmailModal]   = useState(false)
-  const [sheetModal, setSheetModal]   = useState(false)
+  const [emailModal,    setEmailModal]    = useState(false)
+  const [sheetModal,    setSheetModal]    = useState(false)
+  const [calendarModal, setCalendarModal] = useState(false)
+  const [subAction, setSubAction]         = useState<{ idx: number; tool: string; cfg: Record<string, any> } | null>(null)
   const inputRef  = useRef<HTMLInputElement>(null)
 
   const updateTask  = useUpdateTask()
@@ -496,6 +694,16 @@ function TaskRow({
   const isRunning  = runAuto.isPending
   const autoStatus = task.automationStatus as AutomationStatus | null
   const result     = task.automationResult as Record<string, any> | null
+
+  const base = useMemo(() => {
+    const d = new Date(process.startDate); d.setHours(12, 0, 0, 0); return d
+  }, [process.startDate])
+  const taskDate = computeTaskDate(task, base)
+  const todayMid = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })()
+  const isOverdue = !task.completedAt && taskDate < todayMid
+  const fmtDate = (d: Date) => d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })
+  const dayOffset = Math.round((taskDate.getTime() - base.getTime()) / 86400000)
+  const dayLabel = dayOffset < 0 ? `Día ${dayOffset}` : dayOffset === 0 ? 'Día 0' : `Día +${dayOffset}`
 
   const handleToggle = () => {
     if (!canEdit) return
@@ -513,6 +721,7 @@ function TaskRow({
     e.stopPropagation()
     if (task.automationType === 'EMAIL') { setEmailModal(true); return }
     if (task.automationType === 'SHEET_VERIFY') { setSheetModal(true); return }
+    if (task.automationType === 'CALENDAR') { setCalendarModal(true); return }
     runAuto.mutate({ processId, taskId: task.id })
   }
 
@@ -524,7 +733,11 @@ function TaskRow({
   }
 
   return (
-    <div className={`rounded-lg border transition-colors ${task.completedAt ? 'border-green-100 bg-green-50/30' : 'border-gray-100 bg-white'} mb-1`}>
+    <div className={`rounded-lg border transition-colors mb-1 ${
+      task.completedAt ? 'border-green-100 bg-green-50/30' :
+      isOverdue ? 'border-amber-200 bg-amber-50/40' :
+      'border-gray-100 bg-white'
+    }`}>
       <div className="flex items-start gap-2.5 p-3">
         {/* Checkbox */}
         <button
@@ -553,9 +766,16 @@ function TaskRow({
             </div>
           ) : (
             <div className="flex items-start justify-between gap-2">
-              <p className={`text-sm leading-snug ${task.completedAt ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                {task.name}
-              </p>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm leading-snug ${task.completedAt ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                  {task.name}
+                </p>
+                <span className={`text-[10px] font-medium ${
+                  isOverdue ? 'text-amber-600' : task.completedAt ? 'text-gray-400' : 'text-gray-400'
+                }`}>
+                  {fmtDate(taskDate)} · <span className="font-semibold">{dayLabel}</span>{isOverdue && ' · Vencido'}
+                </span>
+              </div>
               {canEdit && (
                 <button onClick={() => setEditing(true)} className="flex-shrink-0 text-gray-300 hover:text-gray-500 mt-0.5">
                   <Pencil size={11} />
@@ -631,6 +851,20 @@ function TaskRow({
         <div className="mx-3 mb-2 border-t border-gray-50 pt-2 space-y-1">
           {(task.subTasks as SubTaskInstance[]).map((st, idx) => {
             const isDone = !!st.completedAt
+            // Compute subtask date: CALENDAR uses daysFromStart from plantilla; others inherit task date
+            const stDate = (() => {
+              if (st.tool === 'CALENDAR' && st.plantilla) {
+                try {
+                  const cfg = JSON.parse(st.plantilla)
+                  if (typeof cfg.daysFromStart === 'number') {
+                    const rawOffset = task.period === 'PRE_INGRESO' ? -cfg.daysFromStart : cfg.daysFromStart
+                    const d = new Date(base); d.setDate(d.getDate() + rawOffset); d.setHours(9,0,0,0); return d
+                  }
+                } catch {}
+              }
+              return taskDate
+            })()
+            const stOverdue = !isDone && stDate < todayMid
             const handleToggleSub = () => {
               if (!canEdit) return
               const nowISO = new Date().toISOString()
@@ -640,7 +874,7 @@ function TaskRow({
               updateTask.mutate({ processId, taskId: task.id, subTasks: updated })
             }
             return (
-              <div key={st.id ?? idx} className="flex items-center gap-2">
+              <div key={st.id ?? idx} className={`flex items-center gap-2 rounded px-1 -mx-1 py-0.5 ${stOverdue ? 'bg-amber-50/60' : ''}`}>
                 <button
                   onClick={handleToggleSub}
                   disabled={!canEdit || updateTask.isPending}
@@ -648,11 +882,14 @@ function TaskRow({
                 >
                   {isDone ? <CheckCircle2 size={14} /> : <Circle size={14} />}
                 </button>
-                <span className={`text-xs ${isDone ? 'line-through text-gray-400' : 'text-gray-600'}`}>
+                <span className={`text-xs flex-1 ${isDone ? 'line-through text-gray-400' : 'text-gray-600'}`}>
                   {st.name}
                 </span>
+                <span className={`text-[10px] flex-shrink-0 ${stOverdue ? 'text-amber-500' : 'text-gray-300'}`}>
+                  {fmtDate(stDate)} · <span className="font-semibold">{(() => { const d = Math.round((stDate.getTime() - base.getTime()) / 86400000); return d < 0 ? `Día ${d}` : d === 0 ? 'Día 0' : `Día +${d}` })()}</span>
+                </span>
                 {st.tool && (
-                  <span className={`text-[10px] px-1 py-0.5 rounded font-medium ml-auto ${
+                  <span className={`text-[10px] px-1 py-0.5 rounded font-medium flex-shrink-0 ${
                     st.tool === 'EMAIL' ? 'bg-blue-50 text-blue-600' :
                     st.tool === 'CALENDAR' ? 'bg-purple-50 text-purple-600' :
                     st.tool === 'SHEET_VERIFY' ? 'bg-green-50 text-green-600' :
@@ -660,6 +897,27 @@ function TaskRow({
                   }`}>
                     {st.tool === 'EMAIL' ? 'Email' : st.tool === 'CALENDAR' ? 'Calendar' : st.tool === 'SHEET_VERIFY' ? 'Sheet' : 'Manual'}
                   </span>
+                )}
+                {st.tool && ['EMAIL', 'CALENDAR', 'SHEET_VERIFY'].includes(st.tool) && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const cfg = (() => {
+                        if (!st.plantilla) return {}
+                        try { return JSON.parse(st.plantilla) } catch {
+                          // EMAIL/SHEET_VERIFY store the key as plain string, not JSON
+                          if (st.tool === 'SHEET_VERIFY') return { templateKey: st.plantilla }
+                          if (st.tool === 'EMAIL') return { template: st.plantilla }
+                          return {}
+                        }
+                      })()
+                      setSubAction({ idx, tool: st.tool!, cfg })
+                    }}
+                    title={`Activar: ${st.tool}`}
+                    className="flex-shrink-0 p-0.5 rounded text-blue-400 hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                  >
+                    <Play size={9} fill="currentColor" />
+                  </button>
                 )}
               </div>
             )
@@ -681,6 +939,57 @@ function TaskRow({
           onClose={() => setSheetModal(false)}
         />
       )}
+      {calendarModal && (
+        <CalendarEventModal
+          title={task.name}
+          date={taskDate}
+          durationMinutes={(task.automationConfig as Record<string, any>)?.durationMinutes ?? 0}
+          defaultAttendeeIds={(task.assignments ?? []).map(a => a.profileId)}
+          process={process}
+          onClose={() => setCalendarModal(false)}
+        />
+      )}
+      {subAction !== null && subAction.tool === 'CALENDAR' && (() => {
+        const st = (task.subTasks as SubTaskInstance[])[subAction.idx]
+        const rawOffset = typeof subAction.cfg.daysFromStart === 'number'
+          ? (task.period === 'PRE_INGRESO' ? -subAction.cfg.daysFromStart : subAction.cfg.daysFromStart)
+          : PERIOD_OFFSETS[task.period].start
+        const d = new Date(base); d.setDate(d.getDate() + rawOffset); d.setHours(9, 0, 0, 0)
+        return (
+          <CalendarEventModal
+            title={st.name}
+            parentName={task.name}
+            date={d}
+            durationMinutes={subAction.cfg.durationMinutes ?? 0}
+            defaultAttendeeIds={(task.assignments ?? []).map(a => a.profileId)}
+            process={process}
+            onClose={() => setSubAction(null)}
+          />
+        )
+      })()}
+      {subAction !== null && subAction.tool === 'EMAIL' && (() => {
+        const st = (task.subTasks as SubTaskInstance[])[subAction.idx]
+        const syntheticTask = { ...task, name: st.name, automationConfig: subAction.cfg } as OnboardingTask
+        return (
+          <EmailPreviewModal
+            task={syntheticTask}
+            process={process}
+            onClose={() => setSubAction(null)}
+            onSent={() => setSubAction(null)}
+          />
+        )
+      })()}
+      {subAction !== null && subAction.tool === 'SHEET_VERIFY' && (() => {
+        const st = (task.subTasks as SubTaskInstance[])[subAction.idx]
+        const syntheticTask = { ...task, name: st.name, automationConfig: subAction.cfg } as OnboardingTask
+        return (
+          <SheetVerifyModal
+            task={syntheticTask}
+            process={process}
+            onClose={() => setSubAction(null)}
+          />
+        )
+      })()}
     </div>
   )
 }
@@ -1176,6 +1485,16 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                const ics = buildProcessICS(process)
+                downloadICS(ics, `onboarding-${(process.collaboratorName ?? 'proceso').replace(/\s+/g, '-')}.ics`)
+              }}
+              title="Descargar ICS"
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <Download size={15} />
+            </button>
             <button
               onClick={() => setShowEdit(true)}
               title="Editar proceso"

@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AppLayout from '@/layouts/AppLayout'
-import EmployeesPage from '@/pages/employees/EmployeesPage'
 import OnboardingPage from '@/pages/onboarding/OnboardingPage'
 import FormPublicPage from '@/pages/onboarding/FormPublicPage'
 import ProfilesPage from '@/pages/profiles/ProfilesPage'
@@ -10,6 +9,8 @@ import ImportablesPage from '@/pages/buk/BukPage'
 import ColaboradoresPage from '@/pages/colaboradores/ColaboradoresPage'
 import ColaboradorDetallePage from '@/pages/colaboradores/ColaboradorDetallePage'
 import CalendarioPage from '@/pages/calendario/CalendarioPage'
+import ProveedoresPage from '@/pages/proveedores/ProveedoresPage'
+import PresupuestoPage from '@/pages/budget/PresupuestoPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,7 +24,6 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<AppLayout />}>
-            <Route path="/employees"           element={<EmployeesPage />} />
             <Route path="/colaboradores"       element={<ColaboradoresPage />} />
             <Route path="/colaboradores/:id"   element={<ColaboradorDetallePage />} />
             <Route path="/onboarding"          element={<OnboardingPage />} />
@@ -31,7 +31,9 @@ export default function App() {
             <Route path="/centros-trabajo"     element={<WorkCentersPage />} />
             <Route path="/buk"                 element={<ImportablesPage />} />
             <Route path="/calendario"          element={<CalendarioPage />} />
-            <Route path="/" element={<Navigate to="/employees" replace />} />
+            <Route path="/proveedores"         element={<ProveedoresPage />} />
+            <Route path="/presupuesto"         element={<PresupuestoPage />} />
+            <Route path="/" element={<Navigate to="/centros-trabajo" replace />} />
           </Route>
           {/* Ruta pública — sin AppLayout ni autenticación */}
           <Route path="/forms/:token" element={<FormPublicPage />} />

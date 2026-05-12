@@ -1,8 +1,8 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Search, RefreshCw, ChevronDown, Users, AlertTriangle, X, ChevronsUpDown, ChevronUp, LayoutList, CalendarDays, Download } from 'lucide-react'
+import { Search, RefreshCw, ChevronDown, Users, AlertTriangle, X, ChevronsUpDown, ChevronUp, Download, Filter } from 'lucide-react'
 import * as XLSX from 'xlsx'
-import { useEmployees, useEmployeeStats, useMovements, useUpdateEmployee, type DotacionFilters } from '@/hooks/useDotacion'
+import { useEmployees, useEmployeeStats, useUpdateEmployee, type DotacionFilters } from '@/hooks/useDotacion'
 import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
 import { formatDate } from '@/lib/utils'
 import type { Employee, Contract, LegalEntity } from '@/types'
@@ -212,6 +212,154 @@ function SortTh({ label, col, sortKey, sortDir, onSort }: {
     <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700"
         onClick={() => onSort(col)}>
       {label}<SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+    </th>
+  )
+}
+
+// ─── Column filters for employee table ───────────────────────────────────────
+
+type ColFilters = Record<string, Set<string>>
+
+function getEmpVal(e: Employee, col: string): string {
+  const pc = primaryContract(e.contracts)
+  switch (col) {
+    case 'vinculo':        return e.vinculo ?? ''
+    case 'legalEntity':    return pc?.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : pc?.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : ''
+    case 'status':         return e.status ?? ''
+    case 'jobTitle':       return e.jobTitle ?? ''
+    case 'city':           return e.city ?? ''
+    case 'contractType':   return pc?.type ?? ''
+    case 'exclusive':      return e.exclusive == null ? '' : e.exclusive ? 'Sí' : 'No'
+    case 'gender':         return GENDER_LABEL[e.gender ?? ''] ?? e.gender ?? ''
+    case 'supervisorName': return e.supervisorName ?? ''
+    case 'workSchedule':   return e.workSchedule ?? ''
+    default: return ''
+  }
+}
+
+function FilterEmpTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters, onFilterChange }: {
+  label:          string
+  col:            SortKey
+  sortKey:        SortKey
+  sortDir:        SortDir
+  onSort:         (c: SortKey) => void
+  allRows:        Employee[]
+  colFilters:     ColFilters
+  onFilterChange: (col: string, vals: Set<string>) => void
+}) {
+  const [open,         setOpen]         = useState(false)
+  const [filterSearch, setFilterSearch] = useState('')
+  const [dropPos,      setDropPos]      = useState({ top: 0, left: 0 })
+  const btnRef  = useRef<HTMLButtonElement>(null)
+  const dropRef = useRef<HTMLDivElement>(null)
+
+  const isFiltered = (colFilters[col]?.size ?? 0) > 0
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      const t = e.target as Node
+      if (!btnRef.current?.contains(t) && !dropRef.current?.contains(t)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  function handleOpen() {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setDropPos({ top: r.bottom + 2, left: r.left })
+    }
+    setOpen(o => !o)
+  }
+
+  const uniqueVals = useMemo(
+    () => [...new Set(allRows.map(e => getEmpVal(e, col)))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })),
+    [allRows, col],
+  )
+
+  const visibleVals  = filterSearch ? uniqueVals.filter(v => v.toLowerCase().includes(filterSearch.toLowerCase())) : uniqueVals
+  const selected     = colFilters[col] ?? new Set<string>()
+  const allSelected  = visibleVals.length > 0 && visibleVals.every(v => selected.has(v))
+  const someSelected = !allSelected && visibleVals.some(v => selected.has(v))
+
+  function toggleAll() {
+    const next = new Set(selected)
+    allSelected ? visibleVals.forEach(v => next.delete(v)) : visibleVals.forEach(v => next.add(v))
+    onFilterChange(col, next)
+  }
+  function toggleVal(v: string) {
+    const next = new Set(selected)
+    next.has(v) ? next.delete(v) : next.add(v)
+    onFilterChange(col, next)
+  }
+
+  return (
+    <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide select-none whitespace-nowrap hover:text-gray-700">
+      <div className="inline-flex items-center gap-1">
+        <button onClick={() => onSort(col)} className="hover:text-gray-900 transition-colors cursor-pointer">
+          {label}<SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+        </button>
+        <button
+          ref={btnRef}
+          onClick={handleOpen}
+          className={`rounded p-0.5 hover:bg-gray-200 transition-colors ${isFiltered ? 'text-blue-600 bg-blue-50' : 'text-gray-300 hover:text-gray-500'}`}
+        >
+          <Filter size={10} />
+        </button>
+      </div>
+
+      {open && createPortal(
+        <div
+          ref={dropRef}
+          style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
+          className="w-56 bg-white border border-gray-200 rounded-lg shadow-xl text-xs"
+        >
+          <div className="flex gap-1 p-1.5 border-b border-gray-100">
+            <button onClick={() => { onSort(col); setOpen(false) }}
+              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'asc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+              ↑ A→Z
+            </button>
+            <button onClick={() => { if (col !== sortKey || sortDir !== 'desc') onSort(col); setOpen(false) }}
+              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'desc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+              ↓ Z→A
+            </button>
+          </div>
+          <div className="p-1.5 border-b border-gray-100">
+            <input autoFocus value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
+              placeholder="Buscar…"
+              className="w-full px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <div className="px-2 py-1 border-b border-gray-100">
+            <label className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
+              <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                ref={el => { if (el) el.indeterminate = someSelected }}
+                className="rounded border-gray-300 text-blue-600" />
+              <span className="font-medium">(Seleccionar todo)</span>
+            </label>
+          </div>
+          <div className="max-h-44 overflow-y-auto px-2 py-1">
+            {visibleVals.map(v => (
+              <label key={v} className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
+                <input type="checkbox" checked={selected.has(v)} onChange={() => toggleVal(v)}
+                  className="rounded border-gray-300 text-blue-600 shrink-0" />
+                <span className="truncate">{v}</span>
+              </label>
+            ))}
+            {visibleVals.length === 0 && <p className="text-gray-400 text-center py-2">Sin resultados</p>}
+          </div>
+          <div className="flex items-center justify-between px-2 py-1.5 border-t border-gray-100">
+            <span className="text-gray-400">{selected.size > 0 ? `${selected.size} sel.` : ''}</span>
+            {isFiltered && (
+              <button onClick={() => { onFilterChange(col, new Set()); setOpen(false) }}
+                className="text-red-500 hover:text-red-700 flex items-center gap-1">
+                <X size={10} /> Limpiar
+              </button>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
     </th>
   )
 }
@@ -510,193 +658,15 @@ const MONTHS = [
   { value: '10', label: 'Octubre' }, { value: '11', label: 'Noviembre' }, { value: '12', label: 'Diciembre' },
 ]
 
-// ─── Calendario de ausencias ──────────────────────────────────────────────────
-
-const DAYS_ES = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
-const MONTHS_ES: Record<number, string> = {
-  1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',
-  7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre',
-}
-
-function LeaveCalendar({ items, year, month, accentColor }: {
-  items: any[]; year: string; month: string; accentColor: 'blue' | 'amber'
-}) {
-  const y = parseInt(year), m = parseInt(month)
-  const firstDay = new Date(y, m - 1, 1)
-  const daysInMonth = new Date(y, m, 0).getDate()
-  const dow = firstDay.getDay()
-  const offset = dow === 0 ? 6 : dow - 1
-
-  const byDay: Record<number, string[]> = {}
-  for (const item of items) {
-    const start = new Date(item.startDate)
-    const end   = new Date(item.endDate)
-    start.setHours(0, 0, 0, 0); end.setHours(23, 59, 59, 999)
-    for (let d = 1; d <= daysInMonth; d++) {
-      const date = new Date(y, m - 1, d)
-      if (date >= start && date <= end) {
-        if (!byDay[d]) byDay[d] = []
-        byDay[d].push(`${item.employee.firstName} ${item.employee.lastName}`)
-      }
-    }
-  }
-
-  const cells: (number | null)[] = [
-    ...Array(offset).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ]
-  while (cells.length % 7 !== 0) cells.push(null)
-
-  const bg  = accentColor === 'blue' ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-200'
-  const txt = accentColor === 'blue' ? 'text-blue-700' : 'text-amber-700'
-
-  return (
-    <div>
-      <div className="grid grid-cols-7 mb-1">
-        {DAYS_ES.map(d => (
-          <div key={d} className="text-center text-[11px] font-medium text-gray-400 py-1">{d}</div>
-        ))}
-      </div>
-      <div className="grid grid-cols-7 gap-1">
-        {cells.map((day, i) => (
-          <div key={i} className={`min-h-[64px] rounded-lg border p-1 transition-colors ${
-            day ? (byDay[day]?.length ? bg : 'bg-white border-gray-100') : 'border-transparent'
-          }`}>
-            {day && (
-              <>
-                <p className="text-[11px] font-medium text-gray-400 leading-none mb-1">{day}</p>
-                {(byDay[day] ?? []).slice(0, 2).map((name, j) => (
-                  <p key={j} className={`text-[10px] truncate leading-tight ${txt}`}>{name}</p>
-                ))}
-                {(byDay[day]?.length ?? 0) > 2 && (
-                  <p className="text-[10px] text-gray-400">+{byDay[day].length - 2}</p>
-                )}
-              </>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── Tab de ausencias (Vacaciones / Licencias) ────────────────────────────────
-
-function LeaveTab({ type, year, month, onYearChange, onMonthChange }: {
-  type: 'vacaciones' | 'licencias'
-  year: string; month: string
-  onYearChange: (v: string) => void
-  onMonthChange: (v: string) => void
-}) {
-  const [viewMode, setViewMode] = useState<'tabla' | 'calendario'>('tabla')
-  const { data: movements, isLoading } = useMovements({ year, month })
-  const items = type === 'vacaciones' ? (movements?.vacaciones ?? []) : (movements?.licencias ?? [])
-  const accentColor = type === 'vacaciones' ? 'blue' : 'amber'
-  const emptyMsg = type === 'vacaciones' ? 'Sin vacaciones en el período' : 'Sin licencias en el período'
-
-  return (
-    <div className="space-y-4">
-      {/* Controls */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <PeriodFilter
-            year={year} month={month}
-            onYearChange={onYearChange} onMonthChange={onMonthChange}
-          />
-        </div>
-        {month && (
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden bg-white">
-            <button onClick={() => setViewMode('tabla')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === 'tabla' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-              <LayoutList size={14} />Tabla
-            </button>
-            <button onClick={() => setViewMode('calendario')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === 'calendario' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
-              <CalendarDays size={14} />Calendario
-            </button>
-          </div>
-        )}
-      </div>
-
-      {isLoading ? (
-        <div className="py-16 text-center">
-          <RefreshCw size={22} className="animate-spin text-blue-400 mx-auto mb-2" />
-          <p className="text-sm text-gray-400">Cargando…</p>
-        </div>
-      ) : items.length === 0 ? (
-        <div className="py-16 text-center">
-          <p className="text-sm text-gray-400">{emptyMsg}</p>
-        </div>
-      ) : viewMode === 'tabla' ? (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Colaborador</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Empresa</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Desde</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Hasta</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Días</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {items.map((item: any) => {
-                const le = item.legalEntity ?? item.employee?.workCenters?.[0]?.legalEntity
-                const leLabel = le === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : le === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : null
-                const days = item.days ?? Math.round((new Date(item.endDate).getTime() - new Date(item.startDate).getTime()) / 86400000) + 1
-                return (
-                  <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
-                          {`${item.employee.firstName[0]}${item.employee.lastName[0]}`.toUpperCase()}
-                        </div>
-                        <p className="text-sm font-medium text-gray-900">{item.employee.firstName} {item.employee.lastName}</p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {leLabel
-                        ? <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${le === 'COMUNICACIONES_SURMEDIA' ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'}`}>{leLabel}</span>
-                        : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{formatDate(item.startDate)}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{formatDate(item.endDate)}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-sm font-semibold ${accentColor === 'blue' ? 'text-blue-600' : 'text-amber-600'}`}>{days}d</span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-          <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
-            {items.length} registro{items.length !== 1 ? 's' : ''}
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-800">
-              {MONTHS_ES[parseInt(month)]} {year}
-            </h3>
-            <p className="text-xs text-gray-400">{items.length} persona{items.length !== 1 ? 's' : ''} en el período</p>
-          </div>
-          <LeaveCalendar items={items} year={year} month={month} accentColor={accentColor} />
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function EmployeesPage() {
   const now = new Date()
-  const [tab, setTab]           = useState<'personas' | 'vacaciones' | 'licencias'>('personas')
   const [filters, setFilters]   = useState<DotacionFilters>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [sortKey, setSortKey]   = useState<SortKey>('firstName')
   const [sortDir, setSortDir]   = useState<SortDir>('asc')
+  const [colFilters, setColFilters] = useState<ColFilters>({})
   // Período global: controla tabla, movimientos y tabs de ausencias
   const [periodYear,  setPeriodYear]  = useState(String(now.getFullYear()))
   const [periodMonth, setPeriodMonth] = useState(String(now.getMonth() + 1))
@@ -707,7 +677,6 @@ export default function EmployeesPage() {
 
   const { data, isLoading, isError } = useEmployees({ ...filters, activeYear: periodYear, activeMonth: periodMonth })
   const { data: stats } = useEmployeeStats()
-  const { data: movements } = useMovements({ year: periodYear, month: periodMonth })
   const allEmployees = data?.data ?? []
 
   function setFilter(key: 'search' | 'departmentId', value: string) {
@@ -781,6 +750,19 @@ export default function EmployeesPage() {
     return list
   }, [allEmployees, sortKey, sortDir])
 
+  const tableRows = useMemo(() => {
+    const active = Object.entries(colFilters).filter(([, vals]) => vals.size > 0)
+    if (active.length === 0) return employees
+    return employees.filter(e => active.every(([col, vals]) => vals.has(getEmpVal(e, col))))
+  }, [employees, colFilters])
+
+  function handleColFilter(col: string, vals: Set<string>) {
+    setColFilters(prev => {
+      if (vals.size === 0) { const { [col]: _, ...rest } = prev; return rest }
+      return { ...prev, [col]: vals }
+    })
+  }
+
   const hasFilters = !!(
     filters.search ||
     filters.status?.length ||
@@ -809,31 +791,6 @@ export default function EmployeesPage() {
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 -mt-2">
-        {([
-          ['personas',    'Personas'],
-          ['vacaciones',  'Vacaciones'],
-          ['licencias',   'Licencias'],
-        ] as const).map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'vacaciones' && (
-        <LeaveTab type="vacaciones" year={periodYear} month={periodMonth} onYearChange={y => setPeriod(y, periodMonth)} onMonthChange={m => setPeriod(periodYear, m)} />
-      )}
-
-      {tab === 'licencias' && (
-        <LeaveTab type="licencias" year={periodYear} month={periodMonth} onYearChange={y => setPeriod(y, periodMonth)} onMonthChange={m => setPeriod(periodYear, m)} />
-      )}
-
-      {tab === 'personas' && <>
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard
@@ -850,66 +807,6 @@ export default function EmployeesPage() {
         />
         <StatCard label="Activos Comunicaciones" value={stats?.activeComunicaciones ?? '—'} icon={Users} color="text-blue-600 bg-blue-50" sub="Comunicaciones Surmedia Spa" />
         <StatCard label="Activos Consultoría"    value={stats?.activeConsultoria    ?? '—'} icon={Users} color="text-violet-600 bg-violet-50" sub="Surmedia Consultoría Spa" />
-      </div>
-
-      {/* Movimientos e Ingresos/Salidas */}
-      <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <h3 className="text-sm font-semibold text-gray-800">Ingresos y Salidas</h3>
-          <span className="text-xs text-gray-400">
-            {periodMonth ? `${MONTHS.find(m => m.value === periodMonth)?.label} ${periodYear}` : `Anual ${periodYear}`}
-          </span>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Ingresos */}
-          <div>
-            <p className="text-xs font-medium text-green-700 mb-2">
-              Ingresos — {movements?.ingresos?.length ?? 0} colaboradores
-            </p>
-            {(movements?.ingresos?.length ?? 0) === 0
-              ? <p className="text-xs text-gray-400">Sin ingresos en el período</p>
-              : <div className="space-y-1.5">
-                  {movements!.ingresos.map((e: any) => {
-                    const le = e.contracts?.[0]?.legalEntity ?? e.workCenters?.[0]?.legalEntity
-                    const leLabel = le === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : le === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : null
-                    return (
-                      <div key={e.id} className="flex items-start justify-between gap-2 text-xs">
-                        <div>
-                          <span className="font-medium text-gray-800">{e.firstName} {e.lastName}</span>
-                          {leLabel && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600">{leLabel}</span>}
-                        </div>
-                        <span className="text-gray-400 whitespace-nowrap">{e.startDate ? formatDate(e.startDate) : '—'}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-            }
-          </div>
-          {/* Salidas */}
-          <div>
-            <p className="text-xs font-medium text-red-600 mb-2">
-              Salidas — {movements?.salidas?.length ?? 0} colaboradores
-            </p>
-            {(movements?.salidas?.length ?? 0) === 0
-              ? <p className="text-xs text-gray-400">Sin salidas en el período</p>
-              : <div className="space-y-1.5">
-                  {movements!.salidas.map((e: any) => {
-                    const le = e.contracts?.[0]?.legalEntity ?? e.workCenters?.[0]?.legalEntity
-                    const leLabel = le === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : le === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : null
-                    return (
-                      <div key={e.id} className="flex items-start justify-between gap-2 text-xs">
-                        <div>
-                          <span className="font-medium text-gray-800">{e.firstName} {e.lastName}</span>
-                          {leLabel && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-blue-50 text-blue-600">{leLabel}</span>}
-                        </div>
-                        <span className="text-gray-400 whitespace-nowrap">{e.endDate ? formatDate(e.endDate) : '—'}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-            }
-          </div>
-        </div>
       </div>
 
       {/* Tabla */}
@@ -975,25 +872,25 @@ export default function EmployeesPage() {
             <table className="w-full">
               <thead>
                 <tr className="text-left border-b border-gray-100">
-                  <SortTh label="Colaborador"    col="firstName"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Vínculo"        col="vinculo"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Razón Social"   col="legalEntity"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Centros"        col="costCenter"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Estado"         col="status"         sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Cargo"          col="jobTitle"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Ciudad"         col="city"           sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Jornada"        col="workSchedule"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Vínculo"        col="contractType"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Ingreso"        col="startDate"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Término"        col="endDate"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Exclusividad"   col="exclusive"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="RUT"            col="rut"            sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Género"         col="gender"         sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortTh label="Supervisor"     col="supervisorName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh          label="Colaborador"  col="firstName"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <FilterEmpTh     label="Vínculo"      col="vinculo"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
+                  <FilterEmpTh     label="Razón Social" col="legalEntity"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
+                  <SortTh          label="Centros"      col="costCenter"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <FilterEmpTh     label="Estado"       col="status"         sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
+                  <FilterEmpTh     label="Cargo"        col="jobTitle"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
+                  <FilterEmpTh     label="Ciudad"       col="city"           sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
+                  <FilterEmpTh     label="Jornada"      col="workSchedule"   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
+                  <FilterEmpTh     label="Tipo Contrato" col="contractType"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
+                  <SortTh          label="Ingreso"      col="startDate"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <SortTh          label="Término"      col="endDate"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <FilterEmpTh     label="Exclusividad" col="exclusive"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
+                  <SortTh          label="RUT"          col="rut"            sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <FilterEmpTh     label="Género"       col="gender"         sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
+                  <FilterEmpTh     label="Supervisor"   col="supervisorName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={allEmployees} colFilters={colFilters} onFilterChange={handleColFilter} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {employees.map(emp => (
+                {tableRows.map(emp => (
                   <EmployeeRow key={emp.id} emp={emp} onClick={() => setSelectedId(emp.id)}
                     preferLegalEntity={filters.legalEntity?.length === 1 ? filters.legalEntity[0] : undefined} />
                 ))}
@@ -1004,13 +901,14 @@ export default function EmployeesPage() {
 
         {employees.length > 0 && (
           <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
-            {employees.length} colaboradores mostrados{data?.total && data.total > employees.length ? ` de ${data.total} en total` : ''}
+            {tableRows.length !== employees.length
+              ? `${tableRows.length} de ${employees.length} colaboradores`
+              : `${employees.length} colaboradores mostrados${data?.total && data.total > employees.length ? ` de ${data.total} en total` : ''}`}
           </div>
         )}
       </div>
 
       <EmployeeDrawer employeeId={selectedId} onClose={() => setSelectedId(null)} />
-      </>}
     </div>
   )
 }

@@ -429,3 +429,104 @@ export interface PaginatedResponse<T> {
   page: number
   limit: number
 }
+
+// ── Smart (Honorarios / Compras) ──────────────────────────────────────────────
+
+export type SmartDocCategory = 'HONORARIO' | 'COMPRA'
+
+export interface SmartProveedor {
+  id:            string
+  rut:           string
+  razonSocial:   string
+  clasificacion: string | null
+  notes:         string | null
+  area:          string | null
+  categoria:     string | null
+  workCenterId:  string | null
+  workCenter:    { id: string; name: string } | null
+  documents?:    SmartDocument[]
+}
+
+export interface SmartDocument {
+  id:                        string
+  smartId:                   string
+  category:                  SmartDocCategory
+  legalEntity:               LegalEntity
+  proveedor:                 SmartProveedor
+  documento:                 string
+  codigoTributario:          string | null
+  folio:                     string | null
+  recibido:                  string | null
+  vigente:                   boolean
+  fechaEmision:              string | null
+  fechaVencimiento:          string | null
+  fechaPago:                 string | null
+  clasificacion:             string | null
+  montoExento:               number
+  montoAfecto:               number
+  montoNeto:                 number
+  retencion:                 number | null
+  iva:                       number | null
+  montoBruto:                number
+  ivaFueraDePlazo:           number
+  montoTotal:                number
+  remanente:                 number
+  pagado:                    boolean
+  folioReferencia:           string | null
+  codigoReferencia:          string | null
+  codigoUnico:               string | null
+  periodoTributario:         string | null
+  periodoTributarioOriginal: string | null
+  glosa:                     string | null
+  createdAt:                 string
+  updatedAt:                 string
+}
+
+export interface SmartPreviewRow {
+  smartId:           string
+  category:          SmartDocCategory
+  legalEntity:       LegalEntity
+  rut:               string
+  razonSocial:       string
+  documento:         string
+  clasificacion:     string
+  periodoTributario: string
+  fechaEmision:      string | null
+  fechaPago:         string | null
+  montoNeto:         number
+  montoBruto:        number
+  montoTotal:        number
+  retencion:         number | null
+  iva:               number | null
+  pagado:            boolean
+  glosa:             string
+}
+
+export interface SmartPreviewData {
+  honorarios: { nuevos: SmartPreviewRow[]; cambios: SmartPreviewRow[]; sincronizados: SmartPreviewRow[] }
+  compras:    { nuevos: SmartPreviewRow[]; cambios: SmartPreviewRow[]; sincronizados: SmartPreviewRow[] }
+}
+
+// ── Presupuesto DPDO ──────────────────────────────────────────────────────────
+
+export interface BudgetItem {
+  id:           string
+  categoryId:   string
+  name:         string
+  annualAmount: number
+  spentAmount:  number
+  sortOrder:    number
+  notes:        string | null
+  createdAt:    string
+  updatedAt:    string
+}
+
+export interface BudgetCategory {
+  id:        string
+  section:   'PARTIDAS' | 'BENEFICIOS'
+  name:      string
+  sortOrder: number
+  items:     BudgetItem[]
+  createdAt: string
+  updatedAt: string
+}

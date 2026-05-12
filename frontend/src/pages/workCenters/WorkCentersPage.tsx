@@ -1,11 +1,14 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
+import { createPortal } from 'react-dom'
+import { SmartTab } from './SmartTab'
+import { DotacionTab } from './DotacionTab'
 import * as XLSX from 'xlsx'
 import type { LucideIcon } from 'lucide-react'
 import {
   Plus, Pencil, Trash2, X, Save, Building2, Users, Briefcase,
   ChevronDown, ChevronUp, ChevronsUpDown, DollarSign, TrendingUp,
   TrendingDown, BarChart2, Search, Wallet, Percent, UserPlus,
-  UserMinus, Stethoscope, Repeat, RefreshCw, FileDown,
+  UserMinus, Stethoscope, Repeat, RefreshCw, FileDown, Filter,
 } from 'lucide-react'
 import {
   useWorkCenters, useCreateWorkCenter, useUpdateWorkCenter, useDeleteWorkCenter,
@@ -219,7 +222,7 @@ function sumPayrollStats(entries: PayrollRawEntry[]) {
 
 // ─── Sort ─────────────────────────────────────────────────────────────────────
 
-type SortKey = 'employeeName' | 'legalEntity' | 'period' | 'liquidSalary' | 'grossSalary' | 'sueldoEstandar' | 'sueldoBase' | 'gratificacion' | 'bonosTotal' | 'hhTotal' | 'noImponiblesTotal'
+type SortKey = 'employeeName' | 'centers' | 'legalEntity' | 'period' | 'liquidSalary' | 'grossSalary' | 'sueldoEstandar' | 'sueldoBase' | 'gratificacion' | 'bonosTotal' | 'bonosNames' | 'hhTotal' | 'hhDetail' | 'noImponiblesTotal' | 'noImponiblesNames'
 type CenterSortKey = 'name' | 'ubicacion' | 'costType' | 'personal' | 'cargos' | 'ingresos' | 'gasto' | 'diferencia'
 type SortDir = 'asc' | 'desc'
 const NUMERIC_KEYS = new Set<SortKey>(['liquidSalary', 'grossSalary', 'sueldoEstandar', 'sueldoBase', 'gratificacion', 'bonosTotal', 'hhTotal', 'noImponiblesTotal'])
@@ -241,6 +244,161 @@ function SortTh({ label, col, sortKey, sortDir, onSort, right, highlight }: {
       className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700 ${right ? 'text-right' : ''} ${highlight ? 'bg-blue-50 text-blue-600' : 'text-gray-500'}`}
     >
       {label}<SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+    </th>
+  )
+}
+
+// ─── Column filter for Remuneraciones ────────────────────────────────────────
+
+type RemColFilters = Record<string, Set<string>>
+
+function getRemVal(r: WCAggRow, col: string): string {
+  switch (col) {
+    case 'employeeName':      return r.employeeName
+    case 'legalEntity':       return LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity
+    case 'centers':           return r.centers
+    case 'period':            return r.period
+    case 'liquidSalary':      return r.liquidSalary      > 0 ? String(r.liquidSalary)      : '—'
+    case 'grossSalary':       return r.grossSalary       > 0 ? String(r.grossSalary)       : '—'
+    case 'sueldoEstandar':    return r.sueldoEstandar    > 0 ? String(r.sueldoEstandar)    : '—'
+    case 'sueldoBase':        return r.sueldoBase        > 0 ? String(r.sueldoBase)        : '—'
+    case 'gratificacion':     return r.gratificacion     > 0 ? String(r.gratificacion)     : '—'
+    case 'bonosTotal':        return r.bonosTotal        > 0 ? String(r.bonosTotal)        : '—'
+    case 'bonosNames':        return r.bonosNames
+    case 'hhTotal':           return r.hhTotal           > 0 ? String(r.hhTotal)           : '—'
+    case 'hhDetail':          return r.hhDetail
+    case 'noImponiblesTotal': return r.noImponiblesTotal > 0 ? String(r.noImponiblesTotal) : '—'
+    case 'noImponiblesNames': return r.noImponiblesNames
+    default: return ''
+  }
+}
+
+function FilterRemTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters, onFilterChange, right, highlight, sticky }: {
+  label:          string
+  col:            SortKey
+  sortKey:        SortKey
+  sortDir:        SortDir
+  onSort:         (c: SortKey) => void
+  allRows:        WCAggRow[]
+  colFilters:     RemColFilters
+  onFilterChange: (col: string, vals: Set<string>) => void
+  right?:         boolean
+  highlight?:     boolean
+  sticky?:        boolean
+}) {
+  const [open,         setOpen]         = useState(false)
+  const [filterSearch, setFilterSearch] = useState('')
+  const [dropPos,      setDropPos]      = useState({ top: 0, left: 0 })
+  const btnRef  = useRef<HTMLButtonElement>(null)
+  const dropRef = useRef<HTMLDivElement>(null)
+
+  const isFiltered = (colFilters[col]?.size ?? 0) > 0
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      const t = e.target as Node
+      if (!btnRef.current?.contains(t) && !dropRef.current?.contains(t)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  function handleOpen() {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setDropPos({ top: r.bottom + 2, left: r.left })
+    }
+    setOpen(o => !o)
+  }
+
+  const uniqueVals = useMemo(
+    () => [...new Set(allRows.map(r => getRemVal(r, col)))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })),
+    [allRows, col],
+  )
+
+  const visibleVals  = filterSearch ? uniqueVals.filter(v => v.toLowerCase().includes(filterSearch.toLowerCase())) : uniqueVals
+  const selected     = colFilters[col] ?? new Set<string>()
+  const allSelected  = visibleVals.length > 0 && visibleVals.every(v => selected.has(v))
+  const someSelected = !allSelected && visibleVals.some(v => selected.has(v))
+
+  function toggleAll() {
+    const next = new Set(selected)
+    allSelected ? visibleVals.forEach(v => next.delete(v)) : visibleVals.forEach(v => next.add(v))
+    onFilterChange(col, next)
+  }
+  function toggleVal(v: string) {
+    const next = new Set(selected)
+    next.has(v) ? next.delete(v) : next.add(v)
+    onFilterChange(col, next)
+  }
+
+  return (
+    <th className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide select-none whitespace-nowrap hover:text-gray-700 ${right ? 'text-right' : ''} ${highlight ? 'bg-blue-50 text-blue-600' : sticky ? 'bg-white text-gray-500' : 'text-gray-500'} ${sticky ? 'sticky left-0' : ''}`}>
+      <div className={`inline-flex items-center gap-1 ${right ? 'flex-row-reverse' : ''}`}>
+        <button onClick={() => onSort(col)} className="hover:text-gray-900 transition-colors cursor-pointer">
+          {label}<SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+        </button>
+        <button
+          ref={btnRef}
+          onClick={handleOpen}
+          className={`rounded p-0.5 hover:bg-gray-200 transition-colors ${isFiltered ? 'text-blue-600 bg-blue-50' : 'text-gray-300 hover:text-gray-500'}`}
+        >
+          <Filter size={10} />
+        </button>
+      </div>
+
+      {open && createPortal(
+        <div
+          ref={dropRef}
+          style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
+          className="w-56 bg-white border border-gray-200 rounded-lg shadow-xl text-xs"
+        >
+          <div className="flex gap-1 p-1.5 border-b border-gray-100">
+            <button onClick={() => { onSort(col); setOpen(false) }}
+              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'asc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+              ↑ A→Z
+            </button>
+            <button onClick={() => { if (col !== sortKey || sortDir !== 'desc') onSort(col); setOpen(false) }}
+              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'desc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+              ↓ Z→A
+            </button>
+          </div>
+          <div className="p-1.5 border-b border-gray-100">
+            <input autoFocus value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
+              placeholder="Buscar…"
+              className="w-full px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <div className="px-2 py-1 border-b border-gray-100">
+            <label className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
+              <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                ref={el => { if (el) el.indeterminate = someSelected }}
+                className="rounded border-gray-300 text-blue-600" />
+              <span className="font-medium">(Seleccionar todo)</span>
+            </label>
+          </div>
+          <div className="max-h-44 overflow-y-auto px-2 py-1">
+            {visibleVals.map(v => (
+              <label key={v} className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
+                <input type="checkbox" checked={selected.has(v)} onChange={() => toggleVal(v)}
+                  className="rounded border-gray-300 text-blue-600 shrink-0" />
+                <span className="truncate">{v}</span>
+              </label>
+            ))}
+            {visibleVals.length === 0 && <p className="text-gray-400 text-center py-2">Sin resultados</p>}
+          </div>
+          <div className="flex items-center justify-between px-2 py-1.5 border-t border-gray-100">
+            <span className="text-gray-400">{selected.size > 0 ? `${selected.size} sel.` : ''}</span>
+            {isFiltered && (
+              <button onClick={() => { onFilterChange(col, new Set()); setOpen(false) }}
+                className="text-red-500 hover:text-red-700 flex items-center gap-1">
+                <X size={10} /> Limpiar
+              </button>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
     </th>
   )
 }
@@ -1416,7 +1574,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function WorkCentersPage() {
-  const [tab,          setTab]          = useState<'centros' | 'remuneraciones' | 'honorarios'>('centros')
+  const [tab,          setTab]          = useState<'centros' | 'dotacion' | 'remuneraciones' | 'honorarios' | 'compras'>('centros')
   const [year,         setYear]         = useState('')
   const [month,        setMonth]        = useState('')
   const [modal,        setModal]        = useState<'create' | WorkCenter | null>(null)
@@ -1425,9 +1583,8 @@ export default function WorkCentersPage() {
   const [typeFilters,  setTypeFilters]  = useState<CostType[]>([])
   const [ubicFilters,  setUbicFilters]  = useState<string[]>([])
   const [selectedWC,   setSelectedWC]   = useState<WorkCenter | null>(null)
-  const [remSearch,    setRemSearch]    = useState('')
-  const [centerFilter, setCenterFilter] = useState('')
-  const [entityFilter, setEntityFilter] = useState('')
+  const [remColFilters, setRemColFilters] = useState<RemColFilters>({})
+  const [remSearch,     setRemSearch]     = useState('')
   const [sortKey,      setSortKey]      = useState<SortKey>('employeeName')
   const [sortDir,      setSortDir]      = useState<SortDir>('asc')
   const [cSortKey,     setCSort]        = useState<CenterSortKey>('name')
@@ -1561,23 +1718,8 @@ export default function WorkCentersPage() {
 
   // ── Remuneraciones tab rows ─────────────────────────────────────────────────
 
-  const filteredEntries = useMemo(() => {
-    let e = allEntries
-    if (centerFilter)
-      e = e.filter(entry =>
-        entry.employee.workCenters?.some(a => a.workCenter.name === centerFilter && a.legalEntity === entry.legalEntity)
-      )
-    if (entityFilter)
-      e = e.filter(entry => entry.legalEntity === entityFilter)
-    return e
-  }, [allEntries, centerFilter, entityFilter])
-
   const rows = useMemo(() => {
-    let agg = aggregateWCRows(filteredEntries, isMonthly)
-    if (remSearch) {
-      const q = remSearch.toLowerCase()
-      agg = agg.filter(r => r.employeeName.toLowerCase().includes(q) || r.rut.includes(q))
-    }
+    const agg = aggregateWCRows(allEntries, isMonthly)
     return [...agg].sort((a, b) => {
       if (NUMERIC_KEYS.has(sortKey)) {
         const diff = (a[sortKey] as number) - (b[sortKey] as number)
@@ -1586,7 +1728,25 @@ export default function WorkCentersPage() {
       const cmp = String(a[sortKey] ?? '').localeCompare(String(b[sortKey] ?? ''), 'es')
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [filteredEntries, isMonthly, remSearch, sortKey, sortDir])
+  }, [allEntries, isMonthly, sortKey, sortDir])
+
+  const remTableRows = useMemo(() => {
+    let result = rows
+    if (remSearch) {
+      const q = remSearch.toLowerCase()
+      result = result.filter(r => r.employeeName.toLowerCase().includes(q) || r.rut.toLowerCase().includes(q))
+    }
+    const active = Object.entries(remColFilters).filter(([, vals]) => vals.size > 0)
+    if (active.length > 0) result = result.filter(r => active.every(([col, vals]) => vals.has(getRemVal(r, col))))
+    return result
+  }, [rows, remColFilters, remSearch])
+
+  function handleRemColFilter(col: string, vals: Set<string>) {
+    setRemColFilters(prev => {
+      if (vals.size === 0) { const { [col]: _, ...rest } = prev; return rest }
+      return { ...prev, [col]: vals }
+    })
+  }
 
   function handleSort(col: SortKey) {
     if (col === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -1630,8 +1790,10 @@ export default function WorkCentersPage() {
       <div className="flex border-b border-gray-200">
         {([
           ['centros',       'Centros'],
+          ['dotacion',      'Dotación'],
           ['remuneraciones','Remuneraciones'],
           ['honorarios',    'Honorarios'],
+          ['compras',       'Compras'],
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
@@ -2259,6 +2421,11 @@ export default function WorkCentersPage() {
         </div>
       )}
 
+      {/* ══════════════ TAB: DOTACIÓN ══════════════ */}
+      {tab === 'dotacion' && (
+        <DotacionTab year={year} month={month} />
+      )}
+
       {/* ══════════════ TAB: REMUNERACIONES ══════════════ */}
       {tab === 'remuneraciones' && (
         <div className="space-y-5">
@@ -2276,32 +2443,22 @@ export default function WorkCentersPage() {
           {/* Payroll table */}
           <div className="bg-white rounded-xl border border-gray-200">
             <div className="p-4 border-b border-gray-200 flex flex-wrap gap-3 items-center">
-              <div className="relative flex-1 min-w-48">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <div className="flex-1 min-w-48 relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input type="text" placeholder="Nombre o RUT…"
                   value={remSearch} onChange={e => setRemSearch(e.target.value)}
                   className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <FilterSelect value={centerFilter} onChange={setCenterFilter} placeholder="Todos los centros"
-                options={centers.map(c => ({ value: c.name, label: c.name }))}
-              />
-              <FilterSelect value={entityFilter} onChange={setEntityFilter} placeholder="Todas las empresas"
-                options={[
-                  { value: 'COMUNICACIONES_SURMEDIA', label: 'Comunicaciones' },
-                  { value: 'SURMEDIA_CONSULTORIA',    label: 'Consultoría' },
-                ]}
-              />
-              {(remSearch || centerFilter || entityFilter) && (
-                <button onClick={() => { setRemSearch(''); setCenterFilter(''); setEntityFilter('') }}
-                  className="text-xs text-gray-400 hover:text-gray-600 px-2 py-2">
-                  Limpiar
-                </button>
-              )}
+              <span className="text-xs text-gray-400 whitespace-nowrap">
+                {remTableRows.length !== rows.length
+                  ? `${remTableRows.length} de ${rows.length} registros`
+                  : `${rows.length} ${isMonthly ? 'registros' : 'colaboradores'}${periodoLabel ? ` — ${periodoLabel}` : ''}`}
+              </span>
               {rows.length > 0 && (
                 <button
-                  onClick={() => exportRemuneracionesToExcel(rows, centerFilter, periodoLabel)}
-                  className="ml-auto flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
+                  onClick={() => exportRemuneracionesToExcel(remTableRows, '', periodoLabel)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
                   title="Exportar a Excel"
                 >
                   <FileDown size={13} />
@@ -2329,30 +2486,25 @@ export default function WorkCentersPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left border-b border-gray-100">
-                      <th
-                        className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap sticky left-0 bg-white cursor-pointer select-none hover:text-gray-700"
-                        onClick={() => handleSort('employeeName')}
-                      >
-                        Colaborador<SortIcon col="employeeName" sortKey={sortKey} sortDir={sortDir} />
-                      </th>
-                      <SortTh label="Razón social"          col="legalEntity"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Centro</th>
-                      <SortTh label="Período"               col="period"            sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                      <SortTh label="Sueldo líquido"        col="liquidSalary"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-                      <SortTh label="Sueldo bruto"          col="grossSalary"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-                      <SortTh label="Sueldo estándar"       col="sueldoEstandar"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right highlight />
-                      <SortTh label="Sueldo base"           col="sueldoBase"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-                      <SortTh label="Gratificación"         col="gratificacion"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-                      <SortTh label="Total bonos"           col="bonosTotal"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Bonos identificados</th>
-                      <SortTh label="Total HH extra"        col="hhTotal"           sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">HH extra identificadas</th>
-                      <SortTh label="Total hab. no imp."    col="noImponiblesTotal" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} right />
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Hab. no imp. identificados</th>
+                      <FilterRemTh label="Colaborador"            col="employeeName"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} sticky />
+                      <FilterRemTh label="Razón social"           col="legalEntity"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} />
+                      <FilterRemTh label="Centro"                 col="centers"           sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} />
+                      <FilterRemTh label="Período"                col="period"            sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} />
+                      <FilterRemTh label="Sueldo líquido"         col="liquidSalary"      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} right />
+                      <FilterRemTh label="Sueldo bruto"           col="grossSalary"       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} right />
+                      <FilterRemTh label="Sueldo estándar"        col="sueldoEstandar"    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} right highlight />
+                      <FilterRemTh label="Sueldo base"            col="sueldoBase"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} right />
+                      <FilterRemTh label="Gratificación"          col="gratificacion"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} right />
+                      <FilterRemTh label="Total bonos"            col="bonosTotal"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} right />
+                      <FilterRemTh label="Bonos identificados"    col="bonosNames"        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} />
+                      <FilterRemTh label="Total HH extra"         col="hhTotal"           sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} right />
+                      <FilterRemTh label="HH extra identificadas" col="hhDetail"          sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} />
+                      <FilterRemTh label="Total hab. no imp."     col="noImponiblesTotal" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} right />
+                      <FilterRemTh label="Hab. no imp. identif."  col="noImponiblesNames" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} allRows={rows} colFilters={remColFilters} onFilterChange={handleRemColFilter} />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {rows.map((row, i) => (
+                    {remTableRows.map((row, i) => (
                       <tr key={`${row.employeeId}-${row.legalEntity}-${i}`} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3 whitespace-nowrap sticky left-0 bg-white">
                           <div className="flex items-center gap-2">
@@ -2390,8 +2542,9 @@ export default function WorkCentersPage() {
 
             {rows.length > 0 && (
               <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400">
-                {rows.length} {isMonthly ? 'registros' : 'colaboradores'} — {periodoLabel}
-                {centerFilter && <> · Filtrado por: <strong>{centerFilter}</strong></>}
+                {remTableRows.length !== rows.length
+                  ? `${remTableRows.length} de ${rows.length} ${isMonthly ? 'registros' : 'colaboradores'}`
+                  : `${rows.length} ${isMonthly ? 'registros' : 'colaboradores'} — ${periodoLabel}`}
               </div>
             )}
           </div>
@@ -2400,13 +2553,12 @@ export default function WorkCentersPage() {
 
       {/* ══════════════ TAB: HONORARIOS ══════════════ */}
       {tab === 'honorarios' && (
-        <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center">
-            <span className="text-2xl">📄</span>
-          </div>
-          <p className="text-sm font-medium text-gray-500">Próximamente</p>
-          <p className="text-xs text-gray-400">El módulo de honorarios estará disponible pronto.</p>
-        </div>
+        <SmartTab category="honorarios" year={year} month={month} />
+      )}
+
+      {/* ══════════════ TAB: COMPRAS ══════════════ */}
+      {tab === 'compras' && (
+        <SmartTab category="compras" year={year} month={month} />
       )}
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}

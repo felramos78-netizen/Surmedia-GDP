@@ -62,6 +62,11 @@ interface SubTaskForm {
   responsableProfileId: string
   tool: string
   plantilla: string
+  // Calendar-specific
+  calendarAttendeeIds: string[]
+  calendarDaysFromStart: string
+  calendarDurationMinutes: string
+  calendarAllDay: boolean
 }
 
 function SubTaskRow({
@@ -69,19 +74,114 @@ function SubTaskRow({
 }: {
   st: SubTaskForm
   index: number
-  profiles: { id: string; name: string }[]
+  profiles: { id: string; name: string; email: string }[]
   emailTemplates: { key: string; name: string }[]
   sheetTemplates: { key: string; name: string }[]
   onChange: (i: number, f: Partial<SubTaskForm>) => void
   onDelete: (i: number) => void
 }) {
+  const inputCls = "px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+
+  if (st.tool === 'CALENDAR') {
+    return (
+      <div className="rounded-lg border border-purple-100 bg-purple-50/20 p-2 space-y-2">
+        <div className="grid grid-cols-[1fr_120px_120px_28px] gap-1.5 items-center">
+          <input
+            value={st.name}
+            onChange={e => onChange(index, { name: e.target.value })}
+            placeholder="Acción..."
+            className={inputCls}
+          />
+          <select
+            value={st.responsableProfileId}
+            onChange={e => onChange(index, { responsableProfileId: e.target.value })}
+            className={inputCls}
+          >
+            <option value="">Responsable…</option>
+            {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select
+            value={st.tool}
+            onChange={e => onChange(index, { tool: e.target.value, plantilla: '', calendarAttendeeIds: [], calendarDaysFromStart: '0', calendarDurationMinutes: '60' })}
+            className={inputCls}
+          >
+            <option value="">Herramienta…</option>
+            {TOOL_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          <button onClick={() => onDelete(index)} className="p-1 text-gray-300 hover:text-red-400 transition-colors">
+            <X size={13} />
+          </button>
+        </div>
+        <div className="flex items-start gap-2 pl-1">
+          <div className="flex-1 min-w-0">
+            <p className="text-[9px] font-semibold text-purple-400 uppercase tracking-wide mb-1">Invitados</p>
+            <div className="max-h-[72px] overflow-y-auto border border-purple-200 rounded-lg bg-white py-0.5 px-1">
+              {profiles.map(p => (
+                <label key={p.id} className="flex items-center gap-1.5 px-1 py-0.5 rounded hover:bg-purple-50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={st.calendarAttendeeIds.includes(p.id)}
+                    onChange={e => {
+                      const ids = e.target.checked
+                        ? [...st.calendarAttendeeIds, p.id]
+                        : st.calendarAttendeeIds.filter(id => id !== p.id)
+                      onChange(index, { calendarAttendeeIds: ids })
+                    }}
+                    className="w-3 h-3 rounded accent-purple-600 flex-shrink-0"
+                  />
+                  <span className="text-[10px] text-gray-700 truncate">{p.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="flex-shrink-0">
+            <p className="text-[9px] font-semibold text-purple-400 uppercase tracking-wide mb-1">Día</p>
+            <input
+              type="number"
+              value={st.calendarDaysFromStart}
+              onChange={e => onChange(index, { calendarDaysFromStart: e.target.value })}
+              placeholder="0"
+              min={0}
+              max={365}
+              className="w-16 px-2 py-1.5 text-xs border border-purple-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-400"
+            />
+          </div>
+          <div className="flex-shrink-0">
+            <p className="text-[9px] font-semibold text-purple-400 uppercase tracking-wide mb-1">Duración</p>
+            <label className="flex items-center gap-1 mb-1 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={st.calendarAllDay}
+                onChange={e => onChange(index, { calendarAllDay: e.target.checked })}
+                className="w-3 h-3 rounded accent-purple-600"
+              />
+              <span className="text-[10px] text-gray-600">Día completo</span>
+            </label>
+            {!st.calendarAllDay && (
+              <input
+                type="number"
+                value={st.calendarDurationMinutes}
+                onChange={e => onChange(index, { calendarDurationMinutes: e.target.value })}
+                placeholder="60"
+                min={15}
+                step={15}
+                className="w-16 px-2 py-1.5 text-xs border border-purple-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-400"
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const plantillaField = () => {
+    if (!st.tool || st.tool === 'MANUAL') return <div />
     if (st.tool === 'EMAIL') {
       return (
         <select
           value={st.plantilla}
           onChange={e => onChange(index, { plantilla: e.target.value })}
-          className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+          className={inputCls}
         >
           <option value="">Correo…</option>
           {emailTemplates.map(tpl => (
@@ -95,23 +195,13 @@ function SubTaskRow({
         <select
           value={st.plantilla}
           onChange={e => onChange(index, { plantilla: e.target.value })}
-          className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+          className={inputCls}
         >
           <option value="">Sheet…</option>
           {sheetTemplates.map(s => (
             <option key={s.key} value={s.key}>{s.name}</option>
           ))}
         </select>
-      )
-    }
-    if (st.tool === 'CALENDAR') {
-      return (
-        <input
-          value={st.plantilla}
-          onChange={e => onChange(index, { plantilla: e.target.value })}
-          placeholder="Nombre del evento…"
-          className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
       )
     }
     return (
@@ -169,29 +259,62 @@ interface HitoForm {
   appliesTo: string
   daysFromStart: string
   subTasks: SubTaskForm[]
+  // Calendar-specific (FECHA_ESPECIFICA hito with tool=CALENDAR)
+  calendarAttendeeIds: string[]
+  calendarDurationMinutes: string
+  calendarAllDay: boolean
 }
 
 function emptyForm(): HitoForm {
-  return { name: '', period: 'PRE_INGRESO', taskType: 'PLAZO', tool: '', plantilla: '', responsableProfileId: '', appliesTo: '', daysFromStart: '', subTasks: [] }
+  return {
+    name: '', period: 'PRE_INGRESO', taskType: 'PLAZO', tool: '', plantilla: '',
+    responsableProfileId: '', appliesTo: '', daysFromStart: '', subTasks: [],
+    calendarAttendeeIds: [], calendarDurationMinutes: '60', calendarAllDay: false,
+  }
 }
 
 function taskToForm(t: OnboardingDbTemplateTask): HitoForm {
+  const cfg = (t.automationConfig as any) ?? {}
   return {
     name:                t.name,
     period:              t.period,
     taskType:            t.taskType ?? 'PLAZO',
     tool:                t.tool ?? '',
-    plantilla:           (t.automationConfig as any)?.templateKey ?? '',
+    plantilla:           cfg.templateKey ?? '',
     responsableProfileId: t.responsableProfileId ?? '',
     appliesTo:           (t.appliesTo ?? []).join(', '),
-    daysFromStart:       (t.automationConfig as any)?.daysFromStart?.toString() ?? '',
-    subTasks:            (t.subTasks ?? []).map(st => ({
-      id:                   st.id,
-      name:                 st.name,
-      responsableProfileId: st.responsableProfileId ?? '',
-      tool:                 st.tool ?? '',
-      plantilla:            st.plantilla ?? '',
-    })),
+    daysFromStart:       cfg.daysFromStart?.toString() ?? '',
+    calendarAttendeeIds:     cfg.attendeeProfileIds ?? [],
+    calendarDurationMinutes: cfg.durationMinutes === 0 ? '60' : (cfg.durationMinutes?.toString() ?? '60'),
+    calendarAllDay:          cfg.durationMinutes === 0,
+    subTasks: (t.subTasks ?? []).map(st => {
+      let calendarAttendeeIds: string[]  = []
+      let calendarDaysFromStart          = ''
+      let calendarDurationMinutes        = '60'
+      let calendarAllDay                 = false
+      let plantilla                      = st.plantilla ?? ''
+      if (st.tool === 'CALENDAR' && st.plantilla) {
+        try {
+          const c = JSON.parse(st.plantilla)
+          calendarAttendeeIds     = c.attendeeProfileIds ?? []
+          calendarDaysFromStart   = c.daysFromStart?.toString() ?? '0'
+          calendarAllDay          = c.durationMinutes === 0
+          calendarDurationMinutes = c.durationMinutes === 0 ? '60' : (c.durationMinutes?.toString() ?? '60')
+          plantilla = ''
+        } catch {}
+      }
+      return {
+        id:                   st.id,
+        name:                 st.name,
+        responsableProfileId: st.responsableProfileId ?? '',
+        tool:                 st.tool ?? '',
+        plantilla,
+        calendarAttendeeIds,
+        calendarDaysFromStart,
+        calendarDurationMinutes,
+        calendarAllDay,
+      }
+    }),
   }
 }
 
@@ -200,7 +323,7 @@ function HitoFormFields({
 }: {
   form: HitoForm
   setForm: React.Dispatch<React.SetStateAction<HitoForm>>
-  profiles: { id: string; name: string }[]
+  profiles: { id: string; name: string; email: string }[]
   jobTitles: string[]
 }) {
   const { data: emailTemplates  = [] } = useEmailTemplates()
@@ -209,7 +332,10 @@ function HitoFormFields({
 
   const addSubTask = () => setForm(prev => ({
     ...prev,
-    subTasks: [...prev.subTasks, { name: '', responsableProfileId: '', tool: '', plantilla: '' }],
+    subTasks: [...prev.subTasks, {
+      name: '', responsableProfileId: '', tool: '', plantilla: '',
+      calendarAttendeeIds: [], calendarDaysFromStart: '0', calendarDurationMinutes: '60', calendarAllDay: false,
+    }],
   }))
 
   const updateSubTask = (i: number, patch: Partial<SubTaskForm>) =>
@@ -363,14 +489,61 @@ function HitoFormFields({
           )}
 
           {form.tool === 'CALENDAR' && (
-            <div>
-              <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Nombre del evento</label>
-              <input
-                value={form.plantilla}
-                onChange={e => f('plantilla', e.target.value)}
-                placeholder="Ej: Bienvenida — Día 1"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                  Invitados al evento
+                </label>
+                <div className="max-h-28 overflow-y-auto border border-gray-200 rounded-lg bg-white py-1 px-1.5">
+                  {profiles.map(p => (
+                    <label key={p.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-purple-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.calendarAttendeeIds.includes(p.id)}
+                        onChange={e => {
+                          const ids = e.target.checked
+                            ? [...form.calendarAttendeeIds, p.id]
+                            : form.calendarAttendeeIds.filter(id => id !== p.id)
+                          f('calendarAttendeeIds', ids)
+                        }}
+                        className="w-3.5 h-3.5 rounded accent-purple-600 flex-shrink-0"
+                      />
+                      <span className="text-sm text-gray-700">{p.name}</span>
+                      <span className="text-xs text-gray-400 ml-auto truncate">{p.email}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                  Duración
+                </label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.calendarAllDay}
+                      onChange={e => f('calendarAllDay', e.target.checked)}
+                      className="w-4 h-4 rounded accent-purple-600"
+                    />
+                    <span className="text-sm text-gray-600">Día completo</span>
+                  </label>
+                  {!form.calendarAllDay && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={form.calendarDurationMinutes}
+                        onChange={e => f('calendarDurationMinutes', e.target.value)}
+                        min={15}
+                        step={15}
+                        placeholder="60"
+                        className="w-24 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      <span className="text-xs text-gray-400">minutos</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </>
@@ -648,16 +821,33 @@ function PlantillaTab() {
     const daysFromStartNum = form.daysFromStart !== '' ? parseInt(form.daysFromStart, 10) : null
     const configEntries: Record<string, any> = {}
     if (daysFromStartNum !== null && !isNaN(daysFromStartNum)) configEntries.daysFromStart = daysFromStartNum
-    if (form.taskType === 'FECHA_ESPECIFICA' && form.plantilla) configEntries.templateKey = form.plantilla
+    if (form.taskType === 'FECHA_ESPECIFICA') {
+      if (form.tool === 'CALENDAR') {
+        if (form.calendarAttendeeIds.length > 0) configEntries.attendeeProfileIds = form.calendarAttendeeIds
+        configEntries.durationMinutes = form.calendarAllDay ? 0 : (parseInt(form.calendarDurationMinutes || '60', 10) || 60)
+      } else if (form.plantilla) {
+        configEntries.templateKey = form.plantilla
+      }
+    }
     const automationConfig = Object.keys(configEntries).length > 0 ? configEntries : null
     const subTasksPayload = form.taskType === 'PLAZO'
-      ? form.subTasks.filter(st => st.name.trim()).map((st, i) => ({
-          name:                st.name.trim(),
-          responsableProfileId: st.responsableProfileId || null,
-          tool:                st.tool || null,
-          plantilla:           st.plantilla || null,
-          sortOrder:           i,
-        }))
+      ? form.subTasks.filter(st => st.name.trim()).map((st, i) => {
+          let plantilla: string | null = st.plantilla || null
+          if (st.tool === 'CALENDAR') {
+            plantilla = JSON.stringify({
+              attendeeProfileIds: st.calendarAttendeeIds,
+              daysFromStart: st.calendarDaysFromStart !== '' ? parseInt(st.calendarDaysFromStart, 10) : 0,
+              durationMinutes: st.calendarAllDay ? 0 : parseInt(st.calendarDurationMinutes || '60', 10),
+            })
+          }
+          return {
+            name:                st.name.trim(),
+            responsableProfileId: st.responsableProfileId || null,
+            tool:                st.tool || null,
+            plantilla,
+            sortOrder:           i,
+          }
+        })
       : []
 
     const payload = {

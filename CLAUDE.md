@@ -91,13 +91,16 @@ surmedia-gdp/
 - **HTTP:** axios (`lib/api.ts`) con interceptor de JWT. Lee token de `localStorage` (`gdp_token`). Tiene lógica de re-login automático con las credenciales del usuario temporal — esto debe revisarse cuando se active Google OAuth.
 - **Routing:** React Router v7. Layout único `AppLayout` con sidebar de navegación.
 - **Páginas activas:**
-  - `/employees` — Dotación (listado + drawer de detalle)
   - `/colaboradores` — Directorio de colaboradores (tarjetas con búsqueda y filtros)
   - `/colaboradores/:id` — Ficha completa con tabs: Datos (editable), Contratos, Remuneraciones, Ausencias, Centros
   - `/centros-trabajo` — Centros de trabajo
+  - `/proveedores` — Gestión de proveedores Smart (honorarios y compras)
+  - `/calendario` — Vista de fechas relevantes de la organización
   - `/onboarding` — Procesos de onboarding
   - `/perfiles` — Perfiles del equipo RRHH
   - `/buk` — Importación de Excel desde BUK
+  - `/recruitment` — Reclutamiento (en sidebar; página no implementada aún)
+  - `/documents` — Documentos (en sidebar; página no implementada aún)
 - **Despliegue:** Vercel (configurado en `frontend/vercel.json`).
 
 ### Importación de datos (flujo Excel manual)
@@ -343,7 +346,7 @@ Módulo independiente para navegar y editar la ficha de un colaborador en profun
 
 ---
 
-### Dotación (`/employees`)
+### Dotación (`/employees`) — removida de la navegación principal
 
 Módulo principal de gestión de la nómina. Tiene tres tabs:
 
@@ -362,6 +365,18 @@ Un mismo RUT puede estar registrado en ambas razones sociales en BUK (por visibi
 Pendiente: el sistema aún no permite que RRHH marque manualmente cuál es el duplicado cuando el mismo RUT se carga en ambas empresas; hoy la detección es parcial (verifica si tiene sueldo).
 
 **Deuda técnica pendiente:** al re-importar desde BUK, el sistema siempre sobreescribe. A futuro se quiere que pregunte si desea conservar los valores editados manualmente en GDP.
+
+---
+
+### Proveedores (`/proveedores`)
+
+Módulo Smart para gestionar proveedores externos (personas o empresas) que emiten boletas de honorarios o facturas de compra. Corresponde al módulo "Smart" del sistema.
+
+Modelos principales: `SmartProveedor` (RUT, razón social, clasificación, área, categoría, vínculo opcional a `WorkCenter`) y `SmartDocument` (documentos tributarios: honorarios o compras, con montos, fechas y estado de pago).
+
+**Categorías de documento:** `HONORARIO` y `COMPRA` (`SmartDocCategory`).
+
+La página en `frontend/src/pages/proveedores/ProveedoresPage.tsx`. El backend expone rutas en `backend/src/routes/smart.ts`.
 
 ---
 
@@ -398,17 +413,59 @@ El proceso se organiza en **4 segmentos temporales**. En el esquema Prisma se mo
 
 > **Nota de fechas:** el `startDate` se almacena como mediodía UTC (`T12:00:00Z`) para evitar desfases de zona horaria en el frontend (Chile UTC-3/UTC-4).
 
-#### Creación de procesos
+#### Creación de procesos — flujo en 2 pasos
 
-Cada proceso se crea a partir de una **plantilla global de hitos** (`OnboardingTemplateTask`). Al crear un proceso, el usuario puede seleccionar qué hitos aplican (por período completo o uno a uno). El proceso **no requiere** que el colaborador exista en la DB de empleados — se registra con nombre libre y se vincula a un `Employee` en forma posterior.
+**Paso 1 — Formulario + selección de hitos:**
+- Campos obligatorios: nombre completo, empresa (`legalEntity`), email corporativo, cargo, centro de trabajo, fecha de ingreso.
+- "Centro de Trabajo" es un dropdown con los `WorkCenter` existentes. "Cargo" es un dropdown con los `jobTitle` únicos de la DB, con opción de ingresar uno manualmente.
+- El colaborador puede buscarse por RUT/nombre y pre-rellenar datos, o ingresarse manualmente sin vínculo a `Employee`.
+- Selección de hitos por período (con toggle "Marcar todos / Quitar todos").
+- Botón "Continuar →" (deshabilitado hasta completar todos los campos obligatorios y seleccionar al menos un hito).
 
-El formulario de creación exige: nombre completo y empresa (`legalEntity`) como campos obligatorios. "Centro de Trabajo" es un dropdown con los `WorkCenter` existentes. "Cargo" es un dropdown con los `jobTitle` únicos existentes en la DB, con opción de ingresar uno nuevo manualmente.
+**Paso 2 — Vista de calendario y confirmación (ANTES de crear el proceso):**
+- Muestra un grid de calendario mensual (`CalendarPreview`) con los eventos de tipo `CALENDAR` posicionados.
+- Lista de eventos bajo el calendario. Cada evento muestra: **nombre del hito padre (nombre de la tarea)**, fecha, número de día (`Día -7`, `Día 0`, `Día +30`, etc.), duración e invitados.
+- Para eventos con `durationMinutes > 0`: input de hora **obligatorio** y visible siempre — el botón "Crear proceso" permanece deshabilitado hasta llenar todos los horarios.
+- Botón "Editar" por evento para agregar invitados adicionales (perfiles del sistema).
+- Botón "Abrir" genera link a Google Calendar con los datos del evento.
+- Botón "Volver" regresa al paso 1 sin crear nada.
+- Botón **"Crear proceso"** llama al backend y cierra el modal; abre el drawer del proceso creado.
 
-Tipos de automatización por hito: `MANUAL`, `EMAIL`, `CALENDAR`, `BUK_CHECK`, `EXTERNAL`, `SHEET_VERIFY`. **Ninguna automatización está operativa aún; toda la lógica de `automation.service.ts` y `email.service.ts` está en desarrollo.**
+El proceso **no requiere** que el colaborador exista en la DB — se registra con nombre libre y se vincula a un `Employee` en forma posterior.
+
+Tipos de automatización: `MANUAL`, `EMAIL`, `CALENDAR`, `BUK_CHECK`, `EXTERNAL`, `SHEET_VERIFY`. **Ninguna automatización está operativa aún.**
 
 La tab **Herramientas** es un placeholder, pendiente de implementar.
 
 Los perfiles (ver módulo Perfiles) se asignan a los hitos para indicar quién es responsable, quién envía correos, quién recibe copia, etc.
+
+#### Lógica de fechas — `computeTaskDate` y offsets
+
+La función `computeTaskDate(task, base)` en `OnboardingDrawer.tsx` calcula la fecha de cada hito:
+
+```
+PRE_INGRESO: daysFromStart=N → offset = -N (N días ANTES del ingreso)
+Todos los demás períodos: daysFromStart=N → offset = +N (N días DESPUÉS del ingreso)
+```
+
+**Fallback** cuando no hay `daysFromStart` configurado — `PERIOD_OFFSETS`:
+```
+PRE_INGRESO: -7  |  DIA_1: 0  |  SEMANA_1: 1  |  MES_1: 8  |  EVALUACION: 60
+```
+
+La misma lógica aplica a las subtareas Calendar (campo `plantilla` en JSON). Si los `daysFromStart` de subtareas tienen valores incorrectos, corregirlos con: `cd backend && npx tsx prisma/fix-subtask-days.ts`
+
+#### Drawer del proceso (ficha)
+
+- **Header:** avatar con iniciales, nombre, cargo, botones Descargar ICS / Editar / Cerrar.
+- **Meta:** empresa, email, fecha de ingreso, "Día N de 90", badge de estado.
+- **Barra de progreso:** `X/Y hitos · Z%`.
+- **Tab Progreso:** hitos agrupados por período. Cada hito muestra: fecha (`DD mmm`), número de día (`Día -7`, `Día 0`, `Día +30`) y alerta ámbar si está vencido y no completado. Las subtareas también muestran fecha y número de día.
+- **Botón Descargar ICS:** genera un `.ics` con todos los eventos CALENDAR del proceso (hitos y subtareas) usando las mismas fechas calculadas.
+
+#### Plantilla de hitos (`OnboardingTemplateTask` / `OnboardingTemplateSubTask`)
+
+Seed base en `backend/prisma/seed-onboarding.ts`. Las subtareas se crean/editan desde la UI (tab Hitos). El campo `plantilla` de cada subtarea es un JSON con: `{ daysFromStart, durationMinutes, attendeeProfileIds, ... }`. El campo `automationConfig` del hito padre tiene la misma estructura.
 
 ---
 

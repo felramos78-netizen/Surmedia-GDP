@@ -920,20 +920,49 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       employeeId = emp?.id ?? null
     }
 
-    // Intentar cargar subtareas de la plantilla DB
-    const dbSubTaskMap = new Map<string, any[]>()
-    try {
-      const dbTasks = await prisma.onboardingTemplateTask.findMany({
-        where: { key: { in: selectedTaskIds } },
-        include: { subTasks: { orderBy: { sortOrder: 'asc' } } },
-      })
-      for (const t of dbTasks as any[]) {
-        dbSubTaskMap.set(t.key, t.subTasks ?? [])
-      }
-    } catch {}
+    // Cargar tareas desde la plantilla DB (fuente primaria)
+    const dbTasks: any[] = await prisma.onboardingTemplateTask.findMany({
+      where: { key: { in: selectedTaskIds } },
+      include: { subTasks: { orderBy: { sortOrder: 'asc' } } },
+    }).catch(() => [])
 
-    // Filtrar plantilla a los IDs seleccionados, mantener orden original
-    const selectedTasks = TASK_TEMPLATE.filter(t => selectedTaskIds.includes(t.id))
+    const dbTaskKeys = new Set(dbTasks.map((t: any) => t.key))
+
+    // Fallback a plantilla hardcodeada para cualquier ID no encontrado en DB
+    const hardcodedFallback = TASK_TEMPLATE.filter(t => selectedTaskIds.includes(t.id) && !dbTaskKeys.has(t.id))
+
+    const tasksToCreate = [
+      ...dbTasks.map((t: any) => ({
+        templateId:       t.key,
+        period:           t.period,
+        name:             t.name,
+        tool:             t.tool ?? null,
+        appliesWhen:      t.appliesWhen ?? null,
+        sortOrder:        t.sortOrder,
+        automationType:   t.automationType,
+        automationConfig: t.automationConfig ?? null,
+        subTasks:         (t.subTasks ?? []).map((st: any) => ({
+          id:                   st.id,
+          name:                 st.name,
+          responsableProfileId: st.responsableProfileId,
+          tool:                 st.tool,
+          plantilla:            st.plantilla,
+          sortOrder:            st.sortOrder,
+          completedAt:          null,
+        })),
+      })),
+      ...hardcodedFallback.map(t => ({
+        templateId:       t.id,
+        period:           t.period,
+        name:             t.name,
+        tool:             t.tool ?? null,
+        appliesWhen:      t.appliesWhen ?? null,
+        sortOrder:        t.sortOrder,
+        automationType:   t.automationType,
+        automationConfig: t.automationConfig ?? null,
+        subTasks:         [],
+      })),
+    ]
 
     const process = await prisma.onboardingProcess.create({
       data: {
@@ -949,30 +978,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
         employeeId:           employeeId,
         startDate:            start,
         expectedEndDate,
-        tasks: {
-          create: selectedTasks.map(t => {
-            const templateSubs = dbSubTaskMap.get(t.id) ?? []
-            return {
-              templateId:       t.id,
-              period:           t.period,
-              name:             t.name,
-              tool:             t.tool ?? null,
-              appliesWhen:      t.appliesWhen ?? null,
-              sortOrder:        t.sortOrder,
-              automationType:   t.automationType,
-              automationConfig: t.automationConfig ?? null,
-              subTasks: templateSubs.map((st: any) => ({
-                id:                  st.id,
-                name:                st.name,
-                responsableProfileId: st.responsableProfileId,
-                tool:                st.tool,
-                plantilla:           st.plantilla,
-                sortOrder:           st.sortOrder,
-                completedAt:         null,
-              })),
-            }
-          }),
-        },
+        tasks: { create: tasksToCreate },
       },
       include: {
         tasks: { orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }] },

@@ -112,10 +112,11 @@ model WorkCenter {
   costType    CostType             @default(DIRECTO)
   presupuesto Float?
   ubicacion   String?
-  assignments EmployeeWorkCenter[]
-  ingresos    WorkCenterIngreso[]
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
+  assignments  EmployeeWorkCenter[]
+  ingresos     WorkCenterIngreso[]
+  proveedores  SmartProveedor[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
 
   @@map("work_centers")
 }
@@ -643,4 +644,99 @@ model SyncLog {
   errorDetails     Json?
 
   @@map("sync_logs")
+}
+
+// ─────────────────────────────────────────────
+// Presupuesto DPDO
+// ─────────────────────────────────────────────
+
+model BudgetCategory {
+  id        String       @id @default(uuid())
+  section   String       @default("PARTIDAS") // PARTIDAS | BENEFICIOS
+  name      String
+  sortOrder Int          @default(0)
+  items     BudgetItem[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@map("budget_categories")
+}
+
+model BudgetItem {
+  id           String         @id @default(uuid())
+  category     BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  categoryId   String
+  name         String
+  annualAmount Int            @default(0)
+  spentAmount  Int            @default(0)
+  sortOrder    Int            @default(0)
+  notes        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("budget_items")
+}
+
+// ─────────────────────────────────────────────
+// Smart — Honorarios y Compras
+// ─────────────────────────────────────────────
+
+enum SmartDocCategory {
+  HONORARIO
+  COMPRA
+}
+
+model SmartProveedor {
+  id            String          @id @default(uuid())
+  rut           String          @unique
+  razonSocial   String
+  notes         String?
+  clasificacion String?
+  area          String?
+  categoria     String?
+  workCenter    WorkCenter?     @relation(fields: [workCenterId], references: [id], onDelete: SetNull)
+  workCenterId  String?
+  documents     SmartDocument[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@map("smart_proveedores")
+}
+
+model SmartDocument {
+  id                        String           @id @default(uuid())
+  smartId                   String           @unique
+  category                  SmartDocCategory
+  proveedor                 SmartProveedor   @relation(fields: [proveedorId], references: [id])
+  proveedorId               String
+  legalEntity               LegalEntity
+  documento                 String
+  codigoTributario          String?
+  folio                     String?
+  recibido                  String?
+  vigente                   Boolean          @default(true)
+  fechaEmision              DateTime?
+  fechaVencimiento          DateTime?
+  fechaPago                 DateTime?
+  clasificacion             String?
+  montoExento               Int              @default(0)
+  montoAfecto               Int              @default(0)
+  montoNeto                 Int              @default(0)
+  retencion                 Int?
+  iva                       Int?
+  montoBruto                Int              @default(0)
+  ivaFueraDePlazo           Int              @default(0)
+  montoTotal                Int              @default(0)
+  remanente                 Int              @default(0)
+  pagado                    Boolean          @default(false)
+  folioReferencia           String?
+  codigoReferencia          String?
+  codigoUnico               String?
+  periodoTributario         String?
+  periodoTributarioOriginal String?
+  glosa                     String?
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
+
+  @@map("smart_documents")
 }

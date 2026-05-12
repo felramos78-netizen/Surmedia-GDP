@@ -5,20 +5,17 @@ import type { FastifyInstance } from 'fastify'
 const RECURRING: { key: string; title: string; day: number; color: string }[] = [
   { key: 'pagos-ant',  title: 'Pagos Antofagasta',     day: 31, color: '#0891b2' },
   { key: 'pagos-stgo', title: 'Pagos Santiago',         day:  5, color: '#0891b2' },
-  { key: 'rev-hon',    title: 'Revisión Honorarios',    day: 20, color: '#7c3aed' },
+  { key: 'rev-hon',    title: 'Revisión Honorarios',    day: 20, color: '#0891b2' },
   { key: 'pagos-svc',  title: 'Pagos Servicios Prov.',  day: 25, color: '#0891b2' },
 ]
 
 // ── Config de onboarding ──────────────────────────────────────────────────────
 
 const PERIOD_OFFSETS: Record<string, number> = {
-  PRE_INGRESO: -7, DIA_1: 0, SEMANA_1: 1, MES_1: 8, EVALUACION: 60,
+  PRE_INGRESO: -7, DIA_1: 0, SEMANA_1: 1, MES_1: 30, EVALUACION: 60,
 }
 
-const PERIOD_COLORS: Record<string, string> = {
-  PRE_INGRESO: '#64748b', DIA_1: '#0284c7',
-  SEMANA_1: '#4f46e5', MES_1: '#7c3aed', EVALUACION: '#9333ea',
-}
+const ONBOARDING_COLOR = '#8b5cf6'
 
 const PERIOD_LABELS: Record<string, string> = {
   PRE_INGRESO: 'Pre-ingreso', DIA_1: 'Ingreso',
@@ -28,10 +25,10 @@ const PERIOD_LABELS: Record<string, string> = {
 const LEAVE_COLORS: Record<string, string> = {
   VACACIONES:          '#16a34a',
   LICENCIA_MEDICA:     '#ea580c',
-  LICENCIA_MATERNIDAD: '#db2777',
-  LICENCIA_PATERNIDAD: '#7c3aed',
+  LICENCIA_MATERNIDAD: '#ea580c',
+  LICENCIA_PATERNIDAD: '#ea580c',
   PERMISO:             '#ca8a04',
-  OTRO:                '#64748b',
+  OTRO:                '#ca8a04',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -126,7 +123,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
 
     // ── 5. Hitos de onboarding ────────────────────────────────────────────────
     const procs = await app.prisma.onboardingProcess.findMany({
-      where: { status: 'IN_PROGRESS' },
+      where: { status: { in: ['IN_PROGRESS', 'COMPLETED'] } },
       select: {
         id: true, collaboratorName: true, startDate: true,
         tasks: {
@@ -140,7 +137,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
     for (const p of procs) {
       const base = new Date(p.startDate)
 
-      // Milestone por período
+      // Milestone por período (Hito que marca el inicio del tramo)
       for (const [period, offset] of Object.entries(PERIOD_OFFSETS)) {
         const d = addDays(base, offset)
         if (d >= s && d <= e) {
@@ -148,27 +145,30 @@ export default async function calendarRoutes(app: FastifyInstance) {
             id: `ob-${p.id}-${period}`, type: 'ONBOARDING',
             title: `${PERIOD_LABELS[period]}: ${p.collaboratorName}`,
             start: toDS(d), end: toDS(d),
-            color: PERIOD_COLORS[period],
+            color: ONBOARDING_COLOR,
             meta: { processId: p.id, period, name: p.collaboratorName },
           })
         }
       }
 
-      // Tareas tipo CALENDAR
+      // Todas las tareas del proceso
       for (const t of p.tasks) {
-        if (t.automationType !== 'CALENDAR' || !t.automationConfig) continue
-        const cfg = t.automationConfig as any
-        const offset = typeof cfg.daysFromStart === 'number'
+        const cfg = (t.automationConfig as any) || {}
+        const rawOffset = typeof cfg.daysFromStart === 'number'
           ? cfg.daysFromStart
           : (PERIOD_OFFSETS[t.period] ?? 0)
+        
+        // Corrección PRE_INGRESO: si el offset es positivo, se toma como días ANTES del ingreso (-N)
+        const offset = (t.period === 'PRE_INGRESO' && rawOffset > 0) ? -rawOffset : rawOffset
+        
         const d = addDays(base, offset)
         if (d >= s && d <= e) {
           const title = (cfg.title as string ?? t.name).replace('{collaboratorName}', p.collaboratorName)
           ev.push({
             id: `ob-task-${t.id}`, type: 'ONBOARDING_TASK',
             title, start: toDS(d), end: toDS(d),
-            color: '#8b5cf6',
-            meta: { processId: p.id, taskId: t.id, completed: !!t.completedAt },
+            color: ONBOARDING_COLOR,
+            meta: { processId: p.id, taskId: t.id, completed: !!t.completedAt, period: t.period, name: p.collaboratorName },
           })
         }
       }
