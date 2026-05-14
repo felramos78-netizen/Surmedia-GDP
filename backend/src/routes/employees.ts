@@ -4,7 +4,15 @@ import * as XLSX from 'xlsx'
 import * as fs from 'fs'
 import * as path from 'path'
 
-const REPORTES_DIR = path.join(process.cwd(), 'reportes')
+function resolveReportesDir(): string {
+  const candidates = [
+    path.join(process.cwd(), '..', 'reportes'),
+    path.join(process.cwd(), 'reportes'),
+  ]
+  for (const c of candidates) if (fs.existsSync(c)) return c
+  return candidates[0]
+}
+const REPORTES_DIR = resolveReportesDir()
 
 // Normaliza a medianoche UTC para evitar desfases de zona horaria
 const toUTCDay = (d: Date): Date =>
@@ -16,6 +24,7 @@ function readVacacionesExcel(legalEntityFilter?: string) {
     { dir: 'Consultoría',    entity: 'SURMEDIA_CONSULTORIA' },
   ]
   const result: Array<{ id: string; rut: string; nombre: string; startDate: Date; endDate: Date; legalEntity: string }> = []
+  const seenKeys = new Set<string>()
 
   for (const { dir, entity } of folders) {
     if (legalEntityFilter && legalEntityFilter !== entity) continue
@@ -34,11 +43,15 @@ function readVacacionesExcel(legalEntityFilter?: string) {
       if (!row || row.length < 5) continue
       const [, rut, nombre, inicio, termino] = row
       if (!rut || !inicio || !termino) continue
+      const sd = toUTCDay(new Date(inicio))
+      const dedupeKey = `${rut}|${sd.toISOString().slice(0, 10)}`
+      if (seenKeys.has(dedupeKey)) continue
+      seenKeys.add(dedupeKey)
       result.push({
         id:        `${entity}-${rut}-${i}`,
         rut:       rut as string,
         nombre:    nombre as string,
-        startDate: toUTCDay(new Date(inicio)),
+        startDate: sd,
         endDate:   toUTCDay(new Date(termino)),
         legalEntity: entity,
       })

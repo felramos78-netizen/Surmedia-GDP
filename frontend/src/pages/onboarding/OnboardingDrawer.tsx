@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react'
 import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save, FileText, ExternalLink, Users, ListChecks, Download, Play } from 'lucide-react'
-import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment, useVerifySheet, useApplySheetData } from '@/hooks/useOnboarding'
+import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment, useVerifySheet, useApplySheetData, useEmailTemplates } from '@/hooks/useOnboarding'
 import { useProfiles, ROLE_TYPES } from '@/hooks/useProfiles'
 import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus, OnboardingProcess, TaskAssignment, SubTaskInstance } from '@/types'
 
@@ -238,42 +238,56 @@ function AutoBadge({ type }: { type: TaskAutomationType }) {
 
 // ─── Plantillas de correo ─────────────────────────────────────────────────────
 
-function buildEmail(task: OnboardingTask, process: OnboardingProcess): { to: string; subject: string; body: string } {
-  const cfg = task.automationConfig as Record<string, any> | null
-  const name     = process.collaboratorName
-  const position = process.collaboratorPosition ?? 'colaborador/a'
-  const start    = process.startDate ? new Date(process.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }) : ''
-  const corpEmail = process.collaboratorEmail ?? ''
-  const persEmail = process.collaboratorPersonalEmail ?? ''
-
-  const recipientTo = cfg?.emailTo === 'collaborator'
-    ? (corpEmail || persEmail)
-    : cfg?.emailTo === 'rrhh'
-      ? 'rrhh@surmedia.cl'
-      : 'equipo@surmedia.cl'
-
-  const templates: Record<string, { subject: string; body: string }> = {
-    bienvenida: {
-      subject: `¡Bienvenido/a a Surmedia, ${name}!`,
-      body: `Hola ${name},\n\nNos alegra darte la bienvenida a Surmedia como ${position}.\n\nTu fecha de ingreso es el ${start}. En los próximos días recibirás toda la información necesaria para comenzar.\n\nEn caso de cualquier consulta, no dudes en contactarnos.\n\nEquipo RRHH Surmedia`,
-    },
-    seguro_complementario: {
-      subject: 'Formulario Seguro Complementario — Surmedia',
-      body: `Hola ${name},\n\nTe enviamos el formulario para activar tu seguro complementario de salud.\n\nPor favor complétalo y envíalo de vuelta antes de tu primer día.\n\n[Adjuntar formulario]\n\nEquipo RRHH Surmedia`,
-    },
-    mentor_asignado: {
-      subject: `Tu mentor en Surmedia — ${name}`,
-      body: `Hola ${name},\n\nComo parte de tu proceso de onboarding, hemos asignado un mentor que te acompañará durante tus primeros 90 días.\n\nPronto recibirás los datos de contacto de tu mentor.\n\nEquipo RRHH Surmedia`,
-    },
+function buildProcessVars(proc: OnboardingProcess): Record<string, string> {
+  const name  = proc.collaboratorName ?? ''
+  const parts = name.split(' ')
+  const start = proc.startDate
+    ? new Date(proc.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+    : ''
+  const hour = new Date().getHours()
+  return {
+    nombre:            name,
+    primerNombre:      parts[0] ?? '',
+    apellido:          parts.slice(1).join(' ') ?? '',
+    cargo:             proc.collaboratorPosition ?? '',
+    email:             proc.collaboratorEmail ?? '',
+    emailPersonal:     proc.collaboratorPersonalEmail ?? '',
+    empresa:           proc.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : 'Surmedia Consultoría Spa',
+    telefono:          proc.collaboratorPhone ?? '',
+    centroTrabajo:     proc.costCenter ?? '',
+    fechaIngreso:      start,
+    fechaIngresoCorta: proc.startDate ? new Date(proc.startDate).toLocaleDateString('es-CL') : '',
+    fechaActual:       new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
+    año:               new Date().getFullYear().toString(),
+    saludoHorario:     hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
+    // Legacy compat
+    collaboratorName:     name,
+    collaboratorPosition: proc.collaboratorPosition ?? '',
+    collaboratorEmail:    proc.collaboratorEmail ?? '',
+    startDate:            start,
+    legalEntity:          proc.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : 'Surmedia Consultoría Spa',
   }
+}
 
-  const templateKey = cfg?.template ?? ''
-  const tpl = templates[templateKey] ?? {
-    subject: `[Onboarding] ${task.name} — ${name}`,
-    body: `Hola,\n\nEste correo corresponde al hito "${task.name}" del proceso de onboarding de ${name} (${position}).\n\nFecha de ingreso: ${start}\n\nEquipo RRHH Surmedia`,
-  }
+function applyVars(text: string, vars: Record<string, string>): string {
+  return text
+    .replace(/"([a-zA-ZáéíóúñÁÉÍÓÚÑ][a-zA-Z0-9áéíóúñÁÉÍÓÚÑ_]*)"/g, (_, k) => vars[k] ?? `"${k}"`)
+    .replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (_, k) => vars[k] ?? `{${k}}`)
+}
 
-  return { to: recipientTo, subject: tpl.subject, body: tpl.body }
+function htmlToPlain(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 // ─── Modal verificación de Google Sheet ──────────────────────────────────────
@@ -477,13 +491,41 @@ function SheetVerifyModal({
 function EmailPreviewModal({
   task, process, onClose, onSent,
 }: { task: OnboardingTask; process: OnboardingProcess; onClose: () => void; onSent: () => void }) {
-  const initial = buildEmail(task, process)
-  const responsable = (task.assignments ?? []).find((a: any) => a.roleType === 'RESPONSABLE_HITO')
-  const [from,    setFrom]    = useState((responsable as any)?.profile?.email ?? 'rrhh@surmedia.cl')
-  const [to,      setTo]      = useState(initial.to)
-  const [cc,      setCc]      = useState('')
-  const [subject, setSubject] = useState(initial.subject)
-  const [body,    setBody]    = useState(initial.body)
+  const { data: templates = [] } = useEmailTemplates()
+  const cfg = task.automationConfig as Record<string, any> | null
+  const templateKey = cfg?.templateKey ?? cfg?.template ?? ''
+  const dbTemplate  = templates.find(t => t.key === templateKey)
+  const vars        = buildProcessVars(process)
+
+  const responsable  = (task.assignments ?? []).find((a: any) => a.roleType === 'RESPONSABLE_HITO')
+  const defaultFrom  = (responsable as any)?.profile?.email ?? 'rrhh@surmedia.cl'
+
+  // Build initial values from DB template (with vars applied) or fallback
+  const initFrom = dbTemplate?.fromEmail
+    ? applyVars(dbTemplate.fromEmail, vars)
+    : defaultFrom
+  const initTo = dbTemplate?.toEmails?.length
+    ? applyVars((dbTemplate.toEmails).join(', '), vars)
+    : (cfg?.emailTo === 'collaborator'
+        ? (process.collaboratorEmail ?? process.collaboratorPersonalEmail ?? '')
+        : cfg?.emailTo === 'rrhh'
+          ? 'rrhh@surmedia.cl'
+          : 'equipo@surmedia.cl')
+  const initCc = dbTemplate?.ccEmails?.length
+    ? applyVars((dbTemplate.ccEmails).join(', '), vars)
+    : ''
+  const initSubject = dbTemplate
+    ? applyVars(dbTemplate.subject, vars)
+    : `[Onboarding] ${task.name} — ${process.collaboratorName}`
+  const initBody = dbTemplate
+    ? applyVars(htmlToPlain(dbTemplate.bodyHtml), vars)
+    : `Hola ${process.collaboratorName},\n\nEste correo corresponde al hito "${task.name}".\n\nEquipo RRHH Surmedia`
+
+  const [from,    setFrom]    = useState(initFrom)
+  const [to,      setTo]      = useState(initTo)
+  const [cc,      setCc]      = useState(initCc)
+  const [subject, setSubject] = useState(initSubject)
+  const [body,    setBody]    = useState(initBody)
 
   const handleSend = () => {
     const params = new URLSearchParams()
@@ -531,7 +573,7 @@ function EmailPreviewModal({
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Cuerpo</label>
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono text-xs" />
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
           </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">

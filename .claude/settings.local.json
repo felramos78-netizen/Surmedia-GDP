@@ -30,7 +30,11 @@
       "Bash(echo \"Exit: $?\")",
       "Bash(npx vite *)",
       "Bash(Get-ChildItem *)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(Select-Object Name)",
+      "Bash(npm install *)",
+      "Bash(dir C:\\\\Users\\\\Felipe Ramos\\\\Proyectos\\\\Surmedia-GDP\\\\frontend\\\\src *)",
+      "Bash(npx tsx *)"
     ]
   }
 }

@@ -1,5 +1,14 @@
-import React, { useState, useRef } from 'react'
-import { Save, Eye, Send, CheckCircle2, AlertCircle, Clock, Mail, ChevronRight, Link2, Plus, Trash2, X, Loader2, Pencil } from 'lucide-react'
+import React, { useState, useRef, useEffect } from 'react'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Underline from '@tiptap/extension-underline'
+import TextAlign from '@tiptap/extension-text-align'
+import {
+  Save, Eye, Send, CheckCircle2, AlertCircle, Clock, Mail, ChevronRight, Link2,
+  Plus, Trash2, X, Loader2, Pencil,
+  Bold, Italic, Underline as UnderlineIcon, Strikethrough,
+  List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify,
+} from 'lucide-react'
 import {
   useEmailTemplates, useUpdateEmailTemplate, useCreateEmailTemplate, useDeleteEmailTemplate,
   usePreviewEmailTemplate, useSendTestEmail, useEmailLogs,
@@ -59,7 +68,69 @@ const VARIABLES: { group: string; vars: VarDef[] }[] = [
   },
 ]
 
-const ALL_VARS = VARIABLES.flatMap(g => g.vars)
+// ─── TipTap Toolbar ───────────────────────────────────────────────────────────
+
+function ToolbarBtn({
+  onClick, active, title, children,
+}: {
+  onClick: () => void; active?: boolean; title: string; children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onMouseDown={e => { e.preventDefault(); onClick() }}
+      title={title}
+      className={`p-1.5 rounded text-[13px] transition-colors ${
+        active
+          ? 'bg-blue-100 text-blue-700'
+          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function RichToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  if (!editor) return null
+  const sep = <div className="w-px h-5 bg-gray-200 mx-0.5" />
+  return (
+    <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50 rounded-t-lg flex-wrap">
+      <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive('bold')} title="Negrita">
+        <Bold size={14} />
+      </ToolbarBtn>
+      <ToolbarBtn onClick={() => editor.chain().focus().toggleItalic().run()} active={editor.isActive('italic')} title="Cursiva">
+        <Italic size={14} />
+      </ToolbarBtn>
+      <ToolbarBtn onClick={() => editor.chain().focus().toggleUnderline().run()} active={editor.isActive('underline')} title="Subrayado">
+        <UnderlineIcon size={14} />
+      </ToolbarBtn>
+      <ToolbarBtn onClick={() => editor.chain().focus().toggleStrike().run()} active={editor.isActive('strike')} title="Tachado">
+        <Strikethrough size={14} />
+      </ToolbarBtn>
+      {sep}
+      <ToolbarBtn onClick={() => editor.chain().focus().toggleBulletList().run()} active={editor.isActive('bulletList')} title="Lista con viñetas">
+        <List size={14} />
+      </ToolbarBtn>
+      <ToolbarBtn onClick={() => editor.chain().focus().toggleOrderedList().run()} active={editor.isActive('orderedList')} title="Lista numerada">
+        <ListOrdered size={14} />
+      </ToolbarBtn>
+      {sep}
+      <ToolbarBtn onClick={() => editor.chain().focus().setTextAlign('left').run()} active={editor.isActive({ textAlign: 'left' })} title="Alinear izquierda">
+        <AlignLeft size={14} />
+      </ToolbarBtn>
+      <ToolbarBtn onClick={() => editor.chain().focus().setTextAlign('center').run()} active={editor.isActive({ textAlign: 'center' })} title="Centrar">
+        <AlignCenter size={14} />
+      </ToolbarBtn>
+      <ToolbarBtn onClick={() => editor.chain().focus().setTextAlign('right').run()} active={editor.isActive({ textAlign: 'right' })} title="Alinear derecha">
+        <AlignRight size={14} />
+      </ToolbarBtn>
+      <ToolbarBtn onClick={() => editor.chain().focus().setTextAlign('justify').run()} active={editor.isActive({ textAlign: 'justify' })} title="Justificar">
+        <AlignJustify size={14} />
+      </ToolbarBtn>
+    </div>
+  )
+}
 
 // ─── Modal nueva plantilla ────────────────────────────────────────────────────
 
@@ -144,29 +215,65 @@ function TemplateEditor({
   onSave: () => void
   onDirtyChange?: (dirty: boolean) => void
 }) {
-  const [name,      setName]      = useState(template.name)
+  const [name,       setName]       = useState(template.name)
   const [editingName, setEditingName] = useState(false)
-  const [subject,   setSubject]   = useState(template.subject)
-  const [bodyHtml,  setBodyHtml]  = useState(template.bodyHtml)
-  const [testEmail, setTestEmail] = useState('')
+  const [subject,    setSubject]    = useState(template.subject)
+  const [fromEmail,  setFromEmail]  = useState(template.fromEmail ?? '')
+  const [toEmailsStr, setToEmailsStr] = useState((template.toEmails ?? []).join(', '))
+  const [ccEmailsStr, setCcEmailsStr] = useState((template.ccEmails ?? []).join(', '))
+  const [testEmail,  setTestEmail]  = useState('')
   const [showPreview, setShowPreview] = useState(false)
   const [previewHtml, setPreviewHtml] = useState('')
   const [showTest,    setShowTest]    = useState(false)
   const [activeField, setActiveField] = useState<'subject' | 'body'>('body')
 
   const subjectRef = useRef<HTMLInputElement>(null)
-  const bodyRef    = useRef<HTMLTextAreaElement>(null)
 
   const updateTpl  = useUpdateEmailTemplate()
   const previewTpl = usePreviewEmailTemplate()
   const sendTest   = useSendTestEmail()
 
-  const dirty = name !== template.name || subject !== template.subject || bodyHtml !== template.bodyHtml
+  // TipTap editor
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Underline,
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+    ],
+    content: template.bodyHtml || '<p></p>',
+    onFocus: () => setActiveField('body'),
+  })
 
-  React.useEffect(() => { onDirtyChange?.(dirty) }, [dirty])
+  // Sync editor content when template changes (component is keyed so this mainly handles init)
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) {
+      editor.commands.setContent(template.bodyHtml || '<p></p>', false)
+    }
+  }, [template.key])
+
+  const currentBody = editor ? editor.getHTML() : template.bodyHtml
+
+  const dirty = (
+    name !== template.name ||
+    subject !== template.subject ||
+    fromEmail !== (template.fromEmail ?? '') ||
+    toEmailsStr !== (template.toEmails ?? []).join(', ') ||
+    ccEmailsStr !== (template.ccEmails ?? []).join(', ') ||
+    currentBody !== template.bodyHtml
+  )
+
+  useEffect(() => { onDirtyChange?.(dirty) }, [dirty])
 
   const handleSave = async () => {
-    await updateTpl.mutateAsync({ key: template.key, name, subject, bodyHtml })
+    const bodyHtml = editor ? editor.getHTML() : currentBody
+    const toEmails = toEmailsStr.split(',').map(e => e.trim()).filter(Boolean)
+    const ccEmails = ccEmailsStr.split(',').map(e => e.trim()).filter(Boolean)
+    await updateTpl.mutateAsync({
+      key: template.key, name, subject, bodyHtml,
+      fromEmail: fromEmail || null,
+      toEmails,
+      ccEmails,
+    })
     onSave()
   }
 
@@ -198,13 +305,7 @@ function TemplateEditor({
       setSubject(next)
       setTimeout(() => { el.focus(); el.setSelectionRange(start + tag.length, start + tag.length) }, 0)
     } else {
-      const el = bodyRef.current
-      if (!el) return
-      const start = el.selectionStart ?? bodyHtml.length
-      const end   = el.selectionEnd   ?? start
-      const next  = bodyHtml.slice(0, start) + tag + bodyHtml.slice(end)
-      setBodyHtml(next)
-      setTimeout(() => { el.focus(); el.setSelectionRange(start + tag.length, start + tag.length) }, 0)
+      editor?.chain().focus().insertContent(tag).run()
     }
   }
 
@@ -214,24 +315,18 @@ function TemplateEditor({
       <div className="flex items-center justify-between gap-3">
         <div className="flex-1 min-w-0">
           {editingName ? (
-            <div className="flex items-center gap-1.5">
-              <input
-                autoFocus
-                value={name}
-                onChange={e => setName(e.target.value)}
-                onBlur={() => setEditingName(false)}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingName(false) }}
-                className="font-semibold text-gray-900 text-sm border border-blue-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
-              />
-            </div>
+            <input
+              autoFocus
+              value={name}
+              onChange={e => setName(e.target.value)}
+              onBlur={() => setEditingName(false)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingName(false) }}
+              className="font-semibold text-gray-900 text-sm border border-blue-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
+            />
           ) : (
             <div className="flex items-center gap-1.5 group">
               <h3 className="font-semibold text-gray-900 text-sm">{name}</h3>
-              <button
-                onClick={() => setEditingName(true)}
-                className="p-0.5 rounded text-gray-300 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-all"
-                title="Editar nombre"
-              >
+              <button onClick={() => setEditingName(true)} className="p-0.5 rounded text-gray-300 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-all" title="Editar nombre">
                 <Pencil size={12} />
               </button>
             </div>
@@ -239,17 +334,10 @@ function TemplateEditor({
           <p className="text-xs text-gray-400 mt-0.5">Key: <code className="bg-gray-100 px-1 rounded">{template.key}</code></p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={() => setShowTest(v => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
-          >
+          <button onClick={() => setShowTest(v => !v)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
             <Send size={12} /> Enviar prueba
           </button>
-          <button
-            onClick={handlePreview}
-            disabled={previewTpl.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
-          >
+          <button onClick={handlePreview} disabled={previewTpl.isPending} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
             <Eye size={12} /> Preview
           </button>
           <button
@@ -300,6 +388,42 @@ function TemplateEditor({
         />
       </div>
 
+      {/* Destinatarios */}
+      <div className="border border-gray-200 rounded-lg p-3 space-y-2.5 bg-gray-50/50">
+        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Destinatarios</p>
+        <div className="grid grid-cols-[64px_1fr] items-center gap-2">
+          <label className="text-xs text-gray-500 font-medium text-right">De:</label>
+          <input
+            type="text"
+            value={fromEmail}
+            onChange={e => setFromEmail(e.target.value)}
+            placeholder='rrhh@surmedia.cl  o  "email"'
+            className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          />
+        </div>
+        <div className="grid grid-cols-[64px_1fr] items-center gap-2">
+          <label className="text-xs text-gray-500 font-medium text-right">Para:</label>
+          <input
+            type="text"
+            value={toEmailsStr}
+            onChange={e => setToEmailsStr(e.target.value)}
+            placeholder='"email", rrhh@surmedia.cl  (separados por coma)'
+            className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          />
+        </div>
+        <div className="grid grid-cols-[64px_1fr] items-center gap-2">
+          <label className="text-xs text-gray-500 font-medium text-right">CC:</label>
+          <input
+            type="text"
+            value={ccEmailsStr}
+            onChange={e => setCcEmailsStr(e.target.value)}
+            placeholder='"emailPersonal"  (opcional)'
+            className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          />
+        </div>
+        <p className="text-[10px] text-gray-400">Usa variables entre comillas como <code className="bg-white px-1 rounded border border-gray-200">"email"</code> o <code className="bg-white px-1 rounded border border-gray-200">"emailPersonal"</code> para reemplazar con el correo del colaborador.</p>
+      </div>
+
       {/* Variables disponibles */}
       <div>
         <p className="text-xs font-medium text-gray-600 mb-2">
@@ -330,20 +454,18 @@ function TemplateEditor({
         </div>
       </div>
 
-      {/* HTML body */}
+      {/* Rich text editor */}
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1.5">
-          Cuerpo HTML
-          <span className="ml-1.5 font-normal text-gray-400">(contenido interno, sin wrapper)</span>
+          Cuerpo del correo
         </label>
-        <textarea
-          ref={bodyRef}
-          value={bodyHtml}
-          onChange={e => setBodyHtml(e.target.value)}
-          onFocus={() => setActiveField('body')}
-          rows={16}
-          className="w-full px-3 py-2 text-xs font-mono border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-        />
+        <div className="border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+          <RichToolbar editor={editor} />
+          <EditorContent
+            editor={editor}
+            className="min-h-[260px] px-3 py-2.5 text-sm text-gray-800 prose prose-sm max-w-none focus:outline-none [&_.ProseMirror]:outline-none [&_.ProseMirror]:min-h-[240px] [&_.ProseMirror_p]:my-1.5 [&_.ProseMirror_ul]:pl-5 [&_.ProseMirror_ol]:pl-5 [&_.ProseMirror_li]:my-0.5"
+          />
+        </div>
       </div>
 
       {/* Preview modal */}
@@ -355,11 +477,7 @@ function TemplateEditor({
               <button onClick={() => setShowPreview(false)} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
             </div>
             <div className="flex-1 overflow-auto p-1">
-              <iframe
-                srcDoc={previewHtml}
-                title="Email preview"
-                className="w-full h-full min-h-[500px] border-0 rounded-lg"
-              />
+              <iframe srcDoc={previewHtml} title="Email preview" className="w-full h-full min-h-[500px] border-0 rounded-lg" />
             </div>
           </div>
         </div>
@@ -537,9 +655,7 @@ export default function CorreosPanel() {
                     className={`w-full group flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors ${isActive ? 'bg-blue-50' : ''}`}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>
-                        {tpl.name}
-                      </p>
+                      <p className={`text-sm font-medium truncate ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>{tpl.name}</p>
                       <p className="text-[10px] text-gray-400 mt-0.5 truncate">{tpl.key}</p>
                       {linkedHitos.length > 0 && (
                         <div className="flex items-center gap-1 mt-1">

@@ -334,7 +334,10 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
   const sN = data.sueldos.nuevos,   sC = data.sueldos.cambios, sSync = data.sueldos.sincronizados ?? []
   const dC = data.dotacion.cambios, dN = data.dotacion.nuevos
   const vN = data.vacaciones.nuevas
-  const vL = data.vacLicencia?.registros ?? []
+  const vLNew  = data.vacLicencia?.nuevos       ?? []
+  const vLChg  = data.vacLicencia?.cambios      ?? []
+  const vLSync = data.vacLicencia?.sincronizados ?? []
+  const vL     = [...vLNew, ...vLChg]
 
   const [selSN,   setSelSN]  = useState<Set<string>>(() => new Set(sN.map(r => r.key)))
   const [selSC,   setSelSC]  = useState<Set<string>>(() => new Set(sC.map(r => r.key)))
@@ -396,7 +399,9 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
         {dC.length > 0 && <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full">{dC.length} dotación con cambio</span>}
         {dN.length > 0 && <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full">{dN.length} nuevos en BUK (no en GDP)</span>}
         {vN.length > 0 && <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">{vN.length} vacaciones nuevas</span>}
-        {vL.length > 0 && <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full">{vL.length} saldos de vacaciones</span>}
+        {vLSync.length > 0 && <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full">{vLSync.length} saldos ya en GDP</span>}
+        {vLNew.length > 0 && <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full">{vLNew.length} saldos nuevos</span>}
+        {vLChg.length > 0 && <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full">{vLChg.length} saldos con cambio</span>}
         {data.sueldos.sinEmpleado.length > 0 && <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full">{data.sueldos.sinEmpleado.length} RUTs sin coincidencia</span>}
         {allActionKeys.length > 0 && (
           <button
@@ -474,7 +479,11 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
               {vL.map(r => (
                 <tr key={r.key} className={selVL.has(r.key) ? 'bg-purple-50/40' : 'hover:bg-gray-50'}>
                   <td className="px-3 py-1"><RowCheck checked={selVL.has(r.key)} onChange={() => setSelVL(toggle(selVL, r.key))} /></td>
-                  <td className="px-3 py-1"><div className="font-medium text-gray-800">{r.nombre}</div><div className="text-gray-400">{r.rut}</div></td>
+                  <td className="px-3 py-1">
+                    <div className="font-medium text-gray-800">{r.nombre}</div>
+                    <div className="text-gray-400">{r.rut}</div>
+                    {vLChg.some(c => c.key === r.key) && <div className="text-amber-600 text-[10px]">con cambio</div>}
+                  </td>
                   <td className="px-3 py-1"><Badge e={r.legalEntity} /></td>
                   <td className="px-3 py-1 text-gray-500">{MONTHS[r.month]} {r.year}</td>
                   <td className="px-3 py-1 text-right text-gray-700">{r.saldoLegal.toFixed(1)}</td>

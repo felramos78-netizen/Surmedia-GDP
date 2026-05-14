@@ -256,6 +256,7 @@ export interface OnboardingProcess {
   collaboratorPosition?:      string | null
   collaboratorPhone?:   string | null
   legalEntity?:         string | null
+  costCenter?:          string | null
   notes?:               string | null
   employeeId?:          string | null
   employee?:            Employee | null
@@ -331,10 +332,32 @@ export interface EmailTemplate {
   name:      string
   subject:   string
   bodyHtml:  string
+  fromEmail?: string | null
+  toEmails?:  string[]
+  ccEmails?:  string[]
   variables: EmailTemplateVariable[]
   isActive:  boolean
   createdAt: string
   updatedAt: string
+}
+
+export interface OnboardingDocumentTemplate {
+  id:          string
+  documentId:  string
+  templateKey: string
+  sendAs:      'WORD' | 'PDF'
+  createdAt:   string
+}
+
+export interface OnboardingDocument {
+  id:            string
+  name:          string
+  fileName:      string
+  description?:  string | null
+  isActive:      boolean
+  templateLinks: OnboardingDocumentTemplate[]
+  createdAt:     string
+  updatedAt:     string
 }
 
 export interface EmailLog {

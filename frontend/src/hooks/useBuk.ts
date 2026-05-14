@@ -35,7 +35,7 @@ export interface BukPreviewData {
   sueldos:    { nuevos: BukSueldoNuevo[]; cambios: BukSueldoCambio[]; sincronizados: BukSueldoNuevo[]; sinEmpleado: string[] }
   dotacion:   { nuevos: BukDotacionNuevo[]; cambios: BukDotacionCambio[] }
   vacaciones: { nuevas: BukVacNueva[]; sinEmpleado: string[] }
-  vacLicencia:{ registros: BukVacLicencia[]; sinEmpleado: string[] }
+  vacLicencia:{ nuevos: BukVacLicencia[]; cambios: BukVacLicencia[]; sincronizados: BukVacLicencia[]; sinEmpleado: string[] }
 }
 export interface BukApplyPayload {
   year?: number

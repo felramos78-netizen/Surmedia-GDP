@@ -153,6 +153,15 @@ interface DotacionRow {
   tipoContrato: string
   fechaIngreso: Date | null
   fechaVencimiento: Date | null
+  city: string
+  commune: string
+  address: string
+  excelEmail: string
+  personalEmail: string
+  birthDate: Date | null
+  gender: string
+  nationality: string
+  phone: string
 }
 
 function parseDotacion(): DotacionRow[] {
@@ -183,6 +192,15 @@ function parseDotacion(): DotacionRow[] {
     const TIP_COL = col('Trabajo - Tipo de Contrato')
     const ING_COL = col('Trabajo - Fecha Ingreso Compañía')
     const VEN_COL = col('Trabajo - Fecha Vencimiento Contrato')
+    const CIU_COL = col('Empleado - Ciudad')
+    const COM_COL = col('Empleado - Comuna')
+    const DIR_COL = col('Empleado - Dirección')
+    const EML_COL = col('Empleado - Email')
+    const PEM_COL = col('Empleado - Email Personal')
+    const NAC_COL = col('Empleado - Fecha de Nacimiento')
+    const SEX_COL = col('Empleado - Sexo')
+    const NAL_COL = col('Empleado - Nacionalidad')
+    const TEL_COL = col('Empleado - Teléfono Particular')
 
     for (let i = hdrIdx + 1; i < raw.length; i++) {
       const r = raw[i]
@@ -203,6 +221,15 @@ function parseDotacion(): DotacionRow[] {
         tipoContrato:     String(r[TIP_COL]  ?? '').trim(),
         fechaIngreso:     serialToDate(r[ING_COL]),
         fechaVencimiento: r[VEN_COL] ? serialToDate(r[VEN_COL]) : null,
+        city:             String(r[CIU_COL]  ?? '').trim(),
+        commune:          String(r[COM_COL]  ?? '').trim(),
+        address:          String(r[DIR_COL]  ?? '').trim(),
+        excelEmail:       String(r[EML_COL]  ?? '').trim(),
+        personalEmail:    String(r[PEM_COL]  ?? '').trim(),
+        birthDate:        r[NAC_COL] ? serialToDate(r[NAC_COL]) : null,
+        gender:           String(r[SEX_COL]  ?? '').trim(),
+        nationality:      String(r[NAL_COL]  ?? '').trim(),
+        phone:            String(r[TEL_COL]  ?? '').trim(),
       })
     }
   }
@@ -223,6 +250,7 @@ interface VacRow {
 
 function parseVacaciones(): VacRow[] {
   const out: VacRow[] = []
+  const seenKeys = new Set<string>()
   for (const { dir, entity } of FOLDERS) {
     const fp = latestFile(path.join(REPORTES_DIR, dir), 'Vacaciones tomadas')
     if (!fp) continue
@@ -245,9 +273,12 @@ function parseVacaciones(): VacRow[] {
       if (!rut) continue
       const sd = serialToDate(r[INI_COL]), ed = serialToDate(r[TER_COL])
       if (!sd || !ed) continue
+      const key = `vac|${normalizeRut(rut)}|${sd.toISOString().slice(0, 10)}`
+      if (seenKeys.has(key)) continue
+      seenKeys.add(key)
       const days = Math.round((ed.getTime() - sd.getTime()) / 86400000) + 1
       out.push({
-        key: `vac|${normalizeRut(rut)}|${sd.toISOString().slice(0, 10)}`,
+        key,
         legalEntity: entity,
         rut: normalizeRut(rut),
         nombre: String(r[NOM_COL] || '').trim(),
@@ -379,7 +410,12 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
     const [dbEmpsDot, dbContracts] = await Promise.all([
       fastify.prisma.employee.findMany({
         where: { rut: { in: rutVariants(dotRuts) } },
-        select: { id: true, rut: true, status: true, afp: true, isapre: true, jobTitle: true, jobFamily: true, supervisorName: true, supervisorTitle: true },
+        select: {
+          id: true, rut: true, status: true, afp: true, isapre: true,
+          jobTitle: true, jobFamily: true, supervisorName: true, supervisorTitle: true,
+          city: true, commune: true, address: true, email: true, personalEmail: true,
+          birthDate: true, gender: true, nationality: true, phone: true, workSchedule: true,
+        },
       }),
       fastify.prisma.contract.findMany({
         where: { employee: { rut: { in: rutVariants(dotRuts) } }, isActive: true, deletedAt: null },
@@ -421,11 +457,24 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const excelStatus = row.estado.toLowerCase() === 'activo' ? 'ACTIVE' : 'INACTIVE'
       if (dbEmp.status !== excelStatus) campos.push({ campo: 'Estado', antes: dbEmp.status, despues: excelStatus })
-      addCampo('AFP',       dbEmp.afp,           row.afp)
-      addCampo('Isapre',    dbEmp.isapre,         row.isapre)
-      addCampo('Cargo',     dbEmp.jobTitle,       row.cargo)
-      addCampo('Familia',   dbEmp.jobFamily,      row.familaCargo)
-      addCampo('Supervisor',dbEmp.supervisorName, row.supervisorNombre)
+      addCampo('AFP',            dbEmp.afp,            row.afp)
+      addCampo('Isapre',         dbEmp.isapre,          row.isapre)
+      addCampo('Cargo',          dbEmp.jobTitle,        row.cargo)
+      addCampo('Familia',        dbEmp.jobFamily,       row.familaCargo)
+      addCampo('Supervisor',     dbEmp.supervisorName,  row.supervisorNombre)
+      addCampo('Ciudad',         dbEmp.city,            row.city)
+      addCampo('Comuna',         dbEmp.commune,         row.commune)
+      addCampo('Dirección',      dbEmp.address,         row.address)
+      addCampo('Email Personal', dbEmp.personalEmail,   row.personalEmail)
+      addCampo('Género',         dbEmp.gender,          row.gender)
+      addCampo('Nacionalidad',   dbEmp.nationality,     row.nationality)
+      addCampo('Teléfono',       dbEmp.phone,           row.phone)
+      addCampo('Jornada',        dbEmp.workSchedule,    row.jornada)
+      if (row.excelEmail && dbEmp.email.endsWith('@buk.import'))
+        addCampo('Email', dbEmp.email, row.excelEmail)
+      const excelBirth = row.birthDate ? row.birthDate.toISOString().slice(0, 10) : null
+      const dbBirth    = dbEmp.birthDate ? dbEmp.birthDate.toISOString().slice(0, 10) : null
+      if (excelBirth && excelBirth !== dbBirth) campos.push({ campo: 'Fecha nacimiento', antes: dbBirth, despues: excelBirth })
 
       const contract = rutToContract.get(row.rut)
       if (contract) {
@@ -468,15 +517,51 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       where: { rut: { in: rutVariants(vacLicRuts) } },
       select: { id: true, rut: true },
     })
-    const rutSetVacLic = new Set(dbEmpsVacLic.map(e => upRut(e.rut)))
+    const rutToIdVacLic   = new Map(dbEmpsVacLic.map(e => [upRut(e.rut), e.id]))
+    const rutSetVacLic    = new Set(dbEmpsVacLic.map(e => upRut(e.rut)))
+    const empIdsVacLic    = dbEmpsVacLic.map(e => e.id)
+    const dbVacBalances   = await fastify.prisma.vacationBalance.findMany({
+      where: { employeeId: { in: empIdsVacLic } },
+      select: { employeeId: true, legalEntity: true, year: true, month: true,
+                saldoLegal: true, saldoProgresivas: true, saldoAdministrativos: true,
+                diasLicencias: true, vacacionesTomadas: true },
+    })
+    const existingVacBal  = new Map(
+      dbVacBalances.map(b => [`${b.employeeId}|${b.legalEntity}|${b.year}|${b.month}`, b])
+    )
 
-    const vacLicRegistros = vacLicRows.filter(r => rutSetVacLic.has(r.rut)).map(r => ({
-      key: r.key, rut: r.rut, nombre: r.nombre, legalEntity: r.legalEntity,
-      year: r.year, month: r.month,
-      saldoLegal: r.saldoLegal, saldoProgresivas: r.saldoProgresivas,
-      saldoAdministrativos: r.saldoAdministrativos, diasLicencias: r.diasLicencias,
-      vacacionesTomadas: r.vacacionesTomadas,
-    }))
+    type VacLicItem = { key: string; rut: string; nombre: string; legalEntity: LegalEntityKey; year: number; month: number; saldoLegal: number; saldoProgresivas: number; saldoAdministrativos: number; diasLicencias: number; vacacionesTomadas: number }
+    const vacLicNuevos:        VacLicItem[] = []
+    const vacLicCambios:       VacLicItem[] = []
+    const vacLicSincronizados: VacLicItem[] = []
+
+    for (const r of vacLicRows) {
+      if (!rutSetVacLic.has(r.rut)) continue
+      const empId = rutToIdVacLic.get(r.rut)
+      if (!empId) continue
+      const item: VacLicItem = {
+        key: r.key, rut: r.rut, nombre: r.nombre, legalEntity: r.legalEntity,
+        year: r.year, month: r.month,
+        saldoLegal: r.saldoLegal, saldoProgresivas: r.saldoProgresivas,
+        saldoAdministrativos: r.saldoAdministrativos, diasLicencias: r.diasLicencias,
+        vacacionesTomadas: r.vacacionesTomadas,
+      }
+      const dbKey = `${empId}|${r.legalEntity}|${r.year}|${r.month}`
+      const existing = existingVacBal.get(dbKey)
+      if (!existing) {
+        vacLicNuevos.push(item)
+      } else if (
+        existing.saldoLegal           !== r.saldoLegal  ||
+        existing.saldoProgresivas     !== r.saldoProgresivas ||
+        existing.saldoAdministrativos !== r.saldoAdministrativos ||
+        existing.diasLicencias        !== r.diasLicencias ||
+        existing.vacacionesTomadas    !== r.vacacionesTomadas
+      ) {
+        vacLicCambios.push(item)
+      } else {
+        vacLicSincronizados.push(item)
+      }
+    }
     const vacLicSinEmpleado = [...new Set(vacLicRows.filter(r => !rutSetVacLic.has(r.rut)).map(r => r.rut))]
 
     return reply.send({
@@ -485,7 +570,7 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
         sueldos:    { nuevos: sueldosNuevos, cambios: sueldosCambios, sincronizados: sueldosSincronizados, sinEmpleado: [...new Set(sueldosSinEmpleado)] },
         dotacion:   { nuevos: dotNuevos,     cambios: dotCambios },
         vacaciones: { nuevas: vacNuevas,     sinEmpleado: [...new Set(vacSinEmpleado)] },
-        vacLicencia:{ registros: vacLicRegistros, sinEmpleado: vacLicSinEmpleado },
+        vacLicencia:{ nuevos: vacLicNuevos, cambios: vacLicCambios, sincronizados: vacLicSincronizados, sinEmpleado: vacLicSinEmpleado },
       },
     })
   })
@@ -543,7 +628,7 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
     if (dotCambiosKeys.size > 0) {
       const relevantRuts = [...dotCambiosKeys].map(k => k.replace('dotacion|', ''))
       const rows = parseDotacion().filter(r => relevantRuts.includes(r.rut))
-      const emps = await fastify.prisma.employee.findMany({ where: { rut: { in: relevantRuts } }, select: { id: true, rut: true } })
+      const emps = await fastify.prisma.employee.findMany({ where: { rut: { in: relevantRuts } }, select: { id: true, rut: true, email: true } })
       const contracts = await fastify.prisma.contract.findMany({
         where: { employeeId: { in: emps.map(e => e.id) }, isActive: true, deletedAt: null },
         select: { id: true, employeeId: true },
@@ -553,11 +638,14 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       const contractByEmpId = new Map<string, string>()
       for (const c of contracts) if (!contractByEmpId.has(c.employeeId)) contractByEmpId.set(c.employeeId, c.id)
 
+      const emailUpdates: Array<{ id: string; email: string }> = []
       const ops = rows.flatMap(row => {
         const emp = empByRut.get(row.rut)
         if (!emp) return []
         const excelStatus = row.estado.toLowerCase() === 'activo' ? 'ACTIVE' : 'INACTIVE'
         const excelType   = row.tipoContrato.toLowerCase().includes('plazo') ? 'PLAZO_FIJO' : 'INDEFINIDO'
+        if (row.excelEmail && emp.email.endsWith('@buk.import'))
+          emailUpdates.push({ id: emp.id, email: row.excelEmail })
         const updates = [fastify.prisma.employee.update({
           where: { id: emp.id },
           data: {
@@ -568,6 +656,15 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
             jobFamily:       row.familaCargo      || undefined,
             supervisorName:  row.supervisorNombre || undefined,
             supervisorTitle: row.supervisorCargo  || undefined,
+            workSchedule:    row.jornada          || undefined,
+            city:            row.city             || undefined,
+            commune:         row.commune          || undefined,
+            address:         row.address          || undefined,
+            personalEmail:   row.personalEmail    || undefined,
+            gender:          row.gender           || undefined,
+            nationality:     row.nationality      || undefined,
+            phone:           row.phone            || undefined,
+            birthDate:       row.birthDate        ?? undefined,
           },
         })]
         const contractId = contractByEmpId.get(emp.id)
@@ -580,6 +677,12 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       if (ops.length > 0) {
         await fastify.prisma.$transaction(ops as any[])
         applied.dotacion += rows.filter(r => empByRut.has(r.rut)).length
+      }
+      // Email updates fuera de la transacción para evitar fallo por uniqueness
+      for (const eu of emailUpdates) {
+        try {
+          await fastify.prisma.employee.update({ where: { id: eu.id }, data: { email: eu.email } })
+        } catch { /* email ya en uso por otro colaborador, se ignora */ }
       }
     }
 
@@ -597,15 +700,24 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
             rut:             row.rut,
             firstName,
             lastName,
-            email:           `${row.rut.replace(/[^0-9]/g, '')}@buk.import`,
+            email:           row.excelEmail || `${row.rut.replace(/[^0-9]/g, '')}@buk.import`,
             status:          excelStatus as any,
             startDate:       row.fechaIngreso ?? new Date(),
-            afp:             row.afp             || undefined,
-            isapre:          row.isapre          || undefined,
-            jobTitle:        row.cargo           || undefined,
-            jobFamily:       row.familaCargo     || undefined,
+            afp:             row.afp              || undefined,
+            isapre:          row.isapre           || undefined,
+            jobTitle:        row.cargo            || undefined,
+            jobFamily:       row.familaCargo      || undefined,
             supervisorName:  row.supervisorNombre || undefined,
             supervisorTitle: row.supervisorCargo  || undefined,
+            workSchedule:    row.jornada          || undefined,
+            city:            row.city             || undefined,
+            commune:         row.commune          || undefined,
+            address:         row.address          || undefined,
+            personalEmail:   row.personalEmail    || undefined,
+            gender:          row.gender           || undefined,
+            nationality:     row.nationality      || undefined,
+            phone:           row.phone            || undefined,
+            birthDate:       row.birthDate        ?? undefined,
           }
         }),
         skipDuplicates: true,

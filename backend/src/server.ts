@@ -3,6 +3,7 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import jwt from '@fastify/jwt'
 import cookie from '@fastify/cookie'
+import multipart from '@fastify/multipart'
 import prismaPlugin from './plugins/prisma'
 import authenticatePlugin from './middleware/authenticate'
 import authRoutes from './routes/auth'
@@ -16,6 +17,7 @@ import bukRoutes from './routes/buk'
 import calendarRoutes from './routes/calendar'
 import smartRoutes from './routes/smart'
 import budgetRoutes from './routes/budget'
+import documentsRoutes from './routes/documents'
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
 
@@ -32,6 +34,8 @@ async function bootstrap() {
     secret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
   })
 
+  await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } })
+
   await app.register(prismaPlugin)
   await app.register(authenticatePlugin)
 
@@ -46,6 +50,7 @@ async function bootstrap() {
   await app.register(calendarRoutes,  { prefix: '/api/calendar' })
   await app.register(smartRoutes,     { prefix: '/api/smart' })
   await app.register(budgetRoutes,    { prefix: '/api/budget' })
+  await app.register(documentsRoutes, { prefix: '/api/onboarding' })
 
   app.get('/api/health', async () => ({ status: 'ok', env: process.env.NODE_ENV }))
 

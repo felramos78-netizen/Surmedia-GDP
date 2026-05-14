@@ -522,12 +522,15 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
   // PATCH /email-templates/:key — actualizar campos
   fastify.patch<{
     Params: { key: string }
-    Body: { subject?: string; bodyHtml?: string; name?: string }
+    Body: { subject?: string; bodyHtml?: string; name?: string; fromEmail?: string | null; toEmails?: string[]; ccEmails?: string[] }
   }>('/email-templates/:key', async (req, reply) => {
     const data: Record<string, any> = {}
-    if (req.body.subject  !== undefined) data.subject  = req.body.subject
-    if (req.body.bodyHtml !== undefined) data.bodyHtml = req.body.bodyHtml
-    if (req.body.name     !== undefined) data.name     = req.body.name
+    if (req.body.subject   !== undefined) data.subject   = req.body.subject
+    if (req.body.bodyHtml  !== undefined) data.bodyHtml  = req.body.bodyHtml
+    if (req.body.name      !== undefined) data.name      = req.body.name
+    if (req.body.fromEmail !== undefined) data.fromEmail = req.body.fromEmail
+    if (req.body.toEmails  !== undefined) data.toEmails  = req.body.toEmails
+    if (req.body.ccEmails  !== undefined) data.ccEmails  = req.body.ccEmails
     try {
       const tpl = await prisma.emailTemplate.update({ where: { key: req.params.key }, data })
       return reply.send({ data: tpl })

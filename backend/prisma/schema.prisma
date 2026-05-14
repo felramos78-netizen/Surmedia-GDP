@@ -575,12 +575,45 @@ model EmailTemplate {
   name      String
   subject   String
   bodyHtml  String
+  fromEmail String?
+  toEmails  Json     @default("[]")
+  ccEmails  Json     @default("[]")
   variables Json     @default("[]")
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("email_templates")
+}
+
+// ─────────────────────────────────────────────
+// Documentos de onboarding (Word con variables)
+// ─────────────────────────────────────────────
+
+model OnboardingDocument {
+  id            String                       @id @default(uuid())
+  name          String
+  fileName      String
+  filePath      String
+  description   String?
+  isActive      Boolean                      @default(true)
+  templateLinks OnboardingDocumentTemplate[]
+  createdAt     DateTime                     @default(now())
+  updatedAt     DateTime                     @updatedAt
+
+  @@map("onboarding_documents")
+}
+
+model OnboardingDocumentTemplate {
+  id          String             @id @default(uuid())
+  document    OnboardingDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentId  String
+  templateKey String
+  sendAs      String             @default("WORD")
+  createdAt   DateTime           @default(now())
+
+  @@unique([documentId, templateKey])
+  @@map("onboarding_document_templates")
 }
 
 model EmailLog {

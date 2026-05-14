@@ -3,6 +3,7 @@ import api from '@/lib/api'
 import type {
   OnboardingProcess, OnboardingStats, OnboardingTemplateTask, ApiResponse,
   EmailTemplate, EmailLog, OnboardingDbTemplateTask, OnboardingForm, FormResponse,
+  OnboardingDocument, OnboardingDocumentTemplate,
 } from '@/types'
 
 const TASK_TEMPLATE: OnboardingTemplateTask[] = [
@@ -249,7 +250,15 @@ export function useEmailTemplates() {
 export function useUpdateEmailTemplate() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ key, ...body }: { key: string; subject?: string; bodyHtml?: string; name?: string }) => {
+    mutationFn: async ({ key, ...body }: {
+      key: string
+      subject?: string
+      bodyHtml?: string
+      name?: string
+      fromEmail?: string | null
+      toEmails?: string[]
+      ccEmails?: string[]
+    }) => {
       const { data } = await api.patch<ApiResponse<EmailTemplate>>(`/onboarding/email-templates/${key}`, body)
       return data.data
     },
@@ -475,6 +484,83 @@ export function useCreateForm() {
       return data.data
     },
     onSuccess: (_data, vars) => queryClient.invalidateQueries({ queryKey: ['forms', vars.processId] }),
+  })
+}
+
+// ─── Documentos ───────────────────────────────────────────────────────────────
+
+export function useDocuments() {
+  return useQuery({
+    queryKey: ['onboardingDocuments'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<OnboardingDocument[]>>('/onboarding/documents')
+      return data.data
+    },
+  })
+}
+
+export function useUploadDocument() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (formData: FormData) => {
+      const { data } = await api.post<ApiResponse<OnboardingDocument>>('/onboarding/documents', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      return data.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['onboardingDocuments'] }),
+  })
+}
+
+export function useUpdateDocument() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, ...body }: { id: string; name?: string; description?: string }) => {
+      const { data } = await api.patch<ApiResponse<OnboardingDocument>>(`/onboarding/documents/${id}`, body)
+      return data.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['onboardingDocuments'] }),
+  })
+}
+
+export function useDeleteDocument() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/onboarding/documents/${id}`)
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['onboardingDocuments'] }),
+  })
+}
+
+export function useLinkDocument() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, templateKey, sendAs }: { id: string; templateKey: string; sendAs: 'WORD' | 'PDF' }) => {
+      const { data } = await api.post<ApiResponse<OnboardingDocumentTemplate>>(`/onboarding/documents/${id}/link`, { templateKey, sendAs })
+      return data.data
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['onboardingDocuments'] }),
+  })
+}
+
+export function useUpdateDocumentLink() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, templateKey, sendAs }: { id: string; templateKey: string; sendAs: 'WORD' | 'PDF' }) => {
+      await api.patch(`/onboarding/documents/${id}/link/${templateKey}`, { sendAs })
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['onboardingDocuments'] }),
+  })
+}
+
+export function useUnlinkDocument() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, templateKey }: { id: string; templateKey: string }) => {
+      await api.delete(`/onboarding/documents/${id}/link/${templateKey}`)
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['onboardingDocuments'] }),
   })
 }
 
