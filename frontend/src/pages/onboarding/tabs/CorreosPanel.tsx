@@ -295,7 +295,7 @@ function TemplateEditor({
   }
 
   const insertVar = (varKey: string) => {
-    const tag = `"${varKey}"`
+    const tag = `{{${varKey}}}`
     if (activeField === 'subject') {
       const el = subjectRef.current
       if (!el) return
@@ -421,7 +421,7 @@ function TemplateEditor({
             className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
           />
         </div>
-        <p className="text-[10px] text-gray-400">Usa variables entre comillas como <code className="bg-white px-1 rounded border border-gray-200">"email"</code> o <code className="bg-white px-1 rounded border border-gray-200">"emailPersonal"</code> para reemplazar con el correo del colaborador.</p>
+        <p className="text-[10px] text-gray-400">Usa variables como <code className="bg-white px-1 rounded border border-gray-200">{'{{email}}'}</code> o <code className="bg-white px-1 rounded border border-gray-200">{'{{emailPersonal}}'}</code> para reemplazar con el correo del colaborador.</p>
       </div>
 
       {/* Variables disponibles */}
@@ -445,7 +445,7 @@ function TemplateEditor({
                     title={`${v.label} · ej: ${v.example}`}
                     className="text-[11px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded hover:bg-blue-100 hover:text-blue-700 transition-colors font-mono"
                   >
-                    "{v.key}"
+                    {`{{${v.key}}}`}
                   </button>
                 ))}
               </div>

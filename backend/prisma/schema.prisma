@@ -190,6 +190,11 @@ model Employee {
   exclusive      Boolean?  // Exclusividad laboral
   vinculo        String?   // Planta, Reemplazo, etc.
   reemplazaA     String?   // Nombre del colaborador que reemplaza (solo si vínculo=Reemplazo)
+  segundoApellido     String?
+  distribucionJornada String?
+  banco               String?
+  tipoCuenta          String?
+  numeroCuenta        String?
 
   user           User?
   contracts      Contract[]
@@ -413,6 +418,7 @@ model OnboardingProcess {
   costCenter                String?
   legalEntity          LegalEntity?
   notes                String?
+  collaboratorData     Json?        // Snapshot de variables del colaborador al crear el proceso
   // Vinculación opcional a Employee de BUK (se hace después o auto por RUT)
   employee             Employee?        @relation(fields: [employeeId], references: [id])
   employeeId           String?

@@ -262,13 +262,31 @@ function CalendarPreview({ items, eventTimes }: { items: CalItemWithTime[]; even
 
 // ─── Modal: Nuevo proceso ─────────────────────────────────────────────────────
 
-function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+function NewProcessModal({ onClose, onCreated, processes }: {
+  onClose:   () => void
+  onCreated: (id: string) => void
+  processes: OnboardingProcess[]
+}) {
   const [form, setForm] = useState({
-    collaboratorRut: '', collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '', collaboratorPosition: '',
-    collaboratorPhone: '', legalEntity: '', costCenter: '', startDate: '', notes: '',
+    // Campos obligatorios
+    collaboratorRut: '', collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '',
+    collaboratorPosition: '', collaboratorPhone: '', legalEntity: '', costCenter: '', startDate: '', notes: '',
+    // Datos personales adicionales
+    segundoApellido: '', city: '', commune: '', address: '',
+    birthDate: '', gender: '', nationality: '',
+    // Datos laborales adicionales
+    jobFamily: '', contractType: '', companyStartDate: '', contractEndDate: '',
+    workSchedule: '', distribucionJornada: '', supervisorName: '', supervisorTitle: '',
+    // Vínculo laboral
+    vinculo: '', reemplazaA: '',
+    // Previsión social
+    afp: '', isapre: '',
+    // Datos bancarios
+    banco: '', tipoCuenta: '', numeroCuenta: '',
   })
   const [rutSearch,          setRutSearch]          = useState('')
   const [matchedEmployee,    setMatchedEmployee]    = useState<{ id: string; name: string; position?: string | null; rut: string } | null>(null)
+  const [duplicateProcessId, setDuplicateProcessId] = useState<string | null>(null)
   const [positionMode,       setPositionMode]       = useState<'select' | 'custom'>('select')
   const [selected,           setSelected]           = useState<Set<string>>(new Set())
   const [showCalendar,         setShowCalendar]         = useState(false)
@@ -289,8 +307,12 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const employeeResults = rutSearch.length >= 2 ? (empData?.data ?? []).slice(0, 6) : []
 
   const selectEmployee = (emp: any) => {
+    const active = processes.find(p => p.collaboratorRut === emp.rut && p.status === 'IN_PROGRESS')
+    if (active) { setDuplicateProcessId(active.id); setRutSearch(''); return }
+    setDuplicateProcessId(null)
     const fullName = `${emp.firstName} ${emp.lastName}`
     setMatchedEmployee({ id: emp.id, name: fullName, position: emp.jobTitle, rut: emp.rut })
+    const contract = emp.contracts?.find((c: any) => c.isActive)
     setForm(f => ({
       ...f,
       collaboratorRut:           emp.rut,
@@ -299,13 +321,51 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
       collaboratorEmail:         (!emp.email || emp.email.includes('@buk.import')) ? f.collaboratorEmail : emp.email,
       collaboratorPhone:         emp.phone ?? f.collaboratorPhone,
       collaboratorPersonalEmail: emp.personalEmail ?? f.collaboratorPersonalEmail,
+      legalEntity:               f.legalEntity || (contract?.legalEntity ?? ''),
+      // Personales
+      segundoApellido:  emp.segundoApellido ?? '',
+      city:             emp.city ?? '',
+      commune:          emp.commune ?? '',
+      address:          emp.address ?? '',
+      birthDate:        emp.birthDate ? emp.birthDate.split('T')[0] : '',
+      gender:           emp.gender ?? '',
+      nationality:      emp.nationality ?? '',
+      // Laborales
+      jobFamily:          emp.jobFamily ?? '',
+      contractType:       contract?.type ?? '',
+      companyStartDate:   emp.startDate ? emp.startDate.split('T')[0] : '',
+      contractEndDate:    emp.endDate ? emp.endDate.split('T')[0] : (contract?.endDate ? contract.endDate.split('T')[0] : ''),
+      workSchedule:       emp.workSchedule ?? '',
+      distribucionJornada: emp.distribucionJornada ?? '',
+      supervisorName:     emp.supervisorName ?? '',
+      supervisorTitle:    emp.supervisorTitle ?? '',
+      vinculo:            emp.vinculo ?? '',
+      reemplazaA:         emp.reemplazaA ?? '',
+      // Previsión
+      afp:    emp.afp ?? '',
+      isapre: emp.isapre ?? '',
+      // Bancarios
+      banco:        emp.banco ?? '',
+      tipoCuenta:   emp.tipoCuenta ?? '',
+      numeroCuenta: emp.numeroCuenta ?? '',
     }))
     setRutSearch('')
   }
 
   const clearEmployee = () => {
     setMatchedEmployee(null)
-    setForm(f => ({ ...f, collaboratorRut: '', collaboratorName: '' }))
+    setDuplicateProcessId(null)
+    setForm(f => ({
+      ...f,
+      collaboratorRut: '', collaboratorName: '', collaboratorPosition: '',
+      collaboratorEmail: '', collaboratorPhone: '', collaboratorPersonalEmail: '',
+      segundoApellido: '', city: '', commune: '', address: '',
+      birthDate: '', gender: '', nationality: '',
+      jobFamily: '', contractType: '', companyStartDate: '', contractEndDate: '',
+      workSchedule: '', distribucionJornada: '', supervisorName: '', supervisorTitle: '',
+      vinculo: '', reemplazaA: '',
+      afp: '', isapre: '', banco: '', tipoCuenta: '', numeroCuenta: '',
+    }))
   }
 
   useEffect(() => {
@@ -328,6 +388,20 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
   }
 
   const handleSubmit = async () => {
+    const collaboratorData: Record<string, unknown> = {}
+    const snap: [string, string][] = [
+      ['segundoApellido', form.segundoApellido], ['city', form.city], ['commune', form.commune],
+      ['address', form.address], ['birthDate', form.birthDate], ['gender', form.gender],
+      ['nationality', form.nationality], ['jobFamily', form.jobFamily], ['contractType', form.contractType],
+      ['companyStartDate', form.companyStartDate], ['contractEndDate', form.contractEndDate],
+      ['workSchedule', form.workSchedule], ['distribucionJornada', form.distribucionJornada],
+      ['supervisorName', form.supervisorName], ['supervisorTitle', form.supervisorTitle],
+      ['vinculo', form.vinculo], ['reemplazaA', form.reemplazaA],
+      ['afp', form.afp], ['isapre', form.isapre],
+      ['banco', form.banco], ['tipoCuenta', form.tipoCuenta], ['numeroCuenta', form.numeroCuenta],
+    ]
+    snap.forEach(([k, v]) => { if (v) collaboratorData[k] = v })
+
     try {
       const process = await createOnboarding.mutateAsync({
         collaboratorRut:           form.collaboratorRut.trim() || undefined,
@@ -341,11 +415,13 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
         startDate:            form.startDate || undefined,
         notes:                form.notes.trim() || undefined,
         selectedTaskIds:      Array.from(selected),
+        collaboratorData:     Object.keys(collaboratorData).length ? collaboratorData : undefined,
       })
       onCreated(process.id)
       onClose()
     } catch (err: any) {
-      alert(err?.response?.data?.message ?? 'Error al crear el proceso')
+      const msg = err?.response?.data?.message ?? 'Error al crear el proceso'
+      alert(msg)
     }
   }
 
@@ -580,126 +656,333 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
         {/* Body — paso 1 */}
         {!showCalendar && <div className="overflow-y-auto flex-1 p-6 space-y-6">
-          {/* Datos del colaborador */}
-          <div className="grid grid-cols-2 gap-4">
-            {/* RUT con búsqueda */}
-            <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">RUT <span className="text-red-400">*</span></label>
-              {matchedEmployee ? (
-                <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
-                  <UserCheck size={14} className="text-green-600 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-green-800 truncate">{matchedEmployee.name}</p>
-                    <p className="text-[10px] text-green-600">{matchedEmployee.rut} · {matchedEmployee.position ?? '—'}</p>
-                  </div>
-                  <button onClick={clearEmployee} className="p-1 text-green-500 hover:text-green-800"><X size={13} /></button>
-                </div>
-              ) : (
-                <div className="relative">
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input autoFocus type="text" placeholder="Buscar por RUT o nombre (mín. 2 caracteres)..."
-                        value={rutSearch} onChange={e => setRutSearch(e.target.value)}
-                        className="w-full pl-8 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      {searchFetching && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
-                    </div>
-                    <input type="text" placeholder="RUT manual" value={form.collaboratorRut}
-                      onChange={e => field('collaboratorRut', e.target.value)}
-                      className="w-40 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  </div>
-                  {employeeResults.length > 0 && (
-                    <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-                      {employeeResults.map((emp: any) => (
-                        <button key={emp.id} type="button" onClick={() => selectEmployee(emp)}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0">
-                          <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold flex items-center justify-center flex-shrink-0 uppercase">
-                            {emp.firstName[0]}{emp.lastName[0]}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{emp.firstName} {emp.lastName}</p>
-                            <p className="text-xs text-gray-400">{emp.rut} · {emp.jobTitle ?? '—'}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
 
-            <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre completo <span className="text-red-400">*</span></label>
-              <input type="text" placeholder="Ej: Juan Pérez Soto" value={form.collaboratorName}
-                onChange={e => field('collaboratorName', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          {/* ── Alerta: proceso activo duplicado ── */}
+          {duplicateProcessId && !matchedEmployee && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+              <AlertTriangle size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-800">Este colaborador ya tiene un proceso activo</p>
+                <p className="text-xs text-amber-600 mt-0.5">No se puede crear un nuevo proceso mientras el anterior esté en curso.</p>
+                <button onClick={() => { onCreated(duplicateProcessId); onClose() }}
+                  className="mt-1.5 text-xs font-medium text-blue-600 hover:underline">Ver proceso activo →</button>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Email corporativo <span className="text-red-400">*</span></label>
-              <input type="email" placeholder="juan.perez@surmedia.cl" value={form.collaboratorEmail}
-                onChange={e => field('collaboratorEmail', e.target.value)}
-                className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.collaboratorEmail ? 'border-gray-300' : 'border-gray-200'}`} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Email personal</label>
-              <input type="email" placeholder="juan.perez@gmail.com" value={form.collaboratorPersonalEmail}
-                onChange={e => field('collaboratorPersonalEmail', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Teléfono</label>
-              <input type="text" placeholder="+56 9 XXXX XXXX" value={form.collaboratorPhone}
-                onChange={e => field('collaboratorPhone', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo <span className="text-red-400">*</span></label>
-              {positionMode === 'select' ? (
-                <select value={form.collaboratorPosition}
-                  onChange={e => { if (e.target.value === '__otro__') { setPositionMode('custom'); field('collaboratorPosition', '') } else { field('collaboratorPosition', e.target.value) } }}
-                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${!form.collaboratorPosition ? 'border-gray-300' : 'border-gray-200'}`}>
-                  <option value="">Seleccionar cargo...</option>
-                  {jobTitles.map(t => <option key={t} value={t}>{t}</option>)}
-                  <option value="__otro__">Otro (ingresar manualmente)</option>
+          )}
+
+          {/* ── Sección: Identidad (obligatoria) ── */}
+          <div>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Identidad</p>
+            <div className="grid grid-cols-2 gap-4">
+              {/* RUT con búsqueda — sin campo manual */}
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  RUT <span className="text-red-400">*</span>
+                  <span className="ml-2 font-normal text-gray-400">(busca el colaborador en el sistema)</span>
+                </label>
+                {matchedEmployee ? (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                    <UserCheck size={14} className="text-green-600 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-green-800 truncate">{matchedEmployee.name}</p>
+                      <p className="text-[10px] text-green-600">{matchedEmployee.rut} · {matchedEmployee.position ?? '—'}</p>
+                    </div>
+                    <button onClick={clearEmployee} className="p-1 text-green-500 hover:text-green-800"><X size={13} /></button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    <input autoFocus type="text" placeholder="Buscar por RUT o nombre (mín. 2 caracteres)..."
+                      value={rutSearch} onChange={e => { setRutSearch(e.target.value); setDuplicateProcessId(null) }}
+                      className="w-full pl-8 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    {searchFetching && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
+                    {/* Resultados */}
+                    {rutSearch.length >= 2 && !searchFetching && employeeResults.length > 0 && (
+                      <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                        {employeeResults.map((emp: any) => (
+                          <button key={emp.id} type="button" onClick={() => selectEmployee(emp)}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0">
+                            <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold flex items-center justify-center flex-shrink-0 uppercase">
+                              {emp.firstName[0]}{emp.lastName[0]}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{emp.firstName} {emp.lastName}</p>
+                              <p className="text-xs text-gray-400">{emp.rut} · {emp.jobTitle ?? '—'}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {/* Sin resultados */}
+                    {rutSearch.length >= 2 && !searchFetching && employeeResults.length === 0 && (
+                      <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-amber-200 rounded-lg shadow-lg overflow-hidden">
+                        <div className="flex items-start gap-2.5 px-4 py-3">
+                          <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium text-amber-800">Colaborador no encontrado</p>
+                            <p className="text-xs text-amber-600 mt-0.5">Debe crear la ficha en Colaboradores primero.</p>
+                            <a href="/colaboradores" target="_blank" rel="noreferrer"
+                              className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">
+                              Ir a Colaboradores <ChevronRight size={10} />
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre completo <span className="text-red-400">*</span></label>
+                <input type="text" placeholder="Ej: Juan Pérez Soto" value={form.collaboratorName}
+                  onChange={e => field('collaboratorName', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Email corporativo <span className="text-red-400">*</span></label>
+                <input type="email" placeholder="juan.perez@surmedia.cl" value={form.collaboratorEmail}
+                  onChange={e => field('collaboratorEmail', e.target.value)}
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.collaboratorEmail ? 'border-gray-300' : 'border-gray-200'}`} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Email personal</label>
+                <input type="email" placeholder="juan.perez@gmail.com" value={form.collaboratorPersonalEmail}
+                  onChange={e => field('collaboratorPersonalEmail', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Teléfono</label>
+                <input type="text" placeholder="+56 9 XXXX XXXX" value={form.collaboratorPhone}
+                  onChange={e => field('collaboratorPhone', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo <span className="text-red-400">*</span></label>
+                {positionMode === 'select' ? (
+                  <select value={form.collaboratorPosition}
+                    onChange={e => { if (e.target.value === '__otro__') { setPositionMode('custom'); field('collaboratorPosition', '') } else { field('collaboratorPosition', e.target.value) } }}
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${!form.collaboratorPosition ? 'border-gray-300' : 'border-gray-200'}`}>
+                    <option value="">Seleccionar cargo...</option>
+                    {jobTitles.map(t => <option key={t} value={t}>{t}</option>)}
+                    <option value="__otro__">Otro (ingresar manualmente)</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-2">
+                    <input autoFocus type="text" placeholder="Ej: Diseñador Gráfico" value={form.collaboratorPosition}
+                      onChange={e => field('collaboratorPosition', e.target.value)}
+                      className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <button type="button" onClick={() => { setPositionMode('select'); field('collaboratorPosition', '') }}
+                      className="px-2 py-1 text-xs text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg">Lista</button>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Empresa <span className="text-red-400">*</span></label>
+                <select value={form.legalEntity} onChange={e => field('legalEntity', e.target.value)}
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${!form.legalEntity ? 'border-gray-300' : 'border-gray-200'}`}>
+                  <option value="">Seleccionar empresa...</option>
+                  <option value="COMUNICACIONES_SURMEDIA">Comunicaciones Surmedia Spa</option>
+                  <option value="SURMEDIA_CONSULTORIA">Surmedia Consultoría Spa</option>
                 </select>
-              ) : (
-                <div className="flex gap-2">
-                  <input autoFocus type="text" placeholder="Ej: Diseñador Gráfico" value={form.collaboratorPosition}
-                    onChange={e => field('collaboratorPosition', e.target.value)}
-                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <button type="button" onClick={() => { setPositionMode('select'); field('collaboratorPosition', '') }}
-                    className="px-2 py-1 text-xs text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg">Lista</button>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha de ingreso <span className="text-red-400">*</span></label>
+                <input type="date" value={form.startDate} onChange={e => field('startDate', e.target.value)}
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.startDate ? 'border-gray-300' : 'border-gray-200'}`} />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Centro de Trabajo <span className="text-red-400">*</span></label>
+                <select value={form.costCenter} onChange={e => field('costCenter', e.target.value)}
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${!form.costCenter ? 'border-gray-300' : 'border-gray-200'}`}>
+                  <option value="">Seleccionar centro...</option>
+                  {workCenters.map(wc => <option key={wc.id} value={wc.name}>{wc.name}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Sección: Datos personales ── */}
+          <div>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Datos personales</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Segundo apellido</label>
+                <input type="text" placeholder="Segundo apellido" value={form.segundoApellido}
+                  onChange={e => field('segundoApellido', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha de nacimiento</label>
+                <input type="date" value={form.birthDate} onChange={e => field('birthDate', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Sexo</label>
+                <select value={form.gender} onChange={e => field('gender', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                  <option value="">Seleccionar...</option>
+                  <option value="M">Masculino</option>
+                  <option value="F">Femenino</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Nacionalidad</label>
+                <input type="text" placeholder="Chilena" value={form.nationality}
+                  onChange={e => field('nationality', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Ciudad</label>
+                <input type="text" placeholder="Santiago" value={form.city}
+                  onChange={e => field('city', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Comuna</label>
+                <input type="text" placeholder="Providencia" value={form.commune}
+                  onChange={e => field('commune', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Dirección</label>
+                <input type="text" placeholder="Av. Providencia 1234, depto 501" value={form.address}
+                  onChange={e => field('address', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+          </div>
+
+          {/* ── Sección: Datos laborales adicionales ── */}
+          <div>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Datos laborales</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Familia de cargo</label>
+                <input type="text" placeholder="Ej: Tecnología" value={form.jobFamily}
+                  onChange={e => field('jobFamily', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Tipo de contrato</label>
+                <select value={form.contractType} onChange={e => field('contractType', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                  <option value="">Seleccionar...</option>
+                  <option value="INDEFINIDO">Indefinido</option>
+                  <option value="PLAZO_FIJO">Plazo fijo</option>
+                  <option value="HONORARIOS">Honorarios</option>
+                  <option value="PRACTICA">Práctica</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha ingreso empresa</label>
+                <input type="date" value={form.companyStartDate} onChange={e => field('companyStartDate', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha vencimiento contrato</label>
+                <input type="date" value={form.contractEndDate} onChange={e => field('contractEndDate', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Jornada laboral</label>
+                <input type="text" placeholder="Mensual 40 hrs. (L, M, M, J, V)" value={form.workSchedule}
+                  onChange={e => field('workSchedule', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Distribución de jornada</label>
+                <input type="text" placeholder="Lunes a Viernes" value={form.distribucionJornada}
+                  onChange={e => field('distribucionJornada', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre supervisor</label>
+                <input type="text" placeholder="Nombre del supervisor" value={form.supervisorName}
+                  onChange={e => field('supervisorName', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo supervisor</label>
+                <input type="text" placeholder="Cargo del supervisor" value={form.supervisorTitle}
+                  onChange={e => field('supervisorTitle', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Vínculo</label>
+                <select value={form.vinculo} onChange={e => field('vinculo', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                  <option value="">Seleccionar...</option>
+                  <option value="Planta">Planta</option>
+                  <option value="Reemplazo">Reemplazo</option>
+                </select>
+              </div>
+              {form.vinculo === 'Reemplazo' && (
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-600 mb-1.5">Reemplaza a <span className="text-red-400">*</span></label>
+                  <input type="text" placeholder="Nombre de quien o quienes reemplaza" value={form.reemplazaA}
+                    onChange={e => field('reemplazaA', e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               )}
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Empresa <span className="text-red-400">*</span></label>
-              <select value={form.legalEntity} onChange={e => field('legalEntity', e.target.value)}
-                className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${!form.legalEntity ? 'border-gray-300' : 'border-gray-200'}`}>
-                <option value="">Seleccionar empresa...</option>
-                <option value="COMUNICACIONES_SURMEDIA">Comunicaciones Surmedia Spa</option>
-                <option value="SURMEDIA_CONSULTORIA">Surmedia Consultoría Spa</option>
-              </select>
+          </div>
+
+          {/* ── Sección: Previsión social ── */}
+          <div>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Previsión social</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">AFP</label>
+                <input type="text" placeholder="Ej: Modelo, Habitat" value={form.afp}
+                  onChange={e => field('afp', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Fonasa / Isapre</label>
+                <input type="text" placeholder="Ej: Fonasa, Banmédica" value={form.isapre}
+                  onChange={e => field('isapre', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha de ingreso <span className="text-red-400">*</span></label>
-              <input type="date" value={form.startDate} onChange={e => field('startDate', e.target.value)}
-                className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.startDate ? 'border-gray-300' : 'border-gray-200'}`} />
+          </div>
+
+          {/* ── Sección: Datos bancarios ── */}
+          <div>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Datos bancarios</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Banco</label>
+                <input type="text" placeholder="Ej: Banco Estado" value={form.banco}
+                  onChange={e => field('banco', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Tipo de cuenta</label>
+                <select value={form.tipoCuenta} onChange={e => field('tipoCuenta', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                  <option value="">Seleccionar...</option>
+                  <option value="Cuenta Vista">Cuenta Vista</option>
+                  <option value="Cuenta Corriente">Cuenta Corriente</option>
+                  <option value="Cuenta de Ahorro">Cuenta de Ahorro</option>
+                  <option value="Cuenta RUT">Cuenta RUT</option>
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Número de cuenta</label>
+                <input type="text" placeholder="Ej: 00012345678" value={form.numeroCuenta}
+                  onChange={e => field('numeroCuenta', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
             </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Centro de Trabajo <span className="text-red-400">*</span></label>
-              <select value={form.costCenter} onChange={e => field('costCenter', e.target.value)}
-                className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${!form.costCenter ? 'border-gray-300' : 'border-gray-200'}`}>
-                <option value="">Seleccionar centro...</option>
-                {workCenters.map(wc => <option key={wc.id} value={wc.name}>{wc.name}</option>)}
-              </select>
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Notas internas</label>
-              <textarea rows={2} placeholder="Información relevante para el proceso..." value={form.notes}
-                onChange={e => field('notes', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
-            </div>
+          </div>
+
+          {/* ── Notas internas ── */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1.5">Notas internas</label>
+            <textarea rows={2} placeholder="Información relevante para el proceso..." value={form.notes}
+              onChange={e => field('notes', e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
           </div>
 
           {/* Hitos */}
@@ -762,6 +1045,7 @@ function NewProcessModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <button
             onClick={() => setShowCalendar(true)}
             disabled={
+              !matchedEmployee ||
               !form.collaboratorName.trim() || !form.legalEntity ||
               !form.collaboratorEmail.trim() || !form.collaboratorPosition.trim() ||
               !form.costCenter || !form.startDate ||
@@ -977,6 +1261,7 @@ export default function OnboardingPage() {
         <NewProcessModal
           onClose={() => setShowNewModal(false)}
           onCreated={(id) => { setDrawerProcessId(id); setShowNewModal(false) }}
+          processes={processes ?? []}
         />
       )}
       </>}

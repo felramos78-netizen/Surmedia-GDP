@@ -200,23 +200,11 @@ export function templateNotificacionInterna(vars: TemplateVars & { taskName: str
 //   {varName}   — camelCase legacy
 //   "varName"   — nueva sintaxis legible en español
 
-const QUOTED_VAR_KEYS = [
-  'nombre', 'primerNombre', 'apellido', 'rut', 'cargo', 'empresa',
-  'email', 'emailPersonal', 'telefono', 'jornada', 'supervisor',
-  'afp', 'isapre', 'ciudad', 'comuna',
-  'centroTrabajo', 'tipoCentro',
-  'fechaIngreso', 'fechaIngresoCorta', 'fechaActual', 'año',
-  'saludoHorario', 'diaNumero', 'nombreHito', 'instruccion',
-]
-
 function interpolate(str: string, vars: Record<string, string>): string {
-  // {varName} legacy
-  let out = str.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`)
-  // "varName" nueva sintaxis — sólo reemplaza keys conocidas
-  if (QUOTED_VAR_KEYS.length) {
-    const pattern = new RegExp(`"(${QUOTED_VAR_KEYS.join('|')})"`, 'g')
-    out = out.replace(pattern, (_, k) => vars[k] ?? `"${k}"`)
-  }
+  // {{varName}} — sintaxis unificada (correos + documentos)
+  let out = str.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`)
+  // {varName} — legacy fallback para plantillas anteriores
+  out = out.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`)
   return out
 }
 

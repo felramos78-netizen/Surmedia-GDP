@@ -143,6 +143,11 @@ export interface Employee {
   exclusive?: boolean | null
   vinculo?: string | null
   reemplazaA?: string | null
+  segundoApellido?: string | null
+  distribucionJornada?: string | null
+  banco?: string | null
+  tipoCuenta?: string | null
+  numeroCuenta?: string | null
   contracts?: Contract[]
   workCenters?: EmployeeWorkCenter[]
   leaves?: Leave[]
@@ -258,6 +263,7 @@ export interface OnboardingProcess {
   legalEntity?:         string | null
   costCenter?:          string | null
   notes?:               string | null
+  collaboratorData?:    Record<string, unknown> | null
   employeeId?:          string | null
   employee?:            Employee | null
   status:               OnboardingStatus

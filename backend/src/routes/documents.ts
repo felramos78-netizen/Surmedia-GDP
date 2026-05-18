@@ -1,5 +1,4 @@
 import { FastifyPluginAsync } from 'fastify'
-import fp from 'fastify-plugin'
 import fs from 'fs'
 import path from 'path'
 
@@ -250,4 +249,4 @@ const documentsRoutes: FastifyPluginAsync = async (fastify) => {
   })
 }
 
-export default fp(documentsRoutes)
+export default documentsRoutes

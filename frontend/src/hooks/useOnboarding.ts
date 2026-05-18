@@ -93,6 +93,7 @@ export function useCreateOnboarding() {
       startDate?:                string
       notes?:                    string
       selectedTaskIds:           string[]
+      collaboratorData?:         Record<string, unknown>
     }) => {
       const { data } = await api.post<ApiResponse<OnboardingProcess>>('/onboarding', body)
       return data.data
@@ -432,11 +433,12 @@ export function useVerifySheet() {
   return useMutation({
     mutationFn: async ({ key, rut }: { key: string; rut: string }) => {
       const { data } = await api.post<ApiResponse<{
-        found:        boolean
-        rowData:      Record<string, string> | null
-        updates:      Record<string, any>   | null
-        employeeId:   string | null
-        employeeName: string | null
+        found:         boolean
+        rowData:       Record<string, string> | null
+        updates:       Record<string, any>   | null
+        currentValues: Record<string, any>   | null
+        employeeId:    string | null
+        employeeName:  string | null
       }>>(`/onboarding/sheet-templates/${key}/verify`, { rut })
       return data.data
     },

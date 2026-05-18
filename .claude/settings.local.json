@@ -34,7 +34,9 @@
       "Bash(Select-Object Name)",
       "Bash(npm install *)",
       "Bash(dir C:\\\\Users\\\\Felipe Ramos\\\\Proyectos\\\\Surmedia-GDP\\\\frontend\\\\src *)",
-      "Bash(npx tsx *)"
+      "Bash(npx tsx *)",
+      "Bash(git commit *)",
+      "Bash(git config *)"
     ]
   }
 }

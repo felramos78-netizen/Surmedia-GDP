@@ -271,7 +271,7 @@ function buildProcessVars(proc: OnboardingProcess): Record<string, string> {
 
 function applyVars(text: string, vars: Record<string, string>): string {
   return text
-    .replace(/"([a-zA-ZáéíóúñÁÉÍÓÚÑ][a-zA-Z0-9áéíóúñÁÉÍÓÚÑ_]*)"/g, (_, k) => vars[k] ?? `"${k}"`)
+    .replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`)
     .replace(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g, (_, k) => vars[k] ?? `{${k}}`)
 }
 
@@ -374,7 +374,7 @@ function SheetVerifyModal({
           {/* Error */}
           {verifySheet.isError && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-              Error al conectar con Google Sheets. Verifica que el sheet esté compartido con la cuenta de servicio.
+              {(verifySheet.error as any)?.response?.data?.message ?? 'Error al conectar con Google Sheets. Verifica que el sheet esté compartido con la cuenta de servicio.'}
             </div>
           )}
 
@@ -386,63 +386,77 @@ function SheetVerifyModal({
             </div>
           )}
 
-          {/* Found */}
-          {result?.found && result.rowData && (
+          {/* Found — diff table */}
+          {result?.found && result.updates && (
             <>
-              {/* Raw row data */}
-              <div>
-                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">Datos en el formulario</p>
+              {(() => {
+                const entries = Object.entries(result.updates)
+                const willChange = entries.filter(([f, v]) => {
+                  const cur = result.currentValues?.[f]
+                  return String(cur ?? '') !== String(v ?? '')
+                })
+                const equal = entries.filter(([f, v]) => {
+                  const cur = result.currentValues?.[f]
+                  return String(cur ?? '') === String(v ?? '')
+                })
+                return (
+                  <div className="flex items-center gap-3 text-xs">
+                    {willChange.length > 0 && (
+                      <span className="px-2 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium">
+                        {willChange.length} {willChange.length === 1 ? 'campo cambia' : 'campos cambian'}
+                      </span>
+                    )}
+                    {equal.length > 0 && (
+                      <span className="px-2 py-1 bg-gray-50 text-gray-500 border border-gray-200 rounded-full">
+                        {equal.length} ya {equal.length === 1 ? 'es igual' : 'son iguales'}
+                      </span>
+                    )}
+                    {entries.length === 0 && (
+                      <span className="text-gray-400">No hay columnas mapeadas para actualizar.</span>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {updatesCount > 0 && (
                 <div className="rounded-lg border border-gray-100 overflow-hidden">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-100">
-                        <th className="px-3 py-2 text-left font-medium text-gray-500 w-1/2">Columna</th>
-                        <th className="px-3 py-2 text-left font-medium text-gray-500">Valor</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 w-1/4">Campo</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 w-[37.5%]">Actual</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-500 w-[37.5%]">Del formulario</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.entries(result.rowData).map(([col, val]) => (
-                        <tr key={col} className="border-b border-gray-50 last:border-0">
-                          <td className="px-3 py-2 text-gray-500">{col}</td>
-                          <td className="px-3 py-2 text-gray-800">{val || <span className="text-gray-300 italic">vacío</span>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Updates preview */}
-              {updatesCount > 0 && (
-                <div>
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                    Cambios que se aplicarán al perfil ({updatesCount} campos)
-                  </p>
-                  <div className="rounded-lg border border-green-100 overflow-hidden">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="bg-green-50 border-b border-green-100">
-                          <th className="px-3 py-2 text-left font-medium text-gray-500 w-1/2">Campo del perfil</th>
-                          <th className="px-3 py-2 text-left font-medium text-gray-500">Valor a guardar</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(result.updates!).map(([field, val]) => (
-                          <tr key={field} className="border-b border-green-50 last:border-0">
+                      {Object.entries(result.updates).map(([field, newVal]) => {
+                        const curRaw = result.currentValues?.[field]
+                        const curStr = String(curRaw ?? '')
+                        const newStr = String(newVal ?? '')
+                        const isNew     = !curStr
+                        const isChanged = curStr !== newStr
+                        const rowBg = isNew ? 'bg-blue-50/40' : isChanged ? 'bg-amber-50/40' : ''
+                        return (
+                          <tr key={field} className={`border-b border-gray-50 last:border-0 ${rowBg}`}>
                             <td className="px-3 py-2 text-gray-600 font-medium">
                               {EMPLOYEE_FIELD_LABELS[field] ?? field}
                             </td>
-                            <td className="px-3 py-2 text-gray-800">{String(val ?? '') || <span className="text-gray-300 italic">vacío</span>}</td>
+                            <td className="px-3 py-2">
+                              {curStr
+                                ? <span className={isChanged ? 'text-gray-400 line-through' : 'text-gray-700'}>{curStr}</span>
+                                : <span className="text-gray-300 italic">sin datos</span>}
+                            </td>
+                            <td className="px-3 py-2">
+                              {newStr
+                                ? <span className={isNew ? 'text-blue-700 font-medium' : isChanged ? 'text-amber-700 font-medium' : 'text-gray-500'}>{newStr}</span>
+                                : <span className="text-gray-300 italic">vacío</span>}
+                            </td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
-              )}
-
-              {updatesCount === 0 && (
-                <p className="text-sm text-gray-400">No hay columnas mapeadas para actualizar en el perfil.</p>
               )}
             </>
           )}

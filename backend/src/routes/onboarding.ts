@@ -768,14 +768,30 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     const mappings = (sheet.columnMappings ?? {}) as Record<string, string>
     const updates  = mapRowToEmployee(row, mappings)
 
-    // Buscar empleado por RUT en la DB
+    // Buscar empleado por RUT en la DB con todos los campos mapeables
     const rutDigits = rut.replace(/[\s.]/g, '').split('-')[0]
     const employee  = await prisma.employee.findFirst({
       where: { rut: { contains: rutDigits } },
-      select: { id: true, firstName: true, lastName: true },
+      select: {
+        id: true, firstName: true, lastName: true,
+        gender: true, birthDate: true, nationality: true,
+        personalEmail: true, phone: true,
+        address: true, commune: true, city: true,
+        afp: true, isapre: true,
+        email: true, jobTitle: true, workSchedule: true, supervisorName: true,
+      },
     }).catch(() => null)
 
-    return reply.send({ data: { found: true, rowData: row, updates, employeeId: employee?.id ?? null, employeeName: employee ? `${employee.firstName} ${employee.lastName}` : null } })
+    // Valores actuales del empleado para los campos que se actualizarían
+    const currentValues: Record<string, any> = {}
+    if (employee && updates) {
+      for (const key of Object.keys(updates)) {
+        const raw = (employee as any)[key]
+        currentValues[key] = raw instanceof Date ? raw.toISOString().split('T')[0] : (raw ?? null)
+      }
+    }
+
+    return reply.send({ data: { found: true, rowData: row, updates, employeeId: employee?.id ?? null, employeeName: employee ? `${employee.firstName} ${employee.lastName}` : null, currentValues } })
   })
 
   // POST /sheet-templates/:key/apply — aplicar actualizaciones al empleado
@@ -901,27 +917,47 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       startDate?:                string
       notes?:                    string
       selectedTaskIds:           string[]
+      collaboratorData?:         Record<string, unknown>
     }
   }>('/', async (req, reply) => {
-    const { collaboratorRut, collaboratorName, collaboratorEmail, collaboratorPersonalEmail, collaboratorPosition, collaboratorPhone, legalEntity, costCenter, startDate, notes, selectedTaskIds } = req.body
+    const { collaboratorRut, collaboratorName, collaboratorEmail, collaboratorPersonalEmail, collaboratorPosition, collaboratorPhone, legalEntity, costCenter, startDate, notes, selectedTaskIds, collaboratorData } = req.body
 
     if (!collaboratorName?.trim()) return reply.status(400).send({ message: 'El nombre del colaborador es requerido' })
     if (!selectedTaskIds?.length)  return reply.status(400).send({ message: 'Selecciona al menos un hito' })
+
+    // Validar que el colaborador exista y no tenga proceso activo
+    let employeeId: string | null = null
+    if (collaboratorRut?.trim()) {
+      const emp = await prisma.employee.findFirst({
+        where: { rut: collaboratorRut.trim() },
+        select: { id: true },
+      }).catch(() => null)
+
+      if (!emp) {
+        return reply.status(422).send({
+          message: 'El colaborador no existe en el sistema. Debe crear su ficha en Colaboradores primero.',
+          code: 'EMPLOYEE_NOT_FOUND',
+        })
+      }
+      employeeId = emp.id
+
+      const existing = await prisma.onboardingProcess.findFirst({
+        where: { collaboratorRut: collaboratorRut.trim(), status: 'IN_PROGRESS' },
+        select: { id: true },
+      }).catch(() => null)
+      if (existing) {
+        return reply.status(409).send({
+          message: `${collaboratorName} ya tiene un proceso de onboarding activo.`,
+          code: 'DUPLICATE_PROCESS',
+          processId: existing.id,
+        })
+      }
+    }
 
     // Usar mediodía UTC para evitar desfase de zona horaria al mostrar en frontend (Chile UTC-3/UTC-4)
     const start = startDate ? new Date(startDate + 'T12:00:00.000Z') : new Date()
     const expectedEndDate = new Date(start)
     expectedEndDate.setDate(expectedEndDate.getDate() + 90)
-
-    // Auto-link employee by RUT if provided
-    let employeeId: string | null = null
-    if (collaboratorRut?.trim()) {
-      const emp = await prisma.employee.findFirst({
-        where: { rut: { contains: collaboratorRut.replace(/[\s.]/g, '').split('-')[0] } },
-        select: { id: true },
-      }).catch(() => null)
-      employeeId = emp?.id ?? null
-    }
 
     // Cargar tareas desde la plantilla DB (fuente primaria)
     const dbTasks: any[] = await prisma.onboardingTemplateTask.findMany({
@@ -978,6 +1014,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
         legalEntity:          legalEntity || null,
         costCenter:           costCenter?.trim() || null,
         notes:                notes?.trim() || null,
+        collaboratorData:     collaboratorData ?? null,
         employeeId:           employeeId,
         startDate:            start,
         expectedEndDate,
@@ -1073,15 +1110,27 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       data:  updateData,
     })
 
-    // Auto-completar proceso si todas las tareas están listas
+    // Auto-completar o reabrir proceso según estado de tareas
     const all = await prisma.onboardingTask.findMany({
       where:  { processId: req.params.id },
       select: { completedAt: true },
     })
+    const proc = await prisma.onboardingProcess.findUnique({
+      where: { id: req.params.id },
+      select: { status: true },
+    })
     if (all.every((t: any) => t.completedAt !== null)) {
+      if (proc?.status !== 'COMPLETED') {
+        await prisma.onboardingProcess.update({
+          where: { id: req.params.id },
+          data:  { status: 'COMPLETED', completedAt: new Date() },
+        })
+      }
+    } else if (proc?.status === 'COMPLETED') {
+      // Al desmarcar un hito el proceso vuelve a estar en curso
       await prisma.onboardingProcess.update({
         where: { id: req.params.id },
-        data:  { status: 'COMPLETED', completedAt: new Date() },
+        data:  { status: 'IN_PROGRESS', completedAt: null },
       })
     }
 

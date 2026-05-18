@@ -323,7 +323,8 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     const { id } = req.params
     const TEXT_FIELDS    = ['firstName','lastName','email','personalEmail','phone','address','city','commune',
                             'nationality','gender','afp','isapre','jobTitle','jobFamily','costCenter',
-                            'supervisorName','supervisorTitle','workSchedule','vinculo','reemplazaA','status']
+                            'supervisorName','supervisorTitle','workSchedule','vinculo','reemplazaA','status',
+                            'segundoApellido','distribucionJornada','banco','tipoCuenta','numeroCuenta']
     const DATE_FIELDS    = ['birthDate','startDate','endDate']
     const BOOLEAN_FIELDS = ['exclusive']
 
