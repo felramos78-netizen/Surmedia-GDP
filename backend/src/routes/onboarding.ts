@@ -1,7 +1,84 @@
 import type { FastifyPluginAsync } from 'fastify'
+import fs from 'fs'
+import path from 'path'
 import { runTaskAutomation } from '../services/automation.service'
 import { getFormResponses, getSheetRowsByUrl, findRowByRut, mapRowToEmployee } from '../services/sheets.service'
 import { sendEmail, buildFromDbTemplate } from '../services/email.service'
+
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads', 'documents')
+
+function renderDocx(filePath: string, vars: Record<string, string>): Buffer {
+  const PizZip      = require('pizzip')
+  const Docxtemplater = require('docxtemplater')
+  const fileBuffer  = fs.readFileSync(filePath)
+  const zip         = new PizZip(fileBuffer)
+  const tpl         = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, errorLogging: false })
+  tpl.setData(vars)
+  tpl.render()
+  return tpl.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' })
+}
+
+async function docxToPdf(docxBuffer: Buffer): Promise<Buffer> {
+  const libre = require('libreoffice-convert')
+  return new Promise<Buffer>((resolve, reject) => {
+    libre.convert(docxBuffer, '.pdf', undefined, (err: any, done: Buffer) => {
+      if (err) reject(err); else resolve(done)
+    })
+  })
+}
+
+function buildSendVars(proc: any): Record<string, string> {
+  const start = proc.startDate
+    ? new Date(proc.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+    : ''
+  const startCorta = proc.startDate ? new Date(proc.startDate).toLocaleDateString('es-CL') : ''
+  const nameParts  = (proc.collaboratorName ?? '').trim().split(/\s+/)
+  const cd         = (proc.collaboratorData as Record<string, any>) ?? {}
+  const now        = new Date()
+  const hour       = now.getHours()
+  const empresa    = proc.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : proc.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Surmedia Consultoría Spa' : ''
+  return {
+    nombre:            proc.collaboratorName ?? '',
+    primerNombre:      cd.primerNombre ?? nameParts[0] ?? '',
+    segundoNombre:     cd.segundoNombre ?? '',
+    primerApellido:    cd.primerApellido ?? nameParts[1] ?? '',
+    segundoApellido:   cd.segundoApellido ?? nameParts[2] ?? '',
+    apellido:          [cd.primerApellido, cd.segundoApellido].filter(Boolean).join(' ') || nameParts.slice(1).join(' '),
+    rut:               proc.collaboratorRut ?? '',
+    cargo:             proc.collaboratorPosition ?? '',
+    empresa,
+    email:             proc.collaboratorEmail ?? '',
+    emailPersonal:     proc.collaboratorPersonalEmail ?? '',
+    telefono:          proc.collaboratorPhone ?? '',
+    jornada:           cd.workSchedule ?? '',
+    supervisor:        cd.supervisorName ?? '',
+    afp:               cd.afp ?? '',
+    isapre:            cd.isapre ?? '',
+    ciudad:            cd.city ?? '',
+    comuna:            cd.commune ?? '',
+    direccion:         cd.address ?? '',
+    centroTrabajo:     proc.costCenter ?? '',
+    fechaIngreso:      start,
+    fechaIngresoCorta: startCorta,
+    fechaActual:       now.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
+    año:               now.getFullYear().toString(),
+    saludoHorario:     hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
+    // Legacy compatibility
+    collaboratorName:     proc.collaboratorName ?? '',
+    collaboratorPosition: proc.collaboratorPosition ?? '',
+    collaboratorEmail:    proc.collaboratorEmail ?? '',
+    legalEntity:          empresa,
+    startDate:            start,
+    expectedEndDate:      '',
+  }
+}
+
+function normalizeRut(rut: string): string {
+  const clean = rut.replace(/\./g, '').trim()
+  const [body, dv] = clean.split('-')
+  if (!body || dv === undefined) return rut.trim()
+  return `${body.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}-${dv.toUpperCase()}`
+}
 
 // ─── Plantilla oficial de hitos (workflow Surmedia) ──────────────────────────
 // Cada hito tiene: id estable, período, nombre, herramienta, tipo de automatización,
@@ -568,6 +645,9 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       // Nueva sintaxis "varName"
       nombre:               'Juan Pérez Ejemplo',
       primerNombre:         'Juan',
+      segundoNombre:        'Carlos',
+      primerApellido:       'Pérez',
+      segundoApellido:      'Ejemplo',
       apellido:             'Pérez Ejemplo',
       rut:                  '12.345.678-9',
       cargo:                'Diseñador Gráfico',
@@ -581,6 +661,12 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       isapre:               'Banmédica',
       ciudad:               'Santiago',
       comuna:               'Las Condes',
+      direccion:            'Av. Providencia 1234 Depto 501',
+      direccionCalle:       'Av. Providencia',
+      direccionNumero:      '1234',
+      direccionDepto:       '501',
+      vinculo:              'Planta',
+      fechaNacimiento:      '15/03/1990',
       centroTrabajo:        'Digital Surmedia',
       tipoCentro:           'Directo',
       fechaIngreso:         '15 de mayo de 2026',
@@ -769,9 +855,8 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     const updates  = mapRowToEmployee(row, mappings)
 
     // Buscar empleado por RUT en la DB con todos los campos mapeables
-    const rutDigits = rut.replace(/[\s.]/g, '').split('-')[0]
     const employee  = await prisma.employee.findFirst({
-      where: { rut: { contains: rutDigits } },
+      where: { rut: { equals: normalizeRut(rut), mode: 'insensitive' } },
       select: {
         id: true, firstName: true, lastName: true,
         gender: true, birthDate: true, nationality: true,
@@ -802,9 +887,8 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     const { rut, updates } = req.body
     if (!rut?.trim() || !updates) return reply.status(400).send({ message: 'rut y updates son requeridos' })
 
-    const rutDigits = rut.replace(/[\s.]/g, '').split('-')[0]
     const employee  = await prisma.employee.findFirst({
-      where: { rut: { contains: rutDigits } },
+      where: { rut: { equals: normalizeRut(rut), mode: 'insensitive' } },
       select: { id: true },
     }).catch(() => null)
     if (!employee) return reply.status(404).send({ message: 'Colaborador no encontrado en la base de datos' })
@@ -834,7 +918,19 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       safe.gender = g.startsWith('f') ? 'F' : g.startsWith('m') ? 'M' : safe.gender
     }
 
-    const updated = await prisma.employee.update({ where: { id: employee.id }, data: safe, select: { id: true, firstName: true, lastName: true } })
+    let updated
+    try {
+      updated = await prisma.employee.update({ where: { id: employee.id }, data: safe, select: { id: true, firstName: true, lastName: true } })
+    } catch (err: any) {
+      // Conflicto de email único — reintentar sin el campo email
+      if (err.code === 'P2002' && safe.email) {
+        delete safe.email
+        if (Object.keys(safe).length === 0) return reply.status(409).send({ message: 'El email ya está registrado en otro colaborador y no hay otros campos que actualizar.' })
+        updated = await prisma.employee.update({ where: { id: employee.id }, data: safe, select: { id: true, firstName: true, lastName: true } })
+      } else {
+        throw err
+      }
+    }
     return reply.send({ data: { applied: Object.keys(safe), employee: updated } })
   })
 
@@ -1239,6 +1335,10 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
         : null
 
       if (dbTemplate) {
+        const cd = (process.collaboratorData as Record<string, any>) ?? {}
+        const nameParts = (process.collaboratorName ?? '').trim().split(/\s+/)
+        const now = new Date()
+        const hour = now.getHours()
         const vars: Record<string, string> = {
           collaboratorName:     process.collaboratorName,
           collaboratorPosition: process.collaboratorPosition ?? '—',
@@ -1248,6 +1348,40 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
           expectedEndDate:      '',
           taskName:             task.name,
           instruction:          (task.automationConfig as any)?.instruction ?? '',
+          // Sintaxis {{varName}}
+          nombre:               process.collaboratorName ?? '',
+          primerNombre:         cd.primerNombre ?? nameParts[0] ?? '',
+          segundoNombre:        cd.segundoNombre ?? '',
+          primerApellido:       cd.primerApellido ?? nameParts[1] ?? '',
+          segundoApellido:      cd.segundoApellido ?? nameParts[2] ?? '',
+          apellido:             [cd.primerApellido, cd.segundoApellido].filter(Boolean).join(' ') || nameParts.slice(1).join(' '),
+          rut:                  process.collaboratorRut ?? '',
+          cargo:                process.collaboratorPosition ?? '',
+          empresa:              process.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : process.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Surmedia Consultoría Spa' : '',
+          email:                process.collaboratorEmail ?? '',
+          emailPersonal:        process.collaboratorPersonalEmail ?? '',
+          telefono:             process.collaboratorPhone ?? '',
+          jornada:              cd.workSchedule ?? '',
+          supervisor:           cd.supervisorName ?? '',
+          afp:                  cd.afp ?? '',
+          isapre:               cd.isapre ?? '',
+          ciudad:               cd.city ?? '',
+          comuna:               cd.commune ?? '',
+          direccion:            cd.address ?? [cd.direccionCalle, cd.direccionNumero, cd.direccionDepto ? `Depto ${cd.direccionDepto}` : ''].filter(Boolean).join(' '),
+          direccionCalle:       cd.direccionCalle ?? '',
+          direccionNumero:      cd.direccionNumero ?? '',
+          direccionDepto:       cd.direccionDepto ?? '',
+          vinculo:              cd.vinculo ?? '',
+          fechaNacimiento:      cd.birthDate ? new Date(cd.birthDate).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '',
+          centroTrabajo:        process.costCenter ?? '',
+          fechaIngreso:         new Date(process.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
+          fechaIngresoCorta:    new Date(process.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+          fechaActual:          now.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
+          año:                  now.getFullYear().toString(),
+          saludoHorario:        hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
+          diaNumero:            String(Math.max(0, Math.floor((Date.now() - new Date(process.startDate).getTime()) / 86_400_000))),
+          nombreHito:           task.name,
+          instruccion:          (task.automationConfig as any)?.instruction ?? '',
         }
         const emailTo = (task.automationConfig as any)?.emailTo as string
         const rrhhFallback = globalThis.process?.env?.SMTP_USER ?? 'rrhh@surmedia.cl'
@@ -1306,26 +1440,31 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     Body: {
       status?:               string
       employeeId?:           string
+      collaboratorRut?:           string | null
       collaboratorName?:          string
       collaboratorEmail?:         string | null
       collaboratorPersonalEmail?: string | null
       collaboratorPosition?:      string | null
       collaboratorPhone?:         string | null
       legalEntity?:               string | null
+      costCenter?:                string | null
       startDate?:                 string
       notes?:                     string | null
+      collaboratorData?:          Record<string, unknown> | null
     }
   }>('/:id', async (req, reply) => {
     const updateData: Record<string, any> = {}
 
     if (req.body.status !== undefined)                    updateData.status                    = req.body.status
     if (req.body.employeeId !== undefined)                updateData.employeeId                = req.body.employeeId
+    if (req.body.collaboratorRut !== undefined)           updateData.collaboratorRut           = req.body.collaboratorRut?.trim() || null
     if (req.body.collaboratorName !== undefined)          updateData.collaboratorName          = req.body.collaboratorName?.trim()
     if (req.body.collaboratorEmail !== undefined)         updateData.collaboratorEmail         = req.body.collaboratorEmail?.trim() || null
     if (req.body.collaboratorPersonalEmail !== undefined) updateData.collaboratorPersonalEmail = req.body.collaboratorPersonalEmail?.trim() || null
     if (req.body.collaboratorPosition !== undefined)      updateData.collaboratorPosition      = req.body.collaboratorPosition?.trim() || null
     if (req.body.collaboratorPhone !== undefined)         updateData.collaboratorPhone         = req.body.collaboratorPhone?.trim() || null
     if (req.body.legalEntity !== undefined)               updateData.legalEntity               = req.body.legalEntity || null
+    if (req.body.costCenter !== undefined)                updateData.costCenter                = req.body.costCenter?.trim() || null
     if (req.body.notes !== undefined)                     updateData.notes                     = req.body.notes?.trim() || null
     if (req.body.startDate !== undefined) {
       const start = new Date(req.body.startDate)
@@ -1334,6 +1473,16 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       updateData.startDate        = start
       updateData.expectedEndDate  = expectedEndDate
     }
+    if (req.body.collaboratorData !== undefined) {
+      const current = await prisma.onboardingProcess.findUnique({
+        where: { id: req.params.id },
+        select: { collaboratorData: true },
+      })
+      const existing = (current?.collaboratorData as Record<string, any>) ?? {}
+      updateData.collaboratorData = req.body.collaboratorData
+        ? { ...existing, ...req.body.collaboratorData }
+        : null
+    }
     if (req.body.status === 'COMPLETED') updateData.completedAt = new Date()
 
     const process = await prisma.onboardingProcess.update({
@@ -1341,6 +1490,59 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       data:  updateData,
     })
     return reply.send({ data: process })
+  })
+
+  // POST /:id/send-email — enviar correo con documentos adjuntos vía Nodemailer
+  fastify.post<{
+    Params: { id: string }
+    Body: { to: string; from?: string; cc?: string; subject: string; body: string; templateKey?: string }
+  }>('/:id/send-email', async (req, reply) => {
+    const { to, from, cc, subject, body, templateKey } = req.body
+    if (!to?.trim()) return reply.status(400).send({ message: 'to es requerido' })
+
+    const process = await prisma.onboardingProcess.findUnique({ where: { id: req.params.id } })
+    if (!process) return reply.status(404).send({ message: 'Proceso no encontrado' })
+
+    const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
+
+    if (templateKey) {
+      const linkedDocs = await prisma.onboardingDocument.findMany({
+        where: { templateLinks: { some: { templateKey } }, isActive: true },
+        include: { templateLinks: { where: { templateKey } } },
+      }).catch(() => [])
+
+      const vars = buildSendVars(process)
+
+      for (const doc of linkedDocs) {
+        const fullPath = path.join(UPLOADS_DIR, doc.filePath)
+        if (!fs.existsSync(fullPath)) continue
+        let rendered: Buffer
+        try { rendered = renderDocx(fullPath, vars) } catch { continue }
+
+        const sendAsPdf = (doc.templateLinks[0]?.sendAs ?? 'PDF') === 'PDF'
+        if (sendAsPdf) {
+          try {
+            const pdfBuffer = await docxToPdf(rendered)
+            attachments.push({ filename: doc.fileName.replace('.docx', '.pdf'), content: pdfBuffer, contentType: 'application/pdf' })
+          } catch {
+            attachments.push({ filename: doc.fileName, content: rendered, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+          }
+        } else {
+          attachments.push({ filename: doc.fileName, content: rendered, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+        }
+      }
+    }
+
+    const html = `<div style="font-family:sans-serif;font-size:15px;line-height:1.7;color:#374151;">${body.replace(/\n/g, '<br>')}</div>`
+    try {
+      const sent = await sendEmail({ to, from: from || undefined, cc: cc || undefined, subject, html, attachments })
+      await prisma.emailLog.create({
+        data: { processId: process.id, toEmail: to, subject, status: 'SENT', templateKey: templateKey || null },
+      }).catch(() => {})
+      return reply.send({ data: { sent: true, to, messageId: sent.messageId, attachmentCount: attachments.length } })
+    } catch (err: any) {
+      return reply.status(500).send({ message: `Error al enviar: ${err.message}` })
+    }
   })
 
   // DELETE /:id — eliminar proceso y sus hitos (cascade)

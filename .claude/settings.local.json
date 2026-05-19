@@ -36,7 +36,10 @@
       "Bash(dir C:\\\\Users\\\\Felipe Ramos\\\\Proyectos\\\\Surmedia-GDP\\\\frontend\\\\src *)",
       "Bash(npx tsx *)",
       "Bash(git commit *)",
-      "Bash(git config *)"
+      "Bash(git config *)",
+      "Bash(dir C:\\\\Users\\\\Felipe Ramos\\\\Proyectos\\\\Surmedia-GDP\\\\backend\\\\src *)",
+      "Bash(findstr /i libre)",
+      "Bash(findstr /I \"libre\")"
     ]
   }
 }

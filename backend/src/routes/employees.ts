@@ -319,9 +319,100 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: employees, total, page: Number(page), limit: Number(limit) })
   })
 
+  fastify.post<{
+    Body: {
+      rut: string; firstName: string; lastName: string; startDate: string
+      email?: string; phone?: string; personalEmail?: string; legalEntity?: string
+      jobTitle?: string; jobFamily?: string; costCenter?: string
+      city?: string; commune?: string; address?: string
+      birthDate?: string; gender?: string; nationality?: string
+      afp?: string; isapre?: string; workSchedule?: string
+      supervisorName?: string; supervisorTitle?: string
+      segundoApellido?: string; distribucionJornada?: string
+      banco?: string; tipoCuenta?: string; numeroCuenta?: string
+      vinculo?: string; contractType?: string; endDate?: string
+    }
+  }>('/', async (req, reply) => {
+    const { rut, firstName, lastName, startDate, email, legalEntity, ...rest } = req.body
+    if (!rut?.trim() || !firstName?.trim() || !lastName?.trim() || !startDate)
+      return reply.status(400).send({ message: 'rut, firstName, lastName y startDate son requeridos' })
+
+    const existing = await fastify.prisma.employee.findUnique({ where: { rut: rut.trim() } })
+    if (existing) return reply.status(409).send({ message: 'Ya existe un colaborador con ese RUT', code: 'DUPLICATE_RUT' })
+
+    const digits    = rut.replace(/\D/g, '')
+    let resolvedEmail = email?.trim() || `${digits}@buk.import`
+    const emailTaken  = await fastify.prisma.employee.findUnique({ where: { email: resolvedEmail } })
+    if (emailTaken) resolvedEmail = `${digits}_${Date.now()}@buk.import`
+
+    const emp = await fastify.prisma.employee.create({
+      data: {
+        rut:          rut.trim(),
+        firstName:    firstName.trim(),
+        lastName:     lastName.trim(),
+        email:        resolvedEmail,
+        startDate:    new Date(startDate),
+        status:       'ACTIVE',
+        phone:            rest.phone            || null,
+        personalEmail:    rest.personalEmail    || null,
+        city:             rest.city             || null,
+        commune:          rest.commune          || null,
+        address:          rest.address          || null,
+        birthDate:        rest.birthDate        ? new Date(rest.birthDate) : null,
+        gender:           rest.gender           || null,
+        nationality:      rest.nationality      || 'Chilena',
+        afp:              rest.afp              || null,
+        isapre:           rest.isapre           || null,
+        jobTitle:         rest.jobTitle         || null,
+        jobFamily:        rest.jobFamily        || null,
+        costCenter:       rest.costCenter       || null,
+        workSchedule:     rest.workSchedule     || null,
+        supervisorName:   rest.supervisorName   || null,
+        supervisorTitle:  rest.supervisorTitle  || null,
+        segundoApellido:  rest.segundoApellido  || null,
+        distribucionJornada: rest.distribucionJornada || null,
+        banco:            rest.banco            || null,
+        tipoCuenta:       rest.tipoCuenta       || null,
+        numeroCuenta:     rest.numeroCuenta     || null,
+        vinculo:          rest.vinculo          || null,
+      },
+    })
+
+    const endDateVal   = rest.endDate ? new Date(rest.endDate as string) : null
+    const contractType = (rest.contractType as any) || (endDateVal ? 'PLAZO_FIJO' : 'INDEFINIDO')
+    if (legalEntity) {
+      await fastify.prisma.contract.create({
+        data: {
+          employeeId:  emp.id,
+          type:        contractType,
+          legalEntity: legalEntity as any,
+          startDate:   new Date(startDate),
+          endDate:     endDateVal,
+          isActive:    true,
+          salary:      0,
+        },
+      })
+    }
+
+    if (rest.costCenter && legalEntity) {
+      const wc = await fastify.prisma.workCenter.findFirst({ where: { name: rest.costCenter } })
+      if (wc) {
+        await fastify.prisma.employeeWorkCenter.create({
+          data: {
+            employeeId:   emp.id,
+            workCenterId: wc.id,
+            legalEntity:  legalEntity as any,
+          },
+        })
+      }
+    }
+
+    return reply.status(201).send({ data: emp })
+  })
+
   fastify.patch<{ Params: { id: string }; Body: Record<string, unknown> }>('/:id', async (req, reply) => {
     const { id } = req.params
-    const TEXT_FIELDS    = ['firstName','lastName','email','personalEmail','phone','address','city','commune',
+    const TEXT_FIELDS    = ['rut','firstName','lastName','email','personalEmail','phone','address','city','commune',
                             'nationality','gender','afp','isapre','jobTitle','jobFamily','costCenter',
                             'supervisorName','supervisorTitle','workSchedule','vinculo','reemplazaA','status',
                             'segundoApellido','distribucionJornada','banco','tipoCuenta','numeroCuenta']
@@ -333,8 +424,72 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     for (const f of DATE_FIELDS)    if (f in req.body) data[f] = req.body[f] ? new Date(req.body[f] as string) : null
     for (const f of BOOLEAN_FIELDS) if (f in req.body) data[f] = req.body[f] ?? null
 
-    const emp = await fastify.prisma.employee.update({ where: { id }, data })
-    return reply.send({ data: emp })
+    // rut y email son campos requeridos — no se pueden vaciar
+    if ('rut'   in data && !data.rut)   return reply.status(400).send({ message: 'El RUT no puede estar vacío' })
+    if ('email' in data && !data.email) return reply.status(400).send({ message: 'El correo corporativo no puede estar vacío' })
+
+    try {
+      const emp = await fastify.prisma.employee.update({ where: { id }, data })
+
+      // Sincronizar contrato activo con endDate del colaborador
+      if ('endDate' in data) {
+        const newEndDate = data.endDate as Date | null
+        if (newEndDate) {
+          // Si hay fecha de término → el contrato activo pasa a PLAZO_FIJO
+          await fastify.prisma.contract.updateMany({
+            where: { employeeId: id, isActive: true, type: 'INDEFINIDO', deletedAt: null },
+            data:  { type: 'PLAZO_FIJO', endDate: newEndDate },
+          })
+        } else {
+          // Si se borra la fecha de término → el contrato activo vuelve a INDEFINIDO
+          await fastify.prisma.contract.updateMany({
+            where: { employeeId: id, isActive: true, type: 'PLAZO_FIJO', deletedAt: null },
+            data:  { type: 'INDEFINIDO', endDate: null },
+          })
+        }
+      }
+
+      // Sync to IN_PROGRESS onboarding processes linked to this employee
+      const procSyncFields: Record<string, unknown> = {}
+      const procDataFields: Record<string, unknown> = {}
+      if ('rut'           in data && data.rut)   procSyncFields.collaboratorRut           = data.rut
+      if ('email'         in data)               procSyncFields.collaboratorEmail          = data.email || null
+      if ('personalEmail' in data)               procSyncFields.collaboratorPersonalEmail  = data.personalEmail || null
+      if ('phone'         in data)               procSyncFields.collaboratorPhone          = data.phone || null
+      if ('jobTitle'      in data)               procSyncFields.collaboratorPosition       = data.jobTitle || null
+      if ('supervisorName'  in data) procDataFields.supervisorName  = data.supervisorName  || null
+      if ('supervisorTitle' in data) procDataFields.supervisorTitle = data.supervisorTitle || null
+      if ('vinculo'         in data) procDataFields.vinculo         = data.vinculo         || null
+      if ('endDate'         in data) procDataFields.contractEndDate = data.endDate
+        ? (data.endDate as Date).toISOString().slice(0, 10) : null
+
+      if (Object.keys(procSyncFields).length > 0 || Object.keys(procDataFields).length > 0) {
+        const procs = await fastify.prisma.onboardingProcess.findMany({
+          where: { employeeId: id, status: 'IN_PROGRESS' },
+          select: { id: true, collaboratorData: true },
+        })
+        for (const proc of procs) {
+          const existing = (proc.collaboratorData as Record<string, any>) ?? {}
+          await fastify.prisma.onboardingProcess.update({
+            where: { id: proc.id },
+            data: {
+              ...procSyncFields,
+              ...(Object.keys(procDataFields).length > 0
+                ? { collaboratorData: { ...existing, ...procDataFields } }
+                : {}),
+            },
+          })
+        }
+      }
+
+      return reply.send({ data: emp })
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        const field = err?.meta?.target?.[0] ?? 'campo'
+        return reply.status(409).send({ message: `Ya existe otro colaborador con ese valor en el campo "${field}"` })
+      }
+      throw err
+    }
   })
 
   fastify.delete<{ Params: { id: string } }>('/:id', async (req, reply) => {
@@ -344,6 +499,32 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
       data:  { deletedAt: new Date() },
     })
     return reply.send({ ok: true })
+  })
+
+  // PATCH /api/employees/:id/contracts/:contractId — editar tipo y fecha de vencimiento
+  fastify.patch<{
+    Params: { id: string; contractId: string }
+    Body: { type?: string; endDate?: string | null; isActive?: boolean }
+  }>('/:id/contracts/:contractId', async (req, reply) => {
+    const { contractId } = req.params
+    const { type, endDate, isActive } = req.body
+    const data: Record<string, unknown> = {}
+    if (type)              data.type    = type
+    if ('endDate' in req.body) data.endDate = endDate ? new Date(endDate) : null
+    if ('isActive' in req.body) data.isActive = isActive
+    const contract = await fastify.prisma.contract.update({ where: { id: contractId }, data })
+    return reply.send({ data: contract })
+  })
+
+  // GET /api/employees/cost-centers — valores únicos de centro de costos
+  fastify.get('/cost-centers', async (_req, reply) => {
+    const rows = await fastify.prisma.employee.findMany({
+      where:   { deletedAt: null, costCenter: { not: null } },
+      select:  { costCenter: true },
+      distinct: ['costCenter'],
+      orderBy: { costCenter: 'asc' },
+    })
+    return reply.send({ data: rows.map(r => r.costCenter as string) })
   })
 
   fastify.get<{ Params: { id: string } }>('/:id/payroll', async (req, reply) => {
@@ -381,7 +562,33 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     })
 
     if (!employee) return reply.status(404).send({ message: 'Colaborador no encontrado' })
-    return reply.send({ data: employee })
+
+    // Auto-corregir tipo de contrato según endDate del colaborador
+    if (employee.endDate) {
+      await fastify.prisma.contract.updateMany({
+        where: { employeeId: employee.id, isActive: true, type: 'INDEFINIDO', deletedAt: null },
+        data:  { type: 'PLAZO_FIJO', endDate: employee.endDate },
+      })
+    } else {
+      await fastify.prisma.contract.updateMany({
+        where: { employeeId: employee.id, isActive: true, type: 'PLAZO_FIJO', endDate: null, deletedAt: null },
+        data:  { type: 'INDEFINIDO' },
+      })
+    }
+
+    // Re-fetch para devolver el estado corregido
+    const fresh = await fastify.prisma.employee.findFirst({
+      where: { id: employee.id, deletedAt: null },
+      include: {
+        position: true, department: true,
+        contracts:        { where: { deletedAt: null }, orderBy: { startDate: 'desc' } },
+        leaves:           { orderBy: { createdAt: 'desc' }, take: 20 },
+        documents:        true,
+        workCenters:      { include: { workCenter: { select: { id: true, name: true, costType: true } } } },
+        vacationBalances: { orderBy: [{ year: 'desc' }, { month: 'desc' }], take: 12 },
+      },
+    })
+    return reply.send({ data: fresh })
   })
 }
 

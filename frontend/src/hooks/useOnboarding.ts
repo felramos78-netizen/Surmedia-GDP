@@ -204,14 +204,17 @@ export function useUpdateOnboarding() {
   return useMutation({
     mutationFn: async ({ id, ...body }: {
       id: string
+      collaboratorRut?:           string | null
       collaboratorName?:          string
       collaboratorEmail?:         string | null
       collaboratorPersonalEmail?: string | null
       collaboratorPosition?:      string | null
       collaboratorPhone?:         string | null
       legalEntity?:               string | null
+      costCenter?:                string | null
       startDate?:                 string
       notes?:                     string | null
+      collaboratorData?:          Record<string, unknown> | null
     }) => {
       const { data } = await api.patch<ApiResponse<OnboardingProcess>>(`/onboarding/${id}`, body)
       return data.data
@@ -302,6 +305,23 @@ export function useSendTestEmail() {
     mutationFn: async ({ key, to }: { key: string; to: string }) => {
       const { data } = await api.post(`/onboarding/email-templates/${key}/send-test`, { to })
       return data
+    },
+  })
+}
+
+export function useSendProcessEmail() {
+  return useMutation({
+    mutationFn: async ({ processId, to, from, cc, subject, body, templateKey }: {
+      processId:   string
+      to:          string
+      from?:       string
+      cc?:         string
+      subject:     string
+      body:        string
+      templateKey?: string
+    }) => {
+      const { data } = await api.post(`/onboarding/${processId}/send-email`, { to, from, cc, subject, body, templateKey })
+      return data.data as { sent: boolean; to: string; messageId: string; attachmentCount: number }
     },
   })
 }
@@ -446,10 +466,14 @@ export function useVerifySheet() {
 }
 
 export function useApplySheetData() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ key, rut, updates }: { key: string; rut: string; updates: Record<string, any> }) => {
       const { data } = await api.post<ApiResponse<{ applied: string[]; employee: { id: string; firstName: string; lastName: string } }>>(`/onboarding/sheet-templates/${key}/apply`, { rut, updates })
       return data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] })
     },
   })
 }

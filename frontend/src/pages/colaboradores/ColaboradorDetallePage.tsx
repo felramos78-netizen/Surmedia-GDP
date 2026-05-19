@@ -4,7 +4,7 @@ import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Building2,
   Briefcase, CreditCard, User, Clock, ChevronDown, Pencil, X, Check, Trash2, Plus,
 } from 'lucide-react'
-import { useEmployee, useEmployeePayroll, useUpdateEmployee, useDeleteEmployee, type EmployeePatch } from '@/hooks/useDotacion'
+import { useEmployee, useEmployeePayroll, useUpdateEmployee, useDeleteEmployee, useUpdateContract, useCostCenters, type EmployeePatch } from '@/hooks/useDotacion'
 import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
 import { formatDate, formatCLP } from '@/lib/utils'
 import type { Contract, LegalEntity, PayrollItem, Leave, Employee, VacationBalance, EmployeeWorkCenter } from '@/types'
@@ -49,7 +49,9 @@ type FormData = Omit<EmployeePatch, 'id'>
 
 function empToForm(emp: Employee): FormData {
   return {
+    rut: emp.rut,
     firstName: emp.firstName, lastName: emp.lastName,
+    segundoApellido: emp.segundoApellido ?? '',
     email: emp.email, personalEmail: emp.personalEmail ?? '',
     phone: emp.phone ?? '', birthDate: emp.birthDate ? emp.birthDate.slice(0, 10) : '',
     address: emp.address ?? '', city: emp.city ?? '', commune: emp.commune ?? '',
@@ -59,11 +61,15 @@ function empToForm(emp: Employee): FormData {
     costCenter: emp.costCenter ?? '',
     supervisorName: emp.supervisorName ?? '', supervisorTitle: emp.supervisorTitle ?? '',
     workSchedule: emp.workSchedule ?? '',
+    distribucionJornada: emp.distribucionJornada ?? '',
     startDate: emp.startDate ? emp.startDate.slice(0, 10) : '',
     endDate: emp.endDate ? emp.endDate.slice(0, 10) : '',
     status: emp.status,
     vinculo: emp.vinculo ?? '', reemplazaA: emp.reemplazaA ?? '',
     exclusive: emp.exclusive ?? null,
+    banco: emp.banco ?? '',
+    tipoCuenta: emp.tipoCuenta ?? '',
+    numeroCuenta: emp.numeroCuenta ?? '',
   }
 }
 
@@ -139,6 +145,28 @@ function SelectField({ label, field, form, setForm, options }: {
   )
 }
 
+function CostCenterField({ form, setForm }: {
+  form: FormData; setForm: React.Dispatch<React.SetStateAction<FormData>>
+}) {
+  const { data: options = [] } = useCostCenters()
+  const listId = 'cost-center-list'
+  return (
+    <div>
+      <label className={labelCls}>Centro de costos</label>
+      <input
+        type="text"
+        list={listId}
+        value={(form.costCenter as string) ?? ''}
+        onChange={e => setForm(f => ({ ...f, costCenter: e.target.value || null }))}
+        className={inputCls}
+      />
+      <datalist id={listId}>
+        {options.map(o => <option key={o} value={o} />)}
+      </datalist>
+    </div>
+  )
+}
+
 // ─── Tabs de datos en modo lectura y edición ──────────────────────────────────
 
 function DatosTab({ emp, editing, form, setForm }: {
@@ -149,105 +177,146 @@ function DatosTab({ emp, editing, form, setForm }: {
                : emp.gender === 'F' || emp.gender === 'female' ? 'Femenino'
                : (emp.gender ?? null)
 
+  const fullLastName = [emp.lastName, emp.segundoApellido].filter(Boolean).join(' ')
+  const hasBankData  = emp.banco || emp.tipoCuenta || emp.numeroCuenta
+
   if (!editing) return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-      <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos personales</h3>
-        <DisplayField icon={CreditCard} label="RUT"               value={emp.rut} />
-        <DisplayField icon={Mail}       label="Correo corporativo" value={emp.email} />
-        <DisplayField icon={Mail}       label="Correo personal"    value={emp.personalEmail} />
-        <DisplayField icon={Phone}      label="Teléfono"           value={emp.phone} />
-        <DisplayField icon={MapPin}     label="Dirección"          value={emp.address} />
-        <DisplayField icon={MapPin}     label="Ciudad / Comuna"    value={[emp.city, emp.commune].filter(Boolean).join(', ') || null} />
-        <DisplayField icon={Calendar}   label="Fecha de nac."      value={emp.birthDate ? formatDate(emp.birthDate) : null} />
-        <DisplayField icon={User}       label="Género"             value={gender} />
-        <DisplayField icon={User}       label="Nacionalidad"       value={emp.nationality} />
-        <DisplayField icon={Building2}  label="AFP"                value={emp.afp} />
-        <DisplayField icon={Building2}  label="Isapre / Fonasa"    value={emp.isapre} />
-      </div>
-      <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos laborales</h3>
-        <DisplayField icon={Briefcase}  label="Cargo BUK"          value={emp.jobTitle} />
-        <DisplayField icon={Briefcase}  label="Familia de cargo"    value={emp.jobFamily} />
-        <DisplayField icon={Building2}  label="Centro de costos"    value={emp.costCenter} />
-        <DisplayField icon={Calendar}   label="Fecha de ingreso"    value={formatDate(emp.startDate)} />
-        {emp.endDate && <DisplayField icon={Calendar} label="Fecha de salida" value={formatDate(emp.endDate)} />}
-        <DisplayField icon={User}       label="Supervisor"          value={emp.supervisorName} />
-        <DisplayField icon={Briefcase}  label="Cargo supervisor"    value={emp.supervisorTitle} />
-        <DisplayField icon={User}       label="Vínculo"             value={emp.vinculo} />
-        {emp.reemplazaA && <DisplayField icon={User} label="Reemplaza a" value={emp.reemplazaA} />}
-        {emp.exclusive !== null && emp.exclusive !== undefined && (
-          <DisplayField icon={User} label="Exclusividad" value={emp.exclusive ? 'Exclusivo' : 'No exclusivo'} />
-        )}
-        {emp.workSchedule && (
-          <div className="flex items-start gap-3">
-            <Clock size={15} className="text-gray-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-xs text-gray-400">Jornada laboral</p>
-              <p className="text-sm text-gray-700 leading-relaxed">{emp.workSchedule}</p>
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos personales</h3>
+          <DisplayField icon={CreditCard} label="RUT"               value={emp.rut} />
+          <DisplayField icon={User}       label="Nombre(s)"          value={emp.firstName} />
+          <DisplayField icon={User}       label="Apellidos"           value={fullLastName || null} />
+          <DisplayField icon={Mail}       label="Correo corporativo"  value={emp.email} />
+          <DisplayField icon={Mail}       label="Correo personal"     value={emp.personalEmail} />
+          <DisplayField icon={Phone}      label="Teléfono"            value={emp.phone} />
+          <DisplayField icon={MapPin}     label="Dirección"           value={emp.address} />
+          <DisplayField icon={MapPin}     label="Ciudad / Comuna"     value={[emp.city, emp.commune].filter(Boolean).join(', ') || null} />
+          <DisplayField icon={Calendar}   label="Fecha de nac."       value={emp.birthDate ? formatDate(emp.birthDate) : null} />
+          <DisplayField icon={User}       label="Género"              value={gender} />
+          <DisplayField icon={User}       label="Nacionalidad"        value={emp.nationality} />
+          <DisplayField icon={Building2}  label="AFP"                 value={emp.afp} />
+          <DisplayField icon={Building2}  label="Isapre / Fonasa"     value={emp.isapre} />
+        </div>
+        <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos laborales</h3>
+          <DisplayField icon={Briefcase}  label="Cargo BUK"           value={emp.jobTitle} />
+          <DisplayField icon={Briefcase}  label="Familia de cargo"     value={emp.jobFamily} />
+          <DisplayField icon={Building2}  label="Centro de costos"     value={emp.costCenter} />
+          <DisplayField icon={Calendar}   label="Fecha de ingreso"     value={formatDate(emp.startDate)} />
+          {emp.endDate && <DisplayField icon={Calendar} label="Fecha de salida" value={formatDate(emp.endDate)} />}
+          <DisplayField icon={User}       label="Supervisor"           value={emp.supervisorName} />
+          <DisplayField icon={Briefcase}  label="Cargo supervisor"     value={emp.supervisorTitle} />
+          <DisplayField icon={User}       label="Vínculo"              value={emp.vinculo} />
+          {emp.reemplazaA && <DisplayField icon={User} label="Reemplaza a" value={emp.reemplazaA} />}
+          {emp.exclusive !== null && emp.exclusive !== undefined && (
+            <DisplayField icon={User} label="Exclusividad" value={emp.exclusive ? 'Exclusivo' : 'No exclusivo'} />
+          )}
+          {emp.workSchedule && (
+            <div className="flex items-start gap-3">
+              <Clock size={15} className="text-gray-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-400">Jornada laboral</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{emp.workSchedule}</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+          {emp.distribucionJornada && (
+            <div className="flex items-start gap-3">
+              <Clock size={15} className="text-gray-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs text-gray-400">Distribución jornada</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{emp.distribucionJornada}</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+      {hasBankData && (
+        <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos bancarios</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <DisplayField icon={CreditCard} label="Banco"          value={emp.banco} />
+            <DisplayField icon={CreditCard} label="Tipo de cuenta" value={emp.tipoCuenta} />
+            <DisplayField icon={CreditCard} label="N° cuenta"      value={emp.numeroCuenta} />
+          </div>
+        </div>
+      )}
     </div>
   )
 
   // Modo edición
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-      {/* Datos personales */}
-      <div className="bg-white rounded-xl border border-blue-100 p-5 space-y-3">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos personales</h3>
-        <div className="grid grid-cols-2 gap-3">
-          <TextField label="Nombre(s)"  field="firstName"    form={form} setForm={setForm} />
-          <TextField label="Apellido(s)" field="lastName"     form={form} setForm={setForm} />
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Datos personales */}
+        <div className="bg-white rounded-xl border border-blue-100 p-5 space-y-3">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos personales</h3>
+          <TextField label="RUT" field="rut" form={form} setForm={setForm} />
+          <div className="grid grid-cols-2 gap-3">
+            <TextField label="Nombre(s)"        field="firstName"       form={form} setForm={setForm} />
+            <TextField label="Primer apellido"  field="lastName"        form={form} setForm={setForm} />
+          </div>
+          <TextField  label="Segundo apellido"  field="segundoApellido" form={form} setForm={setForm} />
+          <TextField  label="Correo corporativo" field="email"          form={form} setForm={setForm} />
+          <TextField  label="Correo personal"    field="personalEmail"  form={form} setForm={setForm} />
+          <TextField  label="Teléfono"           field="phone"          form={form} setForm={setForm} />
+          <TextField  label="Dirección"          field="address"        form={form} setForm={setForm} />
+          <div className="grid grid-cols-2 gap-3">
+            <TextField label="Ciudad"  field="city"    form={form} setForm={setForm} />
+            <TextField label="Comuna"  field="commune" form={form} setForm={setForm} />
+          </div>
+          <TextField  label="Nacionalidad"  field="nationality" form={form} setForm={setForm} />
+          <DateField  label="Fecha de nac." field="birthDate"   form={form} setForm={setForm} />
+          <SelectField label="Género" field="gender" form={form} setForm={setForm} options={[
+            { value: 'M', label: 'Masculino' },
+            { value: 'F', label: 'Femenino' },
+          ]} />
+          <TextField label="AFP"             field="afp"    form={form} setForm={setForm} />
+          <TextField label="Isapre / Fonasa" field="isapre" form={form} setForm={setForm} />
         </div>
-        <TextField  label="Correo corporativo" field="email"         form={form} setForm={setForm} />
-        <TextField  label="Correo personal"    field="personalEmail" form={form} setForm={setForm} />
-        <TextField  label="Teléfono"           field="phone"         form={form} setForm={setForm} />
-        <TextField  label="Dirección"          field="address"       form={form} setForm={setForm} />
-        <div className="grid grid-cols-2 gap-3">
-          <TextField label="Ciudad"   field="city"    form={form} setForm={setForm} />
-          <TextField label="Comuna"   field="commune" form={form} setForm={setForm} />
+
+        {/* Datos laborales */}
+        <div className="bg-white rounded-xl border border-blue-100 p-5 space-y-3">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos laborales</h3>
+          <SelectField label="Estado" field="status" form={form} setForm={setForm} options={[
+            { value: 'ACTIVE',    label: 'Activo' },
+            { value: 'INACTIVE',  label: 'Inactivo' },
+            { value: 'ON_LEAVE',  label: 'Con permiso' },
+            { value: 'DUPLICATE', label: 'Duplicado' },
+          ]} />
+          <TextField  label="Cargo BUK"           field="jobTitle"        form={form} setForm={setForm} />
+          <TextField  label="Familia de cargo"     field="jobFamily"       form={form} setForm={setForm} />
+          <CostCenterField form={form} setForm={setForm} />
+          <DateField  label="Fecha de ingreso"     field="startDate"       form={form} setForm={setForm} />
+          <DateField  label="Fecha de salida"      field="endDate"         form={form} setForm={setForm} />
+          <TextField  label="Supervisor"           field="supervisorName"  form={form} setForm={setForm} />
+          <TextField  label="Cargo supervisor"     field="supervisorTitle" form={form} setForm={setForm} />
+          <TextField  label="Jornada laboral"      field="workSchedule"    form={form} setForm={setForm} />
+          <TextField  label="Distribución jornada" field="distribucionJornada" form={form} setForm={setForm} />
+          <SelectField label="Vínculo" field="vinculo" form={form} setForm={setForm} options={[
+            { value: 'Planta',    label: 'Planta' },
+            { value: 'Reemplazo', label: 'Reemplazo' },
+          ]} />
+          {(form.vinculo === 'Reemplazo') && (
+            <TextField label="Reemplaza a" field="reemplazaA" form={form} setForm={setForm} />
+          )}
+          <SelectField label="Exclusividad" field="exclusive" form={form} setForm={setForm} options={[
+            { value: 'true',  label: 'Exclusivo' },
+            { value: 'false', label: 'No exclusivo' },
+          ]} />
         </div>
-        <TextField  label="Nacionalidad" field="nationality" form={form} setForm={setForm} />
-        <DateField  label="Fecha de nac." field="birthDate"  form={form} setForm={setForm} />
-        <SelectField label="Género" field="gender" form={form} setForm={setForm} options={[
-          { value: 'M', label: 'Masculino' },
-          { value: 'F', label: 'Femenino' },
-        ]} />
-        <TextField label="AFP"            field="afp"    form={form} setForm={setForm} />
-        <TextField label="Isapre / Fonasa" field="isapre" form={form} setForm={setForm} />
       </div>
 
-      {/* Datos laborales */}
+      {/* Datos bancarios */}
       <div className="bg-white rounded-xl border border-blue-100 p-5 space-y-3">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos laborales</h3>
-        <SelectField label="Estado" field="status" form={form} setForm={setForm} options={[
-          { value: 'ACTIVE',    label: 'Activo' },
-          { value: 'INACTIVE',  label: 'Inactivo' },
-          { value: 'ON_LEAVE',  label: 'Con permiso' },
-          { value: 'DUPLICATE', label: 'Duplicado' },
-        ]} />
-        <TextField  label="Cargo BUK"        field="jobTitle"        form={form} setForm={setForm} />
-        <TextField  label="Familia de cargo"  field="jobFamily"       form={form} setForm={setForm} />
-        <TextField  label="Centro de costos"  field="costCenter"      form={form} setForm={setForm} />
-        <DateField  label="Fecha de ingreso"  field="startDate"       form={form} setForm={setForm} />
-        <DateField  label="Fecha de salida"   field="endDate"         form={form} setForm={setForm} />
-        <TextField  label="Supervisor"        field="supervisorName"  form={form} setForm={setForm} />
-        <TextField  label="Cargo supervisor"  field="supervisorTitle" form={form} setForm={setForm} />
-        <TextField  label="Jornada laboral"   field="workSchedule"    form={form} setForm={setForm} />
-        <SelectField label="Vínculo" field="vinculo" form={form} setForm={setForm} options={[
-          { value: 'Planta',    label: 'Planta' },
-          { value: 'Reemplazo', label: 'Reemplazo' },
-        ]} />
-        {(form.vinculo === 'Reemplazo') && (
-          <TextField label="Reemplaza a" field="reemplazaA" form={form} setForm={setForm} />
-        )}
-        <SelectField label="Exclusividad" field="exclusive" form={form} setForm={setForm} options={[
-          { value: 'true',  label: 'Exclusivo' },
-          { value: 'false', label: 'No exclusivo' },
-        ]} />
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos bancarios</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <TextField label="Banco"          field="banco"        form={form} setForm={setForm} />
+          <TextField label="Tipo de cuenta" field="tipoCuenta"   form={form} setForm={setForm} />
+          <TextField label="N° cuenta"      field="numeroCuenta" form={form} setForm={setForm} />
+        </div>
       </div>
     </div>
   )
@@ -255,17 +324,42 @@ function DatosTab({ emp, editing, form, setForm }: {
 
 // ─── Contrato ─────────────────────────────────────────────────────────────────
 
-function ContractCard({ contract }: { contract: Contract }) {
-  const days = contract.endDate
-    ? (new Date(contract.endDate).getTime() - Date.now()) / 86400000
-    : null
+function ContractCard({ contract, empId }: { contract: Contract; empId: string }) {
+  const [editing, setEditing]   = useState(false)
+  const [type,    setType]      = useState(contract.type)
+  const [endDate, setEndDate]   = useState(contract.endDate ? contract.endDate.slice(0, 10) : '')
+  const update = useUpdateContract()
+
+  const days        = contract.endDate ? (new Date(contract.endDate).getTime() - Date.now()) / 86400000 : null
   const expiringSoon = days !== null && days >= 0 && days <= 30
+
+  async function save() {
+    await update.mutateAsync({ empId, contractId: contract.id, type, endDate: endDate || null })
+    setEditing(false)
+  }
+  function cancel() {
+    setType(contract.type)
+    setEndDate(contract.endDate ? contract.endDate.slice(0, 10) : '')
+    setEditing(false)
+  }
 
   return (
     <div className={`border rounded-xl p-4 space-y-3 ${expiringSoon ? 'border-amber-200 bg-amber-50' : 'border-gray-100 bg-white'}`}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <span className="font-medium text-gray-800">{CONTRACT_LABEL[contract.type] ?? contract.type}</span>
-        <div className="flex gap-2">
+        {editing ? (
+          <select
+            value={type}
+            onChange={e => setType(e.target.value as Contract['type'])}
+            className="border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
+            {Object.entries(CONTRACT_LABEL).map(([v, l]) => (
+              <option key={v} value={v}>{l}</option>
+            ))}
+          </select>
+        ) : (
+          <span className="font-medium text-gray-800">{CONTRACT_LABEL[contract.type] ?? contract.type}</span>
+        )}
+        <div className="flex items-center gap-2">
           {contract.legalEntity && (
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ENTITY_COLOR[contract.legalEntity]}`}>
               {ENTITY_LABEL[contract.legalEntity]}
@@ -274,14 +368,39 @@ function ContractCard({ contract }: { contract: Contract }) {
           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${contract.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
             {contract.isActive ? 'Vigente' : 'Finalizado'}
           </span>
+          {editing ? (
+            <>
+              <button onClick={save} disabled={update.isPending} className="text-xs px-2 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                {update.isPending ? '…' : 'Guardar'}
+              </button>
+              <button onClick={cancel} className="text-xs px-2 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors">
+                Cancelar
+              </button>
+            </>
+          ) : (
+            <button onClick={() => setEditing(true)} className="text-xs text-blue-600 hover:text-blue-800 transition-colors">
+              <Pencil size={13} />
+            </button>
+          )}
         </div>
       </div>
+
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <p className="text-xs text-gray-400">Inicio</p>
           <p className="text-gray-700">{formatDate(contract.startDate)}</p>
         </div>
-        {contract.endDate && (
+        {editing ? (
+          <div>
+            <p className="text-xs text-gray-400">Vencimiento</p>
+            <input
+              type="date"
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white mt-1"
+            />
+          </div>
+        ) : contract.endDate ? (
           <div>
             <p className={`text-xs ${expiringSoon ? 'text-amber-500' : 'text-gray-400'}`}>
               Vencimiento{expiringSoon ? ' ⚠️' : ''}
@@ -290,8 +409,9 @@ function ContractCard({ contract }: { contract: Contract }) {
               {formatDate(contract.endDate)}
             </p>
           </div>
-        )}
+        ) : null}
       </div>
+
       {(contract.salary > 0 || (contract.grossSalary && contract.grossSalary > 0)) && (
         <div className="border-t border-gray-100 pt-3 text-sm text-gray-600">
           {contract.salary > 0 && <span>Líquido: <strong className="text-gray-800">{formatCLP(contract.salary)}</strong></span>}
@@ -541,6 +661,7 @@ export default function ColaboradorDetallePage() {
   const [tab,     setTab]     = useState<Tab>('Datos')
   const [editing, setEditing] = useState(false)
   const [form,    setForm]    = useState<FormData>({})
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const { data: emp, isLoading } = useEmployee(id ?? null)
@@ -576,19 +697,25 @@ export default function ColaboradorDetallePage() {
   function cancelEdit() {
     setEditing(false)
     setForm({})
+    setSaveError(null)
   }
   async function saveEdit() {
     if (!id) return
-    // Convert exclusive string back to boolean
+    setSaveError(null)
     const payload: EmployeePatch = { id, ...form }
     if (typeof (form as any).exclusive === 'string') {
       payload.exclusive = (form as any).exclusive === 'true' ? true
                         : (form as any).exclusive === 'false' ? false
                         : null
     }
-    await update.mutateAsync(payload)
-    setEditing(false)
-    setForm({})
+    try {
+      await update.mutateAsync(payload)
+      setEditing(false)
+      setForm({})
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Error al guardar'
+      setSaveError(msg)
+    }
   }
 
   return (
@@ -612,8 +739,8 @@ export default function ColaboradorDetallePage() {
               <div className="flex items-center gap-3 flex-wrap">
                 <h1 className="text-xl font-bold text-gray-900">
                   {editing
-                    ? `${form.firstName ?? emp.firstName} ${form.lastName ?? emp.lastName}`
-                    : `${emp.firstName} ${emp.lastName}`
+                    ? [form.firstName ?? emp.firstName, form.lastName ?? emp.lastName, form.segundoApellido ?? emp.segundoApellido].filter(Boolean).join(' ')
+                    : [emp.firstName, emp.lastName, emp.segundoApellido].filter(Boolean).join(' ')
                   }
                 </h1>
                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${
@@ -690,6 +817,11 @@ export default function ColaboradorDetallePage() {
                     <Check size={14} />
                     {update.isPending ? 'Guardando…' : 'Guardar'}
                   </button>
+                  {saveError && (
+                    <span className="text-xs text-red-600 max-w-xs truncate" title={saveError}>
+                      {saveError}
+                    </span>
+                  )}
                 </>
               )}
             </div>
@@ -727,13 +859,13 @@ export default function ColaboradorDetallePage() {
             {activeContracts.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-gray-700">Vigentes</h3>
-                {activeContracts.map(c => <ContractCard key={c.id} contract={c} />)}
+                {activeContracts.map(c => <ContractCard key={c.id} contract={c} empId={emp.id} />)}
               </div>
             )}
             {oldContracts.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-gray-400">Historial</h3>
-                {oldContracts.map(c => <ContractCard key={c.id} contract={c} />)}
+                {oldContracts.map(c => <ContractCard key={c.id} contract={c} empId={emp.id} />)}
               </div>
             )}
             {!emp.contracts?.length && (

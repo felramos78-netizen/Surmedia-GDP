@@ -20,18 +20,28 @@ function getTransporter() {
   return _transporter
 }
 
+export interface EmailAttachment {
+  filename:    string
+  content:     Buffer
+  contentType: string
+}
+
 export interface EmailPayload {
-  to:      string
-  subject: string
-  html:    string
-  replyTo?: string
+  to:          string
+  subject:     string
+  html:        string
+  replyTo?:    string
+  from?:       string
+  cc?:         string
+  attachments?: EmailAttachment[]
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<{ messageId: string }> {
   const transporter = getTransporter()
-  const from = process.env.EMAIL_FROM ?? `"RRHH Surmedia" <${process.env.SMTP_USER}>`
+  const { from: payloadFrom, ...rest } = payload
+  const from = payloadFrom ?? process.env.EMAIL_FROM ?? `"RRHH Surmedia" <${process.env.SMTP_USER}>`
 
-  const info = await transporter.sendMail({ from, ...payload })
+  const info = await transporter.sendMail({ from, ...rest })
   return { messageId: info.messageId }
 }
 

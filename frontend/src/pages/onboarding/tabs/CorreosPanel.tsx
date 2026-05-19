@@ -3,11 +3,13 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import TextAlign from '@tiptap/extension-text-align'
+import Link from '@tiptap/extension-link'
 import {
   Save, Eye, Send, CheckCircle2, AlertCircle, Clock, Mail, ChevronRight, Link2,
   Plus, Trash2, X, Loader2, Pencil,
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, AlignLeft, AlignCenter, AlignRight, AlignJustify,
+  Link as LinkIcon, Unlink,
 } from 'lucide-react'
 import {
   useEmailTemplates, useUpdateEmailTemplate, useCreateEmailTemplate, useDeleteEmailTemplate,
@@ -26,7 +28,10 @@ const VARIABLES: { group: string; vars: VarDef[] }[] = [
     vars: [
       { key: 'nombre',            label: 'Nombre completo',       example: 'Juan Pérez' },
       { key: 'primerNombre',      label: 'Primer nombre',         example: 'Juan' },
-      { key: 'apellido',          label: 'Apellido',              example: 'Pérez' },
+      { key: 'segundoNombre',     label: 'Segundo nombre',        example: 'Carlos' },
+      { key: 'primerApellido',    label: 'Primer apellido',       example: 'Pérez' },
+      { key: 'segundoApellido',   label: 'Segundo apellido',      example: 'Soto' },
+      { key: 'apellido',          label: 'Apellido completo',     example: 'Pérez Soto' },
       { key: 'rut',               label: 'RUT',                   example: '12.345.678-9' },
       { key: 'cargo',             label: 'Cargo',                 example: 'Diseñador Gráfico' },
       { key: 'empresa',           label: 'Empresa',               example: 'Comunicaciones Surmedia' },
@@ -39,6 +44,12 @@ const VARIABLES: { group: string; vars: VarDef[] }[] = [
       { key: 'isapre',            label: 'Isapre / Fonasa',       example: 'Banmédica' },
       { key: 'ciudad',            label: 'Ciudad',                example: 'Santiago' },
       { key: 'comuna',            label: 'Comuna',                example: 'Las Condes' },
+      { key: 'direccion',         label: 'Dirección completa',    example: 'Av. Providencia 1234 Depto 501' },
+      { key: 'direccionCalle',    label: 'Calle',                 example: 'Av. Providencia' },
+      { key: 'direccionNumero',   label: 'Número',                example: '1234' },
+      { key: 'direccionDepto',    label: 'Departamento',          example: '501' },
+      { key: 'vinculo',           label: 'Vínculo',               example: 'Planta' },
+      { key: 'fechaNacimiento',   label: 'Fecha de nacimiento',   example: '15/03/1990' },
     ],
   },
   {
@@ -91,10 +102,99 @@ function ToolbarBtn({
   )
 }
 
+// ─── Modal de insertar enlace ──────────────────────────────────────────────────
+
+function LinkModal({ editor, onClose }: { editor: ReturnType<typeof useEditor>; onClose: () => void }) {
+  const hasSelection = editor ? !editor.state.selection.empty : false
+  const currentHref = editor?.isActive('link') ? editor.getAttributes('link').href ?? '' : ''
+  const [url, setUrl]     = useState(currentHref)
+  const [label, setLabel] = useState('')
+
+  const handleSave = () => {
+    if (!url.trim()) return
+    const href = url.trim().startsWith('http') ? url.trim() : `https://${url.trim()}`
+    if (hasSelection) {
+      editor?.chain().focus().setLink({ href }).run()
+    } else {
+      const text = label.trim() || href
+      editor?.chain().focus().insertContent(`<a href="${href}">${text}</a>`).run()
+    }
+    onClose()
+  }
+
+  const handleRemove = () => {
+    editor?.chain().focus().unsetLink().run()
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-20">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+          <h3 className="text-sm font-semibold text-gray-900">Insertar enlace</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-400"><X size={14} /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          {!hasSelection && (
+            <div>
+              <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                Texto del enlace
+              </label>
+              <input
+                autoFocus
+                value={label}
+                onChange={e => setLabel(e.target.value)}
+                placeholder="Ej: Formulario de datos personales"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              URL <span className="text-red-400">*</span>
+            </label>
+            <input
+              autoFocus={hasSelection}
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSave() }}
+              placeholder="Ej: docs.google.com/forms/..."
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-[10px] text-gray-400 mt-1">No es necesario incluir https:// — se agrega automáticamente.</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-100">
+          <div>
+            {editor?.isActive('link') && (
+              <button onClick={handleRemove} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1">
+                <Unlink size={12} /> Quitar enlace
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg">Cancelar</button>
+            <button
+              onClick={handleSave}
+              disabled={!url.trim()}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <LinkIcon size={12} /> Insertar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function RichToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
+  const [showLinkModal, setShowLinkModal] = useState(false)
   if (!editor) return null
   const sep = <div className="w-px h-5 bg-gray-200 mx-0.5" />
   return (
+    <>
     <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-gray-200 bg-gray-50 rounded-t-lg flex-wrap">
       <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()} active={editor.isActive('bold')} title="Negrita">
         <Bold size={14} />
@@ -128,7 +228,13 @@ function RichToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
       <ToolbarBtn onClick={() => editor.chain().focus().setTextAlign('justify').run()} active={editor.isActive({ textAlign: 'justify' })} title="Justificar">
         <AlignJustify size={14} />
       </ToolbarBtn>
+      {sep}
+      <ToolbarBtn onClick={() => setShowLinkModal(true)} active={editor.isActive('link')} title="Insertar enlace">
+        <LinkIcon size={14} />
+      </ToolbarBtn>
     </div>
+    {showLinkModal && <LinkModal editor={editor} onClose={() => setShowLinkModal(false)} />}
+    </>
   )
 }
 
@@ -239,6 +345,7 @@ function TemplateEditor({
       StarterKit,
       Underline,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-blue-600 underline cursor-pointer' } }),
     ],
     content: template.bodyHtml || '<p></p>',
     onFocus: () => setActiveField('body'),

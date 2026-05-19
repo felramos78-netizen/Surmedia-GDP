@@ -72,6 +72,31 @@ export function useEmployee(id: string | null) {
   })
 }
 
+export function useCreateEmployee() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: {
+      rut: string; firstName: string; lastName: string; startDate: string
+      email?: string; phone?: string; personalEmail?: string; legalEntity?: string
+      jobTitle?: string; jobFamily?: string; costCenter?: string
+      city?: string; commune?: string; address?: string
+      birthDate?: string; gender?: string; nationality?: string
+      afp?: string; isapre?: string; workSchedule?: string
+      supervisorName?: string; supervisorTitle?: string
+      segundoApellido?: string; distribucionJornada?: string
+      banco?: string; tipoCuenta?: string; numeroCuenta?: string
+      vinculo?: string; contractType?: string
+    }) => {
+      const { data } = await api.post<ApiResponse<Employee>>('/employees', body)
+      return data.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] })
+      queryClient.invalidateQueries({ queryKey: ['employeeStats'] })
+    },
+  })
+}
+
 export function usePayrollTable(filters: { year: string; month?: string; legalEntity?: string[] }) {
   return useQuery({
     queryKey: ['payrollTable', filters],
@@ -136,7 +161,8 @@ export function useExpiringContracts() {
 
 export interface EmployeePatch {
   id: string
-  firstName?: string; lastName?: string
+  rut?: string
+  firstName?: string; lastName?: string; segundoApellido?: string | null
   email?: string; personalEmail?: string | null
   phone?: string | null; birthDate?: string | null
   address?: string | null; city?: string | null; commune?: string | null
@@ -144,9 +170,11 @@ export interface EmployeePatch {
   afp?: string | null; isapre?: string | null
   jobTitle?: string | null; jobFamily?: string | null
   costCenter?: string | null; supervisorName?: string | null; supervisorTitle?: string | null
-  workSchedule?: string | null; startDate?: string; endDate?: string | null
+  workSchedule?: string | null; distribucionJornada?: string | null
+  startDate?: string; endDate?: string | null
   status?: string; vinculo?: string | null; reemplazaA?: string | null
   exclusive?: boolean | null
+  banco?: string | null; tipoCuenta?: string | null; numeroCuenta?: string | null
 }
 
 export function useUpdateEmployee() {
@@ -179,5 +207,27 @@ export function useDeleteEmployee() {
       qc.invalidateQueries({ queryKey: ['employees'] })
       qc.invalidateQueries({ queryKey: ['employeeStats'] })
     },
+  })
+}
+
+export function useUpdateContract() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ empId, contractId, ...body }: { empId: string; contractId: string; type?: string; endDate?: string | null; isActive?: boolean }) =>
+      api.patch(`/employees/${empId}/contracts/${contractId}`, body),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['employee', vars.empId] })
+    },
+  })
+}
+
+export function useCostCenters() {
+  return useQuery({
+    queryKey: ['costCenters'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<string[]>>('/employees/cost-centers')
+      return data.data
+    },
+    staleTime: 10 * 60 * 1000,
   })
 }

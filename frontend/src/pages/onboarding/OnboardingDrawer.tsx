@@ -1,7 +1,9 @@
 import React, { useState, useRef, useMemo } from 'react'
-import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save, FileText, ExternalLink, Users, ListChecks, Download, Play } from 'lucide-react'
-import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment, useVerifySheet, useApplySheetData, useEmailTemplates } from '@/hooks/useOnboarding'
+import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save, FileText, ExternalLink, Users, ListChecks, Download, Play, Paperclip } from 'lucide-react'
+import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment, useVerifySheet, useApplySheetData, useEmailTemplates, useDocuments, useSendProcessEmail } from '@/hooks/useOnboarding'
 import { useProfiles, ROLE_TYPES } from '@/hooks/useProfiles'
+import { useWorkCenters } from '@/hooks/useWorkCenters'
+import { useJobTitles, useEmployees, useUpdateEmployee } from '@/hooks/useDotacion'
 import type { OnboardingPeriod, OnboardingTask, TaskAutomationType, AutomationStatus, OnboardingProcess, TaskAssignment, SubTaskInstance } from '@/types'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -330,8 +332,12 @@ function SheetVerifyModal({
 
   const handleApply = async () => {
     if (!templateKey || !rut || !result?.updates) return
-    await applySheet.mutateAsync({ key: templateKey, rut, updates: result.updates })
-    await updateTask.mutateAsync({ processId: process.id, taskId: task.id, completed: true })
+    try {
+      await applySheet.mutateAsync({ key: templateKey, rut, updates: result.updates })
+      await updateTask.mutateAsync({ processId: process.id, taskId: task.id, completed: true })
+    } catch {
+      // error shown via applySheet.isError below
+    }
   }
 
   const updatesCount = result?.updates ? Object.keys(result.updates).length : 0
@@ -468,6 +474,13 @@ function SheetVerifyModal({
               Datos aplicados correctamente al perfil del colaborador.
             </div>
           )}
+
+          {/* Error banner */}
+          {applySheet.isError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+              {(applySheet.error as any)?.response?.data?.message ?? 'Error al aplicar los datos. Intenta nuevamente.'}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -506,10 +519,43 @@ function EmailPreviewModal({
   task, process, onClose, onSent,
 }: { task: OnboardingTask; process: OnboardingProcess; onClose: () => void; onSent: () => void }) {
   const { data: templates = [] } = useEmailTemplates()
+  const { data: allDocs = [] }   = useDocuments()
+  const { data: profiles = [] }  = useProfiles()
   const cfg = task.automationConfig as Record<string, any> | null
   const templateKey = cfg?.templateKey ?? cfg?.template ?? ''
   const dbTemplate  = templates.find(t => t.key === templateKey)
   const vars        = buildProcessVars(process)
+
+  // Documents linked to this email template
+  const linkedDocs = (allDocs as any[]).filter(doc =>
+    (doc.templateLinks ?? []).some((l: any) => l.templateKey === templateKey)
+  )
+
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null)
+  const sendProcessEmail = useSendProcessEmail()
+
+  const handleDownloadDoc = async (docId: string, docFileName: string) => {
+    setDownloadingDocId(docId)
+    try {
+      const res = await fetch(`/api/onboarding/documents/${docId}/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('gdp_token')}` },
+        body: JSON.stringify({ processId: process.id, format: 'PDF' }),
+      })
+      const isPdfFallback = res.headers.get('x-pdf-fallback') === 'true'
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url
+      a.download = isPdfFallback ? docFileName : docFileName.replace('.docx', '.pdf')
+      document.body.appendChild(a); a.click()
+      document.body.removeChild(a); URL.revokeObjectURL(url)
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setDownloadingDocId(null)
+    }
+  }
 
   const responsable  = (task.assignments ?? []).find((a: any) => a.roleType === 'RESPONSABLE_HITO')
   const defaultFrom  = (responsable as any)?.profile?.email ?? 'rrhh@surmedia.cl'
@@ -520,11 +566,7 @@ function EmailPreviewModal({
     : defaultFrom
   const initTo = dbTemplate?.toEmails?.length
     ? applyVars((dbTemplate.toEmails).join(', '), vars)
-    : (cfg?.emailTo === 'collaborator'
-        ? (process.collaboratorEmail ?? process.collaboratorPersonalEmail ?? '')
-        : cfg?.emailTo === 'rrhh'
-          ? 'rrhh@surmedia.cl'
-          : 'equipo@surmedia.cl')
+    : (process.collaboratorEmail ?? process.collaboratorPersonalEmail ?? '')
   const initCc = dbTemplate?.ccEmails?.length
     ? applyVars((dbTemplate.ccEmails).join(', '), vars)
     : ''
@@ -535,21 +577,45 @@ function EmailPreviewModal({
     ? applyVars(htmlToPlain(dbTemplate.bodyHtml), vars)
     : `Hola ${process.collaboratorName},\n\nEste correo corresponde al hito "${task.name}".\n\nEquipo RRHH Surmedia`
 
-  const [from,    setFrom]    = useState(initFrom)
-  const [to,      setTo]      = useState(initTo)
-  const [cc,      setCc]      = useState(initCc)
-  const [subject, setSubject] = useState(initSubject)
-  const [body,    setBody]    = useState(initBody)
+  const [from,      setFrom]    = useState(initFrom)
+  const [to,        setTo]      = useState(initTo)
+  const [toOpen,    setToOpen]  = useState(false)
+  const toRef = useRef<HTMLDivElement>(null)
+  const [cc,        setCc]      = useState(initCc)
+  const [subject,   setSubject] = useState(initSubject)
+  const [body,      setBody]    = useState(initBody)
 
-  const handleSend = () => {
-    const params = new URLSearchParams()
-    params.set('to', to)
-    if (cc) params.set('cc', cc)
-    params.set('su', subject)
-    params.set('body', body)
-    window.open(`https://mail.google.com/mail/u/0/?view=cm&authuser=${encodeURIComponent(from)}&${params.toString()}`, '_blank', 'noopener,noreferrer')
-    onSent()
-    onClose()
+  React.useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (toRef.current && !toRef.current.contains(e.target as Node)) setToOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const profileSuggestions = (profiles as any[]).filter(p =>
+    p.email && (
+      p.name.toLowerCase().includes(to.toLowerCase()) ||
+      p.email.toLowerCase().includes(to.toLowerCase())
+    )
+  )
+
+  const handleSend = async () => {
+    try {
+      await sendProcessEmail.mutateAsync({
+        processId: process.id,
+        to,
+        from: from || undefined,
+        cc: cc || undefined,
+        subject,
+        body,
+        templateKey: templateKey || undefined,
+      })
+      onSent()
+      onClose()
+    } catch (err: any) {
+      alert(err?.response?.data?.message ?? 'Error al enviar el correo')
+    }
   }
 
   return (
@@ -568,10 +634,35 @@ function EmailPreviewModal({
             <input value={from} onChange={e => setFrom(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          <div>
+          <div ref={toRef} className="relative">
             <label className="block text-xs font-medium text-gray-500 mb-1">Para</label>
-            <input value={to} onChange={e => setTo(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input
+              value={to}
+              onChange={e => { setTo(e.target.value); setToOpen(true) }}
+              onFocus={() => setToOpen(true)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {toOpen && profileSuggestions.length > 0 && (
+              <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-lg border border-gray-200 shadow-lg py-1 max-h-48 overflow-y-auto">
+                {profileSuggestions.map((p: any) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => { setTo(p.email); setToOpen(false) }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 text-left"
+                  >
+                    <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[10px] font-semibold flex items-center justify-center flex-shrink-0">
+                      {p.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-gray-800 truncate">{p.name}</div>
+                      <div className="text-[10px] text-gray-400 truncate">{p.email}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">CC (opcional)</label>
@@ -589,12 +680,43 @@ function EmailPreviewModal({
             <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
           </div>
+          {linkedDocs.length > 0 && (
+            <div>
+              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1.5">
+                <Paperclip size={11} /> Adjuntos ({linkedDocs.length})
+              </label>
+              <div className="flex flex-col gap-1.5">
+                {linkedDocs.map((doc: any) => (
+                  <div key={doc.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText size={13} className="text-gray-400 flex-shrink-0" />
+                      <span className="text-xs text-gray-700 truncate">{doc.name}</span>
+                      <span className="text-[10px] text-gray-400 flex-shrink-0">PDF</span>
+                    </div>
+                    <button
+                      onClick={() => handleDownloadDoc(doc.id, doc.fileName)}
+                      disabled={downloadingDocId === doc.id}
+                      className="flex items-center gap-1 px-2 py-1 text-[11px] text-blue-600 hover:bg-blue-50 rounded-md disabled:opacity-50 flex-shrink-0"
+                    >
+                      {downloadingDocId === doc.id
+                        ? <Loader2 size={11} className="animate-spin" />
+                        : <Download size={11} />}
+                      Descargar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
-          <button onClick={handleSend} disabled={!to}
+          <button onClick={handleSend} disabled={!to || sendProcessEmail.isPending}
             className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-            <Mail size={13} /> Abrir en Gmail
+            {sendProcessEmail.isPending
+              ? <><Loader2 size={13} className="animate-spin" /> Enviando…</>
+              : <><Mail size={13} /> Enviar correo</>
+            }
           </button>
         </div>
       </div>
@@ -762,7 +884,6 @@ function TaskRow({
   const dayLabel = dayOffset < 0 ? `Día ${dayOffset}` : dayOffset === 0 ? 'Día 0' : `Día +${dayOffset}`
 
   const handleToggle = () => {
-    if (!canEdit) return
     updateTask.mutate({ processId, taskId: task.id, completed: !task.completedAt })
   }
 
@@ -798,7 +919,7 @@ function TaskRow({
         {/* Checkbox */}
         <button
           onClick={handleToggle}
-          disabled={!canEdit || updateTask.isPending}
+          disabled={updateTask.isPending}
           className={`mt-0.5 flex-shrink-0 transition-colors ${task.completedAt ? 'text-green-500' : 'text-gray-300 hover:text-gray-400'} disabled:cursor-default`}
         >
           {task.completedAt ? <CheckCircle2 size={17} /> : <Circle size={17} />}
@@ -922,7 +1043,6 @@ function TaskRow({
             })()
             const stOverdue = !isDone && stDate < todayMid
             const handleToggleSub = () => {
-              if (!canEdit) return
               const nowISO = new Date().toISOString()
               const updated = (task.subTasks as SubTaskInstance[]).map((s, i) =>
                 i === idx ? { ...s, completedAt: isDone ? null : nowISO } : s
@@ -933,7 +1053,7 @@ function TaskRow({
               <div key={st.id ?? idx} className={`flex items-center gap-2 rounded px-1 -mx-1 py-0.5 ${stOverdue ? 'bg-amber-50/60' : ''}`}>
                 <button
                   onClick={handleToggleSub}
-                  disabled={!canEdit || updateTask.isPending}
+                  disabled={updateTask.isPending}
                   className={`flex-shrink-0 transition-colors ${isDone ? 'text-green-500' : 'text-gray-300 hover:text-gray-400'} disabled:cursor-default`}
                 >
                   {isDone ? <CheckCircle2 size={14} /> : <Circle size={14} />}
@@ -1325,34 +1445,92 @@ function HitoConfigCard({ task, processId, canEdit }: { task: OnboardingTask; pr
 // ─── Modal: Editar proceso ────────────────────────────────────────────────────
 
 function EditProcessModal({ process, onClose }: { process: OnboardingProcess; onClose: () => void }) {
+  const cd = (process.collaboratorData as Record<string, any>) ?? {}
   const [form, setForm] = useState({
+    collaboratorRut:           process.collaboratorRut ?? '',
     collaboratorName:          process.collaboratorName ?? '',
     collaboratorEmail:         process.collaboratorEmail ?? '',
     collaboratorPersonalEmail: process.collaboratorPersonalEmail ?? '',
     collaboratorPosition:      process.collaboratorPosition ?? '',
     collaboratorPhone:    process.collaboratorPhone ?? '',
     legalEntity:          process.legalEntity ?? '',
+    costCenter:           process.costCenter ?? '',
     startDate:            process.startDate ? process.startDate.slice(0, 10) : '',
     notes:                process.notes ?? '',
+    // Extra from collaboratorData
+    supervisorName:   cd.supervisorName   ?? '',
+    supervisorTitle:  cd.supervisorTitle  ?? '',
+    vinculo:          cd.vinculo          ?? '',
+    contractType:     cd.contractType     ?? '',
+    contractEndDate:  cd.contractEndDate  ?? '',
   })
 
   const updateOnboarding = useUpdateOnboarding()
+  const updateEmployee   = useUpdateEmployee()
+  const { data: workCenters = [] } = useWorkCenters()
+  const { data: jobTitles   = [] } = useJobTitles()
+  const { data: profiles    = [] } = useProfiles()
+
+  // Supervisor search
+  const [supervisorSearch, setSupervisorSearch] = useState('')
+  const [supervisorOpen, setSupervisorOpen]     = useState(false)
+  const supervisorRef = React.useRef<HTMLDivElement>(null)
+  const { data: supervisorEmpData } = useEmployees(
+    supervisorSearch.length >= 2 ? { search: supervisorSearch, status: ['ACTIVE'] } : {}
+  )
+  const supervisorResults = supervisorSearch.length >= 2 ? (supervisorEmpData?.data ?? []).slice(0, 6) : []
+
+  React.useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (supervisorRef.current && !supervisorRef.current.contains(e.target as Node)) setSupervisorOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   const field = (key: keyof typeof form, val: string) => setForm(f => ({ ...f, [key]: val }))
 
   const handleSave = async () => {
     if (!form.collaboratorName.trim()) return
     try {
+      const collaboratorData: Record<string, unknown> = {}
+      if (form.supervisorName)  collaboratorData.supervisorName  = form.supervisorName.trim()
+      if (form.supervisorTitle) collaboratorData.supervisorTitle = form.supervisorTitle.trim()
+      if (form.vinculo)         collaboratorData.vinculo         = form.vinculo
+      if (form.contractType)    collaboratorData.contractType    = form.contractType
+      if (form.contractEndDate) collaboratorData.contractEndDate = form.contractEndDate
+
       await updateOnboarding.mutateAsync({
         id:                    process.id,
+        collaboratorRut:           form.collaboratorRut.trim() || null,
         collaboratorName:          form.collaboratorName.trim(),
         collaboratorEmail:         form.collaboratorEmail.trim() || null,
         collaboratorPersonalEmail: form.collaboratorPersonalEmail.trim() || null,
         collaboratorPosition:  form.collaboratorPosition.trim() || null,
         collaboratorPhone:     form.collaboratorPhone.trim() || null,
         legalEntity:           form.legalEntity || null,
+        costCenter:            form.costCenter.trim() || null,
         startDate:             form.startDate || undefined,
         notes:                 form.notes.trim() || null,
+        collaboratorData:      Object.keys(collaboratorData).length ? collaboratorData : undefined,
       })
+
+      // Sync to linked Employee if one exists
+      if (process.employeeId) {
+        await updateEmployee.mutateAsync({
+          id:             process.employeeId,
+          email:          form.collaboratorEmail.trim()         || undefined,
+          personalEmail:  form.collaboratorPersonalEmail.trim() || null,
+          phone:          form.collaboratorPhone.trim()         || null,
+          jobTitle:       form.collaboratorPosition.trim()      || null,
+          startDate:      form.startDate                        || undefined,
+          supervisorName: form.supervisorName.trim()            || null,
+          supervisorTitle:form.supervisorTitle.trim()           || null,
+          vinculo:        form.vinculo                          || null,
+          endDate:        form.contractEndDate                  || null,
+        })
+      }
+
       onClose()
     } catch (err: any) {
       alert(err?.response?.data?.message ?? 'Error al guardar los cambios')
@@ -1371,106 +1549,147 @@ function EditProcessModal({ process, onClose }: { process: OnboardingProcess; on
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16} /></button>
         </div>
 
-        <div className="p-6 space-y-4 overflow-y-auto max-h-[60vh]">
+        <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                Nombre completo <span className="text-red-400">*</span>
-              </label>
-              <input
-                autoFocus
-                type="text"
-                value={form.collaboratorName}
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre completo <span className="text-red-400">*</span></label>
+              <input autoFocus type="text" value={form.collaboratorName}
                 onChange={e => field('collaboratorName', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">RUT</label>
+              <input type="text" value={form.collaboratorRut}
+                onChange={e => field('collaboratorRut', e.target.value)}
+                placeholder="12.345.678-9"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Email corporativo</label>
-              <input
-                type="email"
-                value={form.collaboratorEmail}
+              <input type="email" value={form.collaboratorEmail}
                 onChange={e => field('collaboratorEmail', e.target.value)}
                 placeholder="juan.perez@surmedia.cl"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Email personal</label>
-              <input
-                type="email"
-                value={form.collaboratorPersonalEmail}
+              <input type="email" value={form.collaboratorPersonalEmail}
                 onChange={e => field('collaboratorPersonalEmail', e.target.value)}
                 placeholder="juan.perez@gmail.com"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Teléfono</label>
-              <input
-                type="text"
-                value={form.collaboratorPhone}
+              <input type="text" value={form.collaboratorPhone}
                 onChange={e => field('collaboratorPhone', e.target.value)}
                 placeholder="+56 9 XXXX XXXX"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo</label>
-              <input
-                type="text"
-                value={form.collaboratorPosition}
+              <select value={form.collaboratorPosition}
                 onChange={e => field('collaboratorPosition', e.target.value)}
-                placeholder="Ej: Diseñador Gráfico"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                <option value="">Seleccionar...</option>
+                {jobTitles.map((t: string) => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Empresa</label>
-              <select
-                value={form.legalEntity}
-                onChange={e => field('legalEntity', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
+              <select value={form.legalEntity} onChange={e => field('legalEntity', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 <option value="">Sin especificar</option>
                 <option value="COMUNICACIONES_SURMEDIA">Comunicaciones Surmedia Spa</option>
                 <option value="SURMEDIA_CONSULTORIA">Surmedia Consultoría Spa</option>
               </select>
             </div>
             <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Centro de Trabajo</label>
+              <select value={form.costCenter} onChange={e => field('costCenter', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                <option value="">Seleccionar centro...</option>
+                {(workCenters as any[]).map(wc => <option key={wc.id} value={wc.name}>{wc.name}</option>)}
+              </select>
+            </div>
+            <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha de ingreso</label>
-              <input
-                type="date"
-                value={form.startDate}
+              <input type="date" value={form.startDate}
                 onChange={e => field('startDate', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Vínculo</label>
+              <select value={form.vinculo} onChange={e => field('vinculo', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                <option value="">Seleccionar...</option>
+                <option value="Planta">Planta</option>
+                <option value="Reemplazo">Reemplazo</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Tipo de contrato</label>
+              <select value={form.contractType} onChange={e => field('contractType', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                <option value="">Seleccionar...</option>
+                <option value="INDEFINIDO">Indefinido</option>
+                <option value="PLAZO_FIJO">Plazo fijo</option>
+                <option value="HONORARIOS">Honorarios</option>
+                <option value="PRACTICA">Práctica</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha vencimiento contrato</label>
+              <input type="date" value={form.contractEndDate}
+                onChange={e => field('contractEndDate', e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div ref={supervisorRef} className="relative col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre supervisor</label>
+              <input type="text" placeholder="Buscar supervisor por nombre..."
+                value={form.supervisorName}
+                onChange={e => { field('supervisorName', e.target.value); setSupervisorSearch(e.target.value); setSupervisorOpen(true) }}
+                onFocus={() => setSupervisorOpen(true)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              {supervisorOpen && supervisorResults.length > 0 && (
+                <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-40 overflow-y-auto">
+                  {supervisorResults.map((emp: any) => (
+                    <button key={emp.id} type="button" onMouseDown={e => e.preventDefault()}
+                      onClick={() => {
+                        setForm(f => ({ ...f, supervisorName: `${emp.firstName} ${emp.lastName}`, supervisorTitle: emp.jobTitle ?? f.supervisorTitle }))
+                        setSupervisorSearch(''); setSupervisorOpen(false)
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 text-left border-b border-gray-50 last:border-0">
+                      <div className="text-xs font-medium text-gray-800">{emp.firstName} {emp.lastName}</div>
+                      <div className="text-[10px] text-gray-400">{emp.jobTitle ?? '—'}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo supervisor</label>
+              <input type="text" value={form.supervisorTitle}
+                onChange={e => field('supervisorTitle', e.target.value)}
+                placeholder="Cargo del supervisor"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Notas internas</label>
-              <textarea
-                rows={2}
-                value={form.notes}
-                onChange={e => field('notes', e.target.value)}
+              <textarea rows={2} value={form.notes} onChange={e => field('notes', e.target.value)}
                 placeholder="Información relevante para el proceso..."
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-              />
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
             </div>
           </div>
         </div>
 
         <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
-          <button
-            onClick={handleSave}
-            disabled={!form.collaboratorName.trim() || updateOnboarding.isPending}
-            className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {updateOnboarding.isPending ? (
-              <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Guardando...</>
-            ) : (
-              <><Save size={14} /> Guardar cambios</>
-            )}
+          <button onClick={handleSave}
+            disabled={!form.collaboratorName.trim() || updateOnboarding.isPending || updateEmployee.isPending}
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+            {(updateOnboarding.isPending || updateEmployee.isPending)
+              ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Guardando...</>
+              : <><Save size={14} /> Guardar cambios</>}
           </button>
         </div>
       </div>

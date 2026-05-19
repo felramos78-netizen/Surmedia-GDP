@@ -1,13 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import {
   Plus, Rocket, CheckCircle2, AlertTriangle, X, ChevronRight, ChevronLeft,
-  Mail, Calendar, RefreshCw, Wrench, Globe, Search, UserCheck,
+  Mail, Calendar, RefreshCw, Wrench, Globe, Search, UserCheck, Building2,
 } from 'lucide-react'
 import {
   useOnboardingProcesses, useOnboardingStats,
   useCreateOnboarding, useTemplateTasks,
 } from '@/hooks/useOnboarding'
-import { useJobTitles, useEmployees } from '@/hooks/useDotacion'
+import { useJobTitles, useEmployees, useCreateEmployee } from '@/hooks/useDotacion'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
 import { useProfiles } from '@/hooks/useProfiles'
 import type { OnboardingProcess, OnboardingDbTemplateTask, OnboardingPeriod, TaskAutomationType, Profile } from '@/types'
@@ -271,8 +271,12 @@ function NewProcessModal({ onClose, onCreated, processes }: {
     // Campos obligatorios
     collaboratorRut: '', collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '',
     collaboratorPosition: '', collaboratorPhone: '', legalEntity: '', costCenter: '', startDate: '', notes: '',
+    // Nombre desglosado
+    primerNombre: '', segundoNombre: '', primerApellido: '', segundoApellido: '',
     // Datos personales adicionales
-    segundoApellido: '', city: '', commune: '', address: '',
+    city: '', commune: '',
+    direccionCalle: '', direccionNumero: '', direccionDepto: '',
+    address: '',
     birthDate: '', gender: '', nationality: '',
     // Datos laborales adicionales
     jobFamily: '', contractType: '', companyStartDate: '', contractEndDate: '',
@@ -287,12 +291,17 @@ function NewProcessModal({ onClose, onCreated, processes }: {
   const [rutSearch,          setRutSearch]          = useState('')
   const [matchedEmployee,    setMatchedEmployee]    = useState<{ id: string; name: string; position?: string | null; rut: string } | null>(null)
   const [duplicateProcessId, setDuplicateProcessId] = useState<string | null>(null)
+  const [entityPickEmp,      setEntityPickEmp]      = useState<any | null>(null)
+  const [creatingNew,        setCreatingNew]        = useState(false)
   const [positionMode,       setPositionMode]       = useState<'select' | 'custom'>('select')
   const [selected,           setSelected]           = useState<Set<string>>(new Set())
   const [showCalendar,         setShowCalendar]         = useState(false)
   const [eventExtraProfileIds, setEventExtraProfileIds] = useState<Record<string, string[]>>({})
   const [eventTimes,           setEventTimes]           = useState<Record<string, string>>({})
   const [expandedEventId,      setExpandedEventId]      = useState<string | null>(null)
+  const [supervisorSearch,     setSupervisorSearch]     = useState('')
+  const [supervisorOpen,       setSupervisorOpen]       = useState(false)
+  const supervisorRef = React.useRef<HTMLDivElement>(null)
 
   const { data: rawTemplate = [], isLoading: templateLoading, isError: templateError, refetch: refetchTemplate } = useTemplateTasks()
   const template = rawTemplate.filter(t => t.isActive)
@@ -302,35 +311,67 @@ function NewProcessModal({ onClose, onCreated, processes }: {
   const { data: empData, isFetching: searchFetching } = useEmployees(
     rutSearch.length >= 2 ? { search: rutSearch, status: ['ACTIVE', 'INACTIVE'] } : {}
   )
+  const { data: supervisorEmpData } = useEmployees(
+    supervisorSearch.length >= 2 ? { search: supervisorSearch, status: ['ACTIVE'] } : {}
+  )
+  const supervisorResults = supervisorSearch.length >= 2 ? (supervisorEmpData?.data ?? []).slice(0, 6) : []
+
+  React.useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (supervisorRef.current && !supervisorRef.current.contains(e.target as Node)) setSupervisorOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
   const createOnboarding = useCreateOnboarding()
+  const createEmployee   = useCreateEmployee()
 
   const employeeResults = rutSearch.length >= 2 ? (empData?.data ?? []).slice(0, 6) : []
 
-  const selectEmployee = (emp: any) => {
-    const active = processes.find(p => p.collaboratorRut === emp.rut && p.status === 'IN_PROGRESS')
-    if (active) { setDuplicateProcessId(active.id); setRutSearch(''); return }
-    setDuplicateProcessId(null)
-    const fullName = `${emp.firstName} ${emp.lastName}`
+  const applyEmployee = (emp: any, chosenLegalEntity?: string) => {
+    const firstParts  = (emp.firstName ?? '').trim().split(/\s+/).filter(Boolean)
+    const lastParts   = (emp.lastName  ?? '').trim().split(/\s+/).filter(Boolean)
+    const primerNombre   = firstParts[0] ?? ''
+    const segundoNombre  = firstParts.slice(1).join(' ')
+    const primerApellido = lastParts[0] ?? ''
+    const segundoApellido = emp.segundoApellido ?? lastParts.slice(1).join(' ')
+    const fullName = [primerNombre, segundoNombre, primerApellido, segundoApellido].filter(Boolean).join(' ')
+
     setMatchedEmployee({ id: emp.id, name: fullName, position: emp.jobTitle, rut: emp.rut })
-    const contract = emp.contracts?.find((c: any) => c.isActive)
+    const contract = chosenLegalEntity
+      ? (emp.contracts ?? []).find((c: any) => c.isActive && c.legalEntity === chosenLegalEntity)
+      : (emp.contracts ?? []).find((c: any) => c.isActive)
+
+    const wcs = emp.workCenters ?? []
+    const wcForEntity = chosenLegalEntity
+      ? wcs.find((wc: any) => wc.legalEntity === chosenLegalEntity)
+      : wcs[0]
+    const wcName = wcForEntity?.workCenter?.name ?? ''
+
+    setEntityPickEmp(null)
     setForm(f => ({
       ...f,
       collaboratorRut:           emp.rut,
       collaboratorName:          fullName,
+      primerNombre,
+      segundoNombre,
+      primerApellido,
+      segundoApellido,
       collaboratorPosition:      emp.jobTitle ?? f.collaboratorPosition,
       collaboratorEmail:         (!emp.email || emp.email.includes('@buk.import')) ? f.collaboratorEmail : emp.email,
       collaboratorPhone:         emp.phone ?? f.collaboratorPhone,
       collaboratorPersonalEmail: emp.personalEmail ?? f.collaboratorPersonalEmail,
-      legalEntity:               f.legalEntity || (contract?.legalEntity ?? ''),
-      // Personales
-      segundoApellido:  emp.segundoApellido ?? '',
+      legalEntity:               chosenLegalEntity || f.legalEntity || (contract?.legalEntity ?? ''),
+      costCenter:                wcName || f.costCenter,
       city:             emp.city ?? '',
       commune:          emp.commune ?? '',
+      direccionCalle:   emp.address ?? '',
+      direccionNumero:  '',
+      direccionDepto:   '',
       address:          emp.address ?? '',
       birthDate:        emp.birthDate ? emp.birthDate.split('T')[0] : '',
       gender:           emp.gender ?? '',
       nationality:      emp.nationality ?? '',
-      // Laborales
       jobFamily:          emp.jobFamily ?? '',
       contractType:       contract?.type ?? '',
       companyStartDate:   emp.startDate ? emp.startDate.split('T')[0] : '',
@@ -341,25 +382,41 @@ function NewProcessModal({ onClose, onCreated, processes }: {
       supervisorTitle:    emp.supervisorTitle ?? '',
       vinculo:            emp.vinculo ?? '',
       reemplazaA:         emp.reemplazaA ?? '',
-      // Previsión
       afp:    emp.afp ?? '',
       isapre: emp.isapre ?? '',
-      // Bancarios
       banco:        emp.banco ?? '',
       tipoCuenta:   emp.tipoCuenta ?? '',
       numeroCuenta: emp.numeroCuenta ?? '',
     }))
+  }
+
+  const selectEmployee = (emp: any) => {
+    const active = processes.find(p => p.collaboratorRut === emp.rut && p.status === 'IN_PROGRESS')
+    if (active) { setDuplicateProcessId(active.id); setRutSearch(''); return }
+    setDuplicateProcessId(null)
     setRutSearch('')
+
+    const activeContracts = (emp.contracts ?? []).filter((c: any) => c.isActive)
+    const hasComm    = activeContracts.some((c: any) => c.legalEntity === 'COMUNICACIONES_SURMEDIA')
+    const hasConsult = activeContracts.some((c: any) => c.legalEntity === 'SURMEDIA_CONSULTORIA')
+
+    if (hasComm && hasConsult) {
+      setEntityPickEmp(emp)
+      return
+    }
+    applyEmployee(emp)
   }
 
   const clearEmployee = () => {
     setMatchedEmployee(null)
     setDuplicateProcessId(null)
+    setCreatingNew(false)
     setForm(f => ({
       ...f,
       collaboratorRut: '', collaboratorName: '', collaboratorPosition: '',
       collaboratorEmail: '', collaboratorPhone: '', collaboratorPersonalEmail: '',
-      segundoApellido: '', city: '', commune: '', address: '',
+      primerNombre: '', segundoNombre: '', primerApellido: '', segundoApellido: '',
+      city: '', commune: '', direccionCalle: '', direccionNumero: '', direccionDepto: '', address: '',
       birthDate: '', gender: '', nationality: '',
       jobFamily: '', contractType: '', companyStartDate: '', contractEndDate: '',
       workSchedule: '', distribucionJornada: '', supervisorName: '', supervisorTitle: '',
@@ -388,10 +445,15 @@ function NewProcessModal({ onClose, onCreated, processes }: {
   }
 
   const handleSubmit = async () => {
+    const composedName = [form.primerNombre, form.segundoNombre, form.primerApellido, form.segundoApellido].filter(Boolean).join(' ')
+    const composedAddress = [form.direccionCalle, form.direccionNumero, form.direccionDepto ? `Depto ${form.direccionDepto}` : ''].filter(Boolean).join(' ')
+
     const collaboratorData: Record<string, unknown> = {}
     const snap: [string, string][] = [
-      ['segundoApellido', form.segundoApellido], ['city', form.city], ['commune', form.commune],
-      ['address', form.address], ['birthDate', form.birthDate], ['gender', form.gender],
+      ['primerNombre', form.primerNombre], ['segundoNombre', form.segundoNombre],
+      ['primerApellido', form.primerApellido], ['segundoApellido', form.segundoApellido],
+      ['city', form.city], ['commune', form.commune],
+      ['address', composedAddress || form.address], ['birthDate', form.birthDate], ['gender', form.gender],
       ['nationality', form.nationality], ['jobFamily', form.jobFamily], ['contractType', form.contractType],
       ['companyStartDate', form.companyStartDate], ['contractEndDate', form.contractEndDate],
       ['workSchedule', form.workSchedule], ['distribucionJornada', form.distribucionJornada],
@@ -403,9 +465,43 @@ function NewProcessModal({ onClose, onCreated, processes }: {
     snap.forEach(([k, v]) => { if (v) collaboratorData[k] = v })
 
     try {
+      if (creatingNew && form.collaboratorRut.trim()) {
+        await createEmployee.mutateAsync({
+          rut:          form.collaboratorRut.trim(),
+          firstName:    form.primerNombre.trim(),
+          lastName:     form.primerApellido.trim(),
+          startDate:    form.startDate,
+          email:        form.collaboratorEmail.trim() || undefined,
+          phone:        form.collaboratorPhone.trim() || undefined,
+          personalEmail: form.collaboratorPersonalEmail.trim() || undefined,
+          legalEntity:  form.legalEntity || undefined,
+          jobTitle:     form.collaboratorPosition.trim() || undefined,
+          jobFamily:    form.jobFamily || undefined,
+          costCenter:   form.costCenter.trim() || undefined,
+          city:         form.city || undefined,
+          commune:      form.commune || undefined,
+          address:      composedAddress || form.address || undefined,
+          birthDate:    form.birthDate || undefined,
+          gender:       form.gender || undefined,
+          nationality:  form.nationality || undefined,
+          afp:          form.afp || undefined,
+          isapre:       form.isapre || undefined,
+          workSchedule: form.workSchedule || undefined,
+          supervisorName:   form.supervisorName || undefined,
+          supervisorTitle:  form.supervisorTitle || undefined,
+          segundoApellido:  form.segundoApellido || undefined,
+          distribucionJornada: form.distribucionJornada || undefined,
+          banco:        form.banco || undefined,
+          tipoCuenta:   form.tipoCuenta || undefined,
+          numeroCuenta: form.numeroCuenta || undefined,
+          vinculo:      form.vinculo || undefined,
+          contractType: form.contractType || undefined,
+        })
+      }
+
       const process = await createOnboarding.mutateAsync({
         collaboratorRut:           form.collaboratorRut.trim() || undefined,
-        collaboratorName:          form.collaboratorName.trim(),
+        collaboratorName:          (composedName || form.collaboratorName).trim(),
         collaboratorEmail:         form.collaboratorEmail.trim() || undefined,
         collaboratorPersonalEmail: form.collaboratorPersonalEmail.trim() || undefined,
         collaboratorPosition: form.collaboratorPosition.trim() || undefined,
@@ -670,6 +766,39 @@ function NewProcessModal({ onClose, onCreated, processes }: {
             </div>
           )}
 
+          {/* ── Alerta: colaborador en ambas razones sociales ── */}
+          {entityPickEmp && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
+              <Building2 size={15} className="text-blue-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-blue-800">
+                  {entityPickEmp.firstName} {entityPickEmp.lastName} está en ambas razones sociales
+                </p>
+                <p className="text-xs text-blue-600 mt-0.5">¿Desde cuál quieres cargar los datos del proceso?</p>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => applyEmployee(entityPickEmp, 'COMUNICACIONES_SURMEDIA')}
+                    className="px-3 py-1.5 text-xs font-medium bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-100"
+                  >
+                    Comunicaciones Surmedia
+                  </button>
+                  <button
+                    onClick={() => applyEmployee(entityPickEmp, 'SURMEDIA_CONSULTORIA')}
+                    className="px-3 py-1.5 text-xs font-medium bg-white border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-100"
+                  >
+                    Surmedia Consultoría
+                  </button>
+                  <button
+                    onClick={() => setEntityPickEmp(null)}
+                    className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-700"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ── Sección: Identidad (obligatoria) ── */}
           <div>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Identidad</p>
@@ -688,6 +817,20 @@ function NewProcessModal({ onClose, onCreated, processes }: {
                       <p className="text-[10px] text-green-600">{matchedEmployee.rut} · {matchedEmployee.position ?? '—'}</p>
                     </div>
                     <button onClick={clearEmployee} className="p-1 text-green-500 hover:text-green-800"><X size={13} /></button>
+                  </div>
+                ) : creatingNew ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                      <Plus size={13} className="text-blue-500 flex-shrink-0" />
+                      <p className="text-xs text-blue-700 flex-1">Nueva ficha de colaborador — ingresa el RUT</p>
+                      <button onClick={clearEmployee} className="p-1 text-blue-400 hover:text-blue-700"><X size={13} /></button>
+                    </div>
+                    <input
+                      autoFocus type="text" placeholder="Ej: 12.345.678-9"
+                      value={form.collaboratorRut}
+                      onChange={e => field('collaboratorRut', e.target.value)}
+                      className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.collaboratorRut.trim() ? 'border-gray-300' : 'border-gray-200'}`}
+                    />
                   </div>
                 ) : (
                   <div className="relative">
@@ -713,18 +856,27 @@ function NewProcessModal({ onClose, onCreated, processes }: {
                         ))}
                       </div>
                     )}
-                    {/* Sin resultados */}
+                    {/* Sin resultados → opción de crear aquí */}
                     {rutSearch.length >= 2 && !searchFetching && employeeResults.length === 0 && (
                       <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-amber-200 rounded-lg shadow-lg overflow-hidden">
                         <div className="flex items-start gap-2.5 px-4 py-3">
                           <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                          <div>
+                          <div className="flex-1">
                             <p className="text-sm font-medium text-amber-800">Colaborador no encontrado</p>
-                            <p className="text-xs text-amber-600 mt-0.5">Debe crear la ficha en Colaboradores primero.</p>
-                            <a href="/colaboradores" target="_blank" rel="noreferrer"
-                              className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">
-                              Ir a Colaboradores <ChevronRight size={10} />
-                            </a>
+                            <p className="text-xs text-amber-600 mt-0.5">No existe en el sistema. Puedes crear su ficha aquí.</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCreatingNew(true)
+                                setRutSearch('')
+                                // Pre-llenar el RUT si la búsqueda tiene formato de RUT
+                                const looksLikeRut = /^\d[\d.]*[-]?[0-9kK]?$/.test(rutSearch.trim())
+                                if (looksLikeRut) field('collaboratorRut', rutSearch.trim())
+                              }}
+                              className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
+                            >
+                              <Plus size={11} /> Crear colaborador aquí
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -733,10 +885,28 @@ function NewProcessModal({ onClose, onCreated, processes }: {
                 )}
               </div>
 
-              <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre completo <span className="text-red-400">*</span></label>
-                <input type="text" placeholder="Ej: Juan Pérez Soto" value={form.collaboratorName}
-                  onChange={e => field('collaboratorName', e.target.value)}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Primer nombre <span className="text-red-400">*</span></label>
+                <input type="text" placeholder="Juan" value={form.primerNombre}
+                  onChange={e => { field('primerNombre', e.target.value); field('collaboratorName', '') }}
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.primerNombre ? 'border-gray-300' : 'border-gray-200'}`} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Segundo nombre</label>
+                <input type="text" placeholder="Carlos" value={form.segundoNombre}
+                  onChange={e => field('segundoNombre', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Primer apellido <span className="text-red-400">*</span></label>
+                <input type="text" placeholder="Pérez" value={form.primerApellido}
+                  onChange={e => { field('primerApellido', e.target.value); field('collaboratorName', '') }}
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.primerApellido ? 'border-gray-300' : 'border-gray-200'}`} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Segundo apellido</label>
+                <input type="text" placeholder="Soto" value={form.segundoApellido}
+                  onChange={e => field('segundoApellido', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>
@@ -788,7 +958,17 @@ function NewProcessModal({ onClose, onCreated, processes }: {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha de ingreso <span className="text-red-400">*</span></label>
-                <input type="date" value={form.startDate} onChange={e => field('startDate', e.target.value)}
+                <input type="date" value={form.startDate}
+                  onChange={e => {
+                    const v = e.target.value
+                    const suggest90 = v ? (() => { const d = new Date(v + 'T12:00:00Z'); d.setDate(d.getDate() + 90); return d.toISOString().slice(0,10) })() : ''
+                    setForm(f => ({
+                      ...f,
+                      startDate:       v,
+                      companyStartDate: f.companyStartDate || v,
+                      contractEndDate:  f.contractEndDate  || suggest90,
+                    }))
+                  }}
                   className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${!form.startDate ? 'border-gray-300' : 'border-gray-200'}`} />
               </div>
               <div className="col-span-2">
@@ -806,12 +986,6 @@ function NewProcessModal({ onClose, onCreated, processes }: {
           <div>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Datos personales</p>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Segundo apellido</label>
-                <input type="text" placeholder="Segundo apellido" value={form.segundoApellido}
-                  onChange={e => field('segundoApellido', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Fecha de nacimiento</label>
                 <input type="date" value={form.birthDate} onChange={e => field('birthDate', e.target.value)}
@@ -838,16 +1012,28 @@ function NewProcessModal({ onClose, onCreated, processes }: {
                   onChange={e => field('city', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-              <div>
+              <div className="col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Comuna</label>
                 <input type="text" placeholder="Providencia" value={form.commune}
                   onChange={e => field('commune', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Dirección</label>
-                <input type="text" placeholder="Av. Providencia 1234, depto 501" value={form.address}
-                  onChange={e => field('address', e.target.value)}
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Calle</label>
+                <input type="text" placeholder="Av. Providencia" value={form.direccionCalle}
+                  onChange={e => field('direccionCalle', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Número</label>
+                <input type="text" placeholder="1234" value={form.direccionNumero}
+                  onChange={e => field('direccionNumero', e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Departamento</label>
+                <input type="text" placeholder="501 (si aplica)" value={form.direccionDepto}
+                  onChange={e => field('direccionDepto', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>
@@ -896,11 +1082,46 @@ function NewProcessModal({ onClose, onCreated, processes }: {
                   onChange={e => field('distribucionJornada', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-              <div>
+              <div ref={supervisorRef} className="relative">
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre supervisor</label>
-                <input type="text" placeholder="Nombre del supervisor" value={form.supervisorName}
-                  onChange={e => field('supervisorName', e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <input
+                  type="text"
+                  placeholder="Buscar supervisor por nombre..."
+                  value={form.supervisorName}
+                  onChange={e => {
+                    field('supervisorName', e.target.value)
+                    setSupervisorSearch(e.target.value)
+                    setSupervisorOpen(true)
+                  }}
+                  onFocus={() => setSupervisorOpen(true)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {supervisorOpen && supervisorResults.length > 0 && (
+                  <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                    {supervisorResults.map((emp: any) => (
+                      <button
+                        key={emp.id}
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => {
+                          const fullName = `${emp.firstName} ${emp.lastName}`
+                          setForm(f => ({ ...f, supervisorName: fullName, supervisorTitle: emp.jobTitle ?? f.supervisorTitle }))
+                          setSupervisorSearch('')
+                          setSupervisorOpen(false)
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-blue-50 text-left border-b border-gray-50 last:border-0"
+                      >
+                        <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold flex items-center justify-center flex-shrink-0 uppercase">
+                          {emp.firstName[0]}{emp.lastName[0]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-gray-800 truncate">{emp.firstName} {emp.lastName}</div>
+                          <div className="text-[10px] text-gray-400 truncate">{emp.jobTitle ?? '—'}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo supervisor</label>
@@ -1045,8 +1266,11 @@ function NewProcessModal({ onClose, onCreated, processes }: {
           <button
             onClick={() => setShowCalendar(true)}
             disabled={
-              !matchedEmployee ||
-              !form.collaboratorName.trim() || !form.legalEntity ||
+              (!matchedEmployee && !creatingNew) ||
+              (creatingNew && !form.collaboratorRut.trim()) ||
+              (!form.primerNombre.trim() && !form.collaboratorName.trim()) ||
+              !form.primerApellido.trim() ||
+              !form.legalEntity ||
               !form.collaboratorEmail.trim() || !form.collaboratorPosition.trim() ||
               !form.costCenter || !form.startDate ||
               selected.size === 0

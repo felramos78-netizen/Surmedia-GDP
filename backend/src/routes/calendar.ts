@@ -196,6 +196,29 @@ export default async function calendarRoutes(app: FastifyInstance) {
       }
     }
 
+    // ── 7. Cumpleaños ─────────────────────────────────────────────────────────
+    const birthEmps = await app.prisma.employee.findMany({
+      where: { status: { in: ['ACTIVE', 'ON_LEAVE'] }, birthDate: { not: null } },
+      select: { id: true, firstName: true, lastName: true, birthDate: true },
+    })
+    for (const emp of birthEmps) {
+      if (!emp.birthDate) continue
+      const bm = emp.birthDate.getUTCMonth()
+      const bd = emp.birthDate.getUTCDate()
+      for (let y = sy; y <= ey; y++) {
+        const bdate = new Date(Date.UTC(y, bm, bd))
+        if (bdate >= s && bdate <= e) {
+          ev.push({
+            id: `bday-${emp.id}-${y}`, type: 'CUMPLEANOS',
+            title: `${emp.firstName} ${emp.lastName}`,
+            start: toDS(bdate), end: toDS(bdate),
+            color: '#db2777',
+            meta: { employeeId: emp.id },
+          })
+        }
+      }
+    }
+
     return reply.send(ev)
   })
 }
