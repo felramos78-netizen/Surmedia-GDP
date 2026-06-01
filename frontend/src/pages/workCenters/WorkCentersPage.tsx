@@ -9,6 +9,7 @@ import {
   ChevronDown, ChevronUp, ChevronsUpDown, DollarSign, TrendingUp,
   TrendingDown, BarChart2, Search, Wallet, Percent, UserPlus,
   UserMinus, Stethoscope, Repeat, RefreshCw, FileDown, Filter,
+  Eye, EyeOff,
 } from 'lucide-react'
 import {
   useWorkCenters, useCreateWorkCenter, useUpdateWorkCenter, useDeleteWorkCenter,
@@ -508,9 +509,9 @@ function MiniStat({ label, value, icon: Icon, color, sub }: {
         <Icon size={18} />
       </div>
       <div>
-        <p className="text-xl font-bold text-gray-900">{value}</p>
+        <p className="text-xl font-bold text-gray-900 gdp-val">{value}</p>
         <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-        {sub && <p className="text-xs text-gray-400">{sub}</p>}
+        {sub && <p className="text-xs text-gray-400 gdp-val">{sub}</p>}
       </div>
     </div>
   )
@@ -528,7 +529,7 @@ function MovementList({ title, items, color }: {
   return (
     <div>
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{title} ({items.length})</p>
-      <div className={`rounded-lg border p-3 space-y-2 ${borderBg[color]}`}>
+      <div className={`rounded-lg border p-3 space-y-2 gdp-content ${borderBg[color]}`}>
         {items.slice(0, 6).map((item, i) => (
           <div key={i} className="flex items-center gap-2 flex-wrap">
             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot[color]}`} />
@@ -1574,6 +1575,7 @@ function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }:
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function WorkCentersPage() {
+  const [visible,      setVisible]      = useState(false)
   const [tab,          setTab]          = useState<'centros' | 'dotacion' | 'remuneraciones' | 'honorarios' | 'compras'>('centros')
   const [year,         setYear]         = useState('')
   const [month,        setMonth]        = useState('')
@@ -1769,7 +1771,16 @@ export default function WorkCentersPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Centros de Trabajo</h2>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            Centros de Trabajo
+            <button
+              onClick={() => setVisible(v => !v)}
+              title={visible ? 'Ocultar datos' : 'Revelar datos'}
+              className="p-1 rounded-full hover:bg-gray-100 transition-colors text-gray-300 hover:text-gray-500"
+            >
+              {visible ? <Eye size={18} /> : <EyeOff size={18} />}
+            </button>
+          </h2>
           <p className="text-sm text-gray-500 mt-1">{centers.length} centros registrados</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1785,6 +1796,18 @@ export default function WorkCentersPage() {
           </button>
         </div>
       </div>
+
+      {/* CSS data-hiding: blur td cells and .gdp-val elements when hidden */}
+      {!visible && (
+        <style>{`
+          .gdp-wc td                    { filter: blur(5px); user-select: none; pointer-events: none; }
+          .gdp-wc .gdp-val              { filter: blur(5px); user-select: none; }
+          .gdp-wc p.text-2xl,
+          .gdp-wc p.text-xl             { filter: blur(5px); user-select: none; }
+          .gdp-wc .gdp-content          { filter: blur(5px); user-select: none; pointer-events: none; }
+        `}</style>
+      )}
+      <div className="gdp-wc">
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
@@ -2050,7 +2073,7 @@ export default function WorkCentersPage() {
                         <span className={hl}>Gasto por Ubicación</span>
                         <span className={sub}>{label}</span>
                       </div>
-                      <div className="flex-1 p-4 flex flex-col justify-around overflow-y-auto">
+                      <div className="flex-1 p-4 flex flex-col justify-around overflow-y-auto gdp-content">
                         {locLabels.map(loc => {
                           const val = gastoByLoc[loc] ?? 0
                           const pct = locTotal>0?(val/locTotal)*100:0
@@ -2091,7 +2114,7 @@ export default function WorkCentersPage() {
                             </div>
                             {col.list.length===0
                               ? <p className="text-[10px] text-gray-300">—</p>
-                              : <ul className="space-y-1.5 max-h-24 overflow-y-auto">
+                              : <ul className="space-y-1.5 max-h-24 overflow-y-auto gdp-content">
                                   {col.list.map((m:any,i:number)=>(
                                     <li key={i}>
                                       <p className="text-[11px] font-medium text-gray-700 truncate">{m.firstName} {m.lastName}</p>
@@ -2122,7 +2145,7 @@ export default function WorkCentersPage() {
                       </div>
 
                       {/* Tab content */}
-                      <div className="flex-1 overflow-y-auto p-3 min-h-0 text-[10px]">
+                      <div className="flex-1 overflow-y-auto p-3 min-h-0 text-[10px] gdp-content">
                         {movTab==='vacaciones'&&(vacaciones.length===0
                           ?<p className="text-gray-300 text-center py-4">Sin vacaciones en el período</p>
                           :<ul className="space-y-2">{vacaciones.map((v:any,i:number)=>(
@@ -2560,6 +2583,8 @@ export default function WorkCentersPage() {
       {tab === 'compras' && (
         <SmartTab category="compras" year={year} month={month} />
       )}
+
+      </div>{/* end gdp-wc */}
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
 

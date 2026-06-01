@@ -482,6 +482,8 @@ export interface SmartDocument {
   category:                  SmartDocCategory
   legalEntity:               LegalEntity
   proveedor:                 SmartProveedor
+  workCenterId:              string | null
+  workCenter:                { id: string; name: string } | null
   documento:                 string
   codigoTributario:          string | null
   folio:                     string | null

@@ -131,6 +131,20 @@ export function usePatchProveedor() {
   })
 }
 
+export function usePatchDocument() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, workCenterId }: { id: string; workCenterId: string | null }) => {
+      const { data } = await api.patch(`/smart/documents/${id}`, { workCenterId })
+      return data as import('@/types').SmartDocument
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['smart-honorarios'] })
+      qc.invalidateQueries({ queryKey: ['smart-compras'] })
+    },
+  })
+}
+
 export function useBulkClassify() {
   const qc = useQueryClient()
   return useMutation({

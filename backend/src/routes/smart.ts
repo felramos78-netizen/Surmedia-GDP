@@ -248,7 +248,11 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
   // ── Shared proveedor select ───────────────────────────────────────────────────
   const PROV_SELECT = {
     id: true, rut: true, razonSocial: true, clasificacion: true,
-    area: true, categoria: true, workCenterId: true,
+    area: true, categoria: true,
+  }
+
+  const DOC_WC_INCLUDE = {
+    proveedor:  { select: PROV_SELECT },
     workCenter: { select: { id: true, name: true } },
   }
 
@@ -281,7 +285,7 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: DocQuerystring }>('/honorarios', async (req, reply) => {
     const docs = await fastify.prisma.smartDocument.findMany({
       where:   docWhere('HONORARIO', req.query),
-      include: { proveedor: { select: PROV_SELECT } },
+      include: DOC_WC_INCLUDE,
       orderBy: [{ periodoTributario: 'desc' }, { fechaEmision: 'desc' }],
     })
     return reply.send(docs)
@@ -291,7 +295,7 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Querystring: DocQuerystring }>('/compras', async (req, reply) => {
     const docs = await fastify.prisma.smartDocument.findMany({
       where:   docWhere('COMPRA', req.query),
-      include: { proveedor: { select: PROV_SELECT } },
+      include: DOC_WC_INCLUDE,
       orderBy: [{ periodoTributario: 'desc' }, { fechaEmision: 'desc' }],
     })
     return reply.send(docs)
@@ -350,22 +354,34 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send(prov)
   })
 
-  // PATCH /api/smart/proveedores/:id — actualiza area, categoria, workCenterId, notes
+  // PATCH /api/smart/documents/:id — actualiza workCenterId por documento
   fastify.patch<{
     Params: { id: string }
-    Body:   { area?: string | null; categoria?: string | null; workCenterId?: string | null; notes?: string | null; clasificacion?: string | null }
+    Body:   { workCenterId?: string | null }
+  }>('/documents/:id', async (req, reply) => {
+    const { workCenterId } = req.body
+    const doc = await fastify.prisma.smartDocument.update({
+      where:   { id: req.params.id },
+      data:    { workCenterId: workCenterId ?? null },
+      include: DOC_WC_INCLUDE,
+    })
+    return reply.send(doc)
+  })
+
+  // PATCH /api/smart/proveedores/:id — actualiza area, categoria, notes
+  fastify.patch<{
+    Params: { id: string }
+    Body:   { area?: string | null; categoria?: string | null; notes?: string | null; clasificacion?: string | null }
   }>('/proveedores/:id', async (req, reply) => {
-    const { area, categoria, workCenterId, notes, clasificacion } = req.body
+    const { area, categoria, notes, clasificacion } = req.body
     const prov = await fastify.prisma.smartProveedor.update({
       where:  { id: req.params.id },
       data:   {
-        ...(area         !== undefined ? { area }         : {}),
-        ...(categoria    !== undefined ? { categoria }    : {}),
-        ...(workCenterId !== undefined ? { workCenterId } : {}),
-        ...(notes        !== undefined ? { notes }        : {}),
-        ...(clasificacion!== undefined ? { clasificacion } : {}),
+        ...(area          !== undefined ? { area }          : {}),
+        ...(categoria     !== undefined ? { categoria }     : {}),
+        ...(notes         !== undefined ? { notes }         : {}),
+        ...(clasificacion !== undefined ? { clasificacion } : {}),
       },
-      include: { workCenter: { select: { id: true, name: true } } },
     })
     return reply.send(prov)
   })

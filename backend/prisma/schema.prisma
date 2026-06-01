@@ -112,9 +112,10 @@ model WorkCenter {
   costType    CostType             @default(DIRECTO)
   presupuesto Float?
   ubicacion   String?
-  assignments  EmployeeWorkCenter[]
-  ingresos     WorkCenterIngreso[]
-  proveedores  SmartProveedor[]
+  assignments    EmployeeWorkCenter[]
+  ingresos       WorkCenterIngreso[]
+  proveedores    SmartProveedor[]
+  smartDocuments SmartDocument[]
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
@@ -748,6 +749,8 @@ model SmartDocument {
   category                  SmartDocCategory
   proveedor                 SmartProveedor   @relation(fields: [proveedorId], references: [id])
   proveedorId               String
+  workCenter                WorkCenter?      @relation(fields: [workCenterId], references: [id], onDelete: SetNull)
+  workCenterId              String?
   legalEntity               LegalEntity
   documento                 String
   codigoTributario          String?

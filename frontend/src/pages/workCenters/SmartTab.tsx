@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { RefreshCw, Check, AlertCircle, ChevronDown, ChevronUp, ChevronsUpDown, Search, X, Pencil, Filter, FileText, DollarSign, Percent, TrendingUp } from 'lucide-react'
 import {
   fetchSmartPreview, useSmartApply,
-  useSmartHonorarios, useSmartCompras, usePatchProveedor,
+  useSmartHonorarios, useSmartCompras, usePatchProveedor, usePatchDocument,
 } from '@/hooks/useSmart'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
 import type { SmartDocument, SmartPreviewData, SmartPreviewRow, LegalEntity } from '@/types'
@@ -321,21 +321,24 @@ export function SmartImportTab() {
 // ── Inline editable cell ──────────────────────────────────────────────────────
 
 function EditableCell({
-  value, proveedorId, field, type = 'text', options, currentArea, extraOptions = [],
+  value, proveedorId, documentId, field, type = 'text', options, currentArea, extraOptions = [],
 }: {
-  value:        string | null
-  proveedorId:  string
-  field:        'area' | 'categoria' | 'workCenterId'
-  type?:        'text' | 'select' | 'smart-select'
-  options?:     { value: string; label: string }[]
-  currentArea?: string | null
+  value:         string | null
+  proveedorId?:  string
+  documentId?:   string
+  field:         'area' | 'categoria' | 'workCenterId'
+  type?:         'text' | 'select' | 'smart-select'
+  options?:      { value: string; label: string }[]
+  currentArea?:  string | null
   extraOptions?: string[]
 }) {
   const [editing, setEditing] = useState(false)
   const [editingCustom, setEditingCustom] = useState(false)
   const [val, setVal] = useState(value ?? '')
-  const patch = usePatchProveedor()
-  const inputRef = useRef<HTMLInputElement>(null)
+  const patchProv = usePatchProveedor()
+  const patchDoc  = usePatchDocument()
+  const patch      = documentId ? patchDoc : patchProv
+  const inputRef  = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (editing || editingCustom) {
@@ -352,7 +355,11 @@ function EditableCell({
     setEditingCustom(false)
     const finalVal = (customValue ?? val).trim() || null
     if (finalVal === (value ?? null)) return
-    patch.mutate({ id: proveedorId, [field]: finalVal })
+    if (documentId) {
+      patchDoc.mutate({ id: documentId, workCenterId: finalVal })
+    } else if (proveedorId) {
+      patchProv.mutate({ id: proveedorId, [field]: finalVal })
+    }
   }
 
   // Generate options for smart-select (Area or Categoria)
@@ -455,6 +462,46 @@ function EditableCell({
   )
 }
 
+// ── Truncated cell with hover tooltip ────────────────────────────────────────
+
+function TruncCell({
+  value, className = '',
+}: {
+  value:      string | null | undefined
+  className?: string
+}) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+
+  if (!value) return <span className="text-gray-300">—</span>
+
+  return (
+    <>
+      <span
+        className={`block truncate cursor-default ${className}`}
+        onMouseEnter={e => {
+          const el = e.currentTarget
+          if (el.scrollWidth > el.clientWidth) {
+            const r = el.getBoundingClientRect()
+            setPos({ x: r.left, y: r.bottom + 4 })
+          }
+        }}
+        onMouseLeave={() => setPos(null)}
+      >
+        {value}
+      </span>
+      {pos && createPortal(
+        <div
+          style={{ position: 'fixed', top: pos.y, left: pos.x, zIndex: 9999, maxWidth: 360 }}
+          className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl pointer-events-none leading-relaxed break-words"
+        >
+          {value}
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
+
 // ── Column filter types + helpers ─────────────────────────────────────────────
 
 type SortState  = { col: string; dir: 'asc' | 'desc' } | null
@@ -469,8 +516,10 @@ function getDocVal(d: SmartDocument, col: string): string {
     case 'clasificacion': return d.clasificacion ?? ''
     case 'area':          return d.proveedor.area ?? ''
     case 'categoria':     return d.proveedor.categoria ?? ''
-    case 'workCenter':    return d.proveedor.workCenter?.name ?? ''
+    case 'workCenter':    return d.workCenter?.name ?? ''
     case 'documento':     return d.documento ?? ''
+    case 'folio':         return d.folio ?? ''
+    case 'glosa':         return d.glosa ?? ''
     case 'emision':       return d.fechaEmision ?? ''
     case 'pago':          return d.fechaPago ?? ''
     case 'neto':          return String(d.montoNeto ?? 0)
@@ -478,6 +527,7 @@ function getDocVal(d: SmartDocument, col: string): string {
     case 'iva':           return String(d.iva ?? 0)
     case 'total':         return String(d.montoTotal ?? 0)
     case 'pagado':        return d.pagado ? 'Pagado' : 'Sin pagar'
+    case 'vigente':       return d.vigente ? 'Vigente' : 'Anulada'
     default:              return ''
   }
 }
@@ -743,26 +793,33 @@ function DataTable({
             <ColHeader {...ch('Categoría', 'categoria')} />
             <ColHeader {...ch('Centro de Trabajo', 'workCenter')} />
             <ColHeader {...ch('Documento', 'documento')} />
+            <ColHeader {...ch('Folio', 'folio')} />
+            <ColHeader {...ch('Glosa', 'glosa')} />
             <ColHeader {...ch('Emisión', 'emision', { sortOnly: true })} />
             <ColHeader {...ch('Pago', 'pago', { sortOnly: true })} />
             <ColHeader {...ch('Neto', 'neto', { numeric: true, sortOnly: true })} />
             <ColHeader {...ch(taxLabel, taxCol, { numeric: true, sortOnly: true })} />
             <ColHeader {...ch('Total', 'total', { numeric: true, sortOnly: true })} />
             <ColHeader {...ch('Pagado', 'pagado')} />
+            <ColHeader {...ch('Vigencia', 'vigente')} />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
           {docs.map(d => (
-            <tr key={d.id} className="hover:bg-gray-50 transition-colors">
+            <tr key={d.id} className={d.vigente ? 'hover:bg-gray-50 transition-colors' : 'bg-red-50/70 hover:bg-red-100/70 transition-colors'}>
               <td className="px-4 py-2.5 font-mono text-gray-600 whitespace-nowrap">{d.proveedor.rut}</td>
-              <td className="px-4 py-2.5 text-gray-800 max-w-[160px] truncate">{d.proveedor.razonSocial}</td>
+              <td className="px-4 py-2.5 text-gray-800 max-w-[160px]">
+                <TruncCell value={d.proveedor.razonSocial} className="text-gray-800" />
+              </td>
               <td className="px-4 py-2.5">
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ENTITY_COLOR[d.legalEntity]}`}>
                   {ENTITY_LABEL[d.legalEntity]}
                 </span>
               </td>
               <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap">{fmtPeriodo(d.periodoTributario)}</td>
-              <td className="px-4 py-2.5 text-gray-600 max-w-[120px] truncate">{d.clasificacion || '—'}</td>
+              <td className="px-4 py-2.5 max-w-[120px]">
+                <TruncCell value={d.clasificacion || null} className="text-gray-600" />
+              </td>
               <td className="px-4 py-2.5">
                 <EditableCell
                   value={d.proveedor.area}
@@ -784,14 +841,20 @@ function DataTable({
               </td>
               <td className="px-4 py-2.5">
                 <EditableCell
-                  value={d.proveedor.workCenterId}
-                  proveedorId={d.proveedor.id}
+                  value={d.workCenterId}
+                  documentId={d.id}
                   field="workCenterId"
                   type="select"
                   options={wcOptions}
                 />
               </td>
-              <td className="px-4 py-2.5 text-gray-500 max-w-[110px] truncate">{d.documento}</td>
+              <td className="px-4 py-2.5 max-w-[110px]">
+                <TruncCell value={d.documento} className="text-gray-500" />
+              </td>
+              <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{d.folio || '—'}</td>
+              <td className="px-4 py-2.5 max-w-[200px]">
+                <TruncCell value={d.glosa} className="text-gray-500" />
+              </td>
               <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{fmtDate(d.fechaEmision)}</td>
               <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{fmtDate(d.fechaPago)}</td>
               <td className="px-4 py-2.5 text-right tabular-nums text-gray-700">{fmt(d.montoNeto)}</td>
@@ -804,6 +867,11 @@ function DataTable({
                   ? <Check size={12} className="text-green-500 mx-auto" />
                   : <span className="text-gray-300 text-[10px]">—</span>}
               </td>
+              <td className="px-4 py-2.5 text-center">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${d.vigente ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {d.vigente ? 'Vigente' : 'Anulada'}
+                </span>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -814,32 +882,183 @@ function DataTable({
 
 // ── Summary cards ─────────────────────────────────────────────────────────────
 
+type BreakdownRow = {
+  label:       string
+  colorClass?: string
+  count:       number
+  neto:        number
+  bruto:       number
+}
+
+function BreakdownTable({ title, rows, emptyLabel = 'Sin datos' }: {
+  title:       string
+  rows:        BreakdownRow[]
+  emptyLabel?: string
+}) {
+  const totalNeto  = rows.reduce((s, r) => s + r.neto,  0)
+  const totalBruto = rows.reduce((s, r) => s + r.bruto, 0)
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <p className="text-xs font-semibold text-gray-700 mb-3">{title}</p>
+      {rows.length === 0 ? (
+        <p className="text-xs text-gray-400 py-1">{emptyLabel}</p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-100">
+              <th className="pb-1.5 text-left font-normal text-gray-400">Entidad</th>
+              <th className="pb-1.5 text-right font-normal text-gray-400 pr-2">Docs</th>
+              <th className="pb-1.5 text-right font-normal text-gray-400">Neto</th>
+              <th className="pb-1.5 text-right font-normal text-gray-400">Bruto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.label} className="border-b border-gray-50 last:border-0">
+                <td className="py-1.5 pr-2">
+                  {r.colorClass
+                    ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${r.colorClass}`}>{r.label}</span>
+                    : <span className="text-gray-700">{r.label}</span>
+                  }
+                </td>
+                <td className="py-1.5 text-right tabular-nums text-gray-500 pr-2">{r.count}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-700">{fmtN(r.neto)}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-700">{fmtN(r.bruto)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-gray-200">
+              <td colSpan={2} className="pt-1.5 font-medium text-gray-500">Total</td>
+              <td className="pt-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtN(totalNeto)}</td>
+              <td className="pt-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtN(totalBruto)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      )}
+    </div>
+  )
+}
+
 function SummaryCards({ docs, category }: { docs: SmartDocument[]; category: SmartCategory }) {
-  const total    = docs.reduce((s, d) => s + d.montoTotal, 0)
-  const neto     = docs.reduce((s, d) => s + d.montoNeto, 0)
-  const tax      = docs.reduce((s, d) => s + (category === 'honorarios' ? (d.retencion ?? 0) : (d.iva ?? 0)), 0)
-  const pagados  = docs.filter(d => d.pagado).length
+  const activeDocs = docs.filter(d => d.vigente)
+  const anuladas   = docs.length - activeDocs.length
+
+  const total    = activeDocs.reduce((s, d) => s + d.montoTotal, 0)
+  const neto     = activeDocs.reduce((s, d) => s + d.montoNeto, 0)
+  const tax      = activeDocs.reduce((s, d) => s + (category === 'honorarios' ? (d.retencion ?? 0) : (d.iva ?? 0)), 0)
+  const pagados  = activeDocs.filter(d => d.pagado).length
   const taxLabel = category === 'honorarios' ? 'Retención Total' : 'IVA Total'
 
+  function groupByEntity(subset: SmartDocument[]): BreakdownRow[] {
+    const map = new Map<LegalEntity, { neto: number; bruto: number; count: number }>()
+    for (const d of subset) {
+      const e   = d.legalEntity as LegalEntity
+      const cur = map.get(e) ?? { neto: 0, bruto: 0, count: 0 }
+      map.set(e, { neto: cur.neto + d.montoNeto, bruto: cur.bruto + d.montoBruto, count: cur.count + 1 })
+    }
+    return (Object.keys(ENTITY_LABEL) as LegalEntity[])
+      .filter(e => map.has(e))
+      .map(e => ({
+        label:      ENTITY_LABEL[e],
+        colorClass: ENTITY_COLOR[e],
+        count:      map.get(e)!.count,
+        neto:       map.get(e)!.neto,
+        bruto:      map.get(e)!.bruto,
+      }))
+  }
+
+  function groupByCenter(subset: SmartDocument[]): BreakdownRow[] {
+    const map = new Map<string, { neto: number; bruto: number; count: number; name: string }>()
+    for (const d of subset) {
+      const key  = d.workCenter?.id ?? '__sin__'
+      const name = d.workCenter?.name ?? '(Sin centro)'
+      const cur  = map.get(key) ?? { neto: 0, bruto: 0, count: 0, name }
+      map.set(key, { neto: cur.neto + d.montoNeto, bruto: cur.bruto + d.montoBruto, count: cur.count + 1, name })
+    }
+    return [...map.values()]
+      .sort((a, b) => b.neto - a.neto)
+      .map(r => ({ label: r.name, count: r.count, neto: r.neto, bruto: r.bruto }))
+  }
+
+  const plantaDocs = useMemo(
+    () => activeDocs.filter(d => {
+      const c = (d.clasificacion ?? '').toLowerCase()
+      return c.includes('planta') || c.includes('proyecto')
+    }),
+    [activeDocs],
+  )
+
+  const reemplDocs = useMemo(
+    () => activeDocs.filter(d => {
+      const c = (d.clasificacion ?? '').toLowerCase()
+      return c.includes('reemplazo') || c === 'nr' || c.endsWith(' nr')
+    }),
+    [activeDocs],
+  )
+
   return (
-    <div className="grid grid-cols-4 gap-4">
-      {[
-        { label: 'Documentos', value: docs.length.toString(), sub: `${pagados} pagados`, icon: FileText,   color: 'bg-blue-50 text-blue-600' },
-        { label: 'Monto Neto', value: fmtN(neto),             sub: '',                  icon: DollarSign,  color: 'bg-green-50 text-green-600' },
-        { label: taxLabel,     value: fmtN(tax),              sub: '',                  icon: Percent,     color: 'bg-amber-50 text-amber-600' },
-        { label: 'Total',      value: fmtN(total),            sub: '',                  icon: TrendingUp,  color: 'bg-indigo-50 text-indigo-600' },
-      ].map(c => (
-        <div key={c.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${c.color}`}>
-            <c.icon size={18} />
+    <div className="space-y-4">
+      {/* Top 4 summary cards */}
+      <div className="grid grid-cols-4 gap-4">
+        {[
+          { label: 'Documentos', value: activeDocs.length.toString(), sub: `${pagados} pagados${anuladas > 0 ? ` · ${anuladas} anuladas` : ''}`, icon: FileText, color: 'bg-blue-50 text-blue-600' },
+          { label: 'Monto Neto', value: fmtN(neto),             sub: '',                  icon: DollarSign,  color: 'bg-green-50 text-green-600' },
+          { label: taxLabel,     value: fmtN(tax),              sub: '',                  icon: Percent,     color: 'bg-amber-50 text-amber-600' },
+          { label: 'Total',      value: fmtN(total),            sub: '',                  icon: TrendingUp,  color: 'bg-indigo-50 text-indigo-600' },
+        ].map(c => (
+          <div key={c.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${c.color}`}>
+              <c.icon size={18} />
+            </div>
+            <div>
+              <p className="text-xl font-bold text-gray-900">{c.value}</p>
+              <p className="text-xs text-gray-500">{c.label}</p>
+              {c.sub && <p className="text-[10px] text-gray-400 mt-0.5">{c.sub}</p>}
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-bold text-gray-900">{c.value}</p>
-            <p className="text-xs text-gray-500">{c.label}</p>
-            {c.sub && <p className="text-[10px] text-gray-400 mt-0.5">{c.sub}</p>}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
+
+      {/* Breakdown by entity and work center */}
+      <div className="grid grid-cols-2 gap-4">
+        <BreakdownTable
+          title="Neto y Bruto por Razón Social"
+          rows={groupByEntity(activeDocs)}
+        />
+        <BreakdownTable
+          title="Neto y Bruto por Centro de Trabajo"
+          rows={groupByCenter(activeDocs)}
+        />
+      </div>
+
+      {/* Planta/Proyecto breakdown */}
+      <div className="grid grid-cols-2 gap-4">
+        <BreakdownTable
+          title="Planta Proyecto — por Razón Social"
+          rows={groupByEntity(plantaDocs)}
+          emptyLabel="Sin documentos clasificados como Planta/Proyecto"
+        />
+        <BreakdownTable
+          title="Planta Proyecto — por Centro de Trabajo"
+          rows={groupByCenter(plantaDocs)}
+          emptyLabel="Sin documentos clasificados como Planta/Proyecto"
+        />
+      </div>
+
+      {/* Reemplazos NR breakdown */}
+      <div className="grid grid-cols-2 gap-4">
+        <BreakdownTable
+          title="Reemplazos NR — por Razón Social"
+          rows={groupByEntity(reemplDocs)}
+          emptyLabel="Sin documentos clasificados como Reemplazos NR"
+        />
+        <BreakdownTable
+          title="Reemplazos NR — por Centro de Trabajo"
+          rows={groupByCenter(reemplDocs)}
+          emptyLabel="Sin documentos clasificados como Reemplazos NR"
+        />
+      </div>
     </div>
   )
 }
