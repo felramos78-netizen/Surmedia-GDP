@@ -1,5 +1,26 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
+import { createSpellCheckExtension, type SpellError } from '@/lib/spellcheck'
+
+function htmlToPlain(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_, url, text) => {
+      const cleanText = text.replace(/<[^>]+>/g, '').trim()
+      if (!cleanText || cleanText === url) return url
+      return `${cleanText}\n${url}`
+    })
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import TextAlign from '@tiptap/extension-text-align'
@@ -39,7 +60,10 @@ const VARIABLES: { group: string; vars: VarDef[] }[] = [
       { key: 'emailPersonal',     label: 'Email personal',        example: 'juan@gmail.com' },
       { key: 'telefono',          label: 'Teléfono',              example: '+56 9 8765 4321' },
       { key: 'jornada',           label: 'Jornada laboral',       example: 'Mensual 40.0 hrs.' },
-      { key: 'supervisor',        label: 'Supervisor',            example: 'María López' },
+      { key: 'supervisor',          label: 'Supervisor (nombre completo)', example: 'María López' },
+      { key: 'nombreSupervisor',   label: 'Primer nombre supervisor',     example: 'María' },
+      { key: 'apellidoSupervisor', label: 'Primer apellido supervisor',   example: 'López' },
+      { key: 'emailJefatura',      label: 'Email jefatura',               example: 'supervisor@surmedia.cl' },
       { key: 'afp',               label: 'AFP',                   example: 'Habitat' },
       { key: 'isapre',            label: 'Isapre / Fonasa',       example: 'Banmédica' },
       { key: 'ciudad',            label: 'Ciudad',                example: 'Santiago' },
@@ -62,8 +86,9 @@ const VARIABLES: { group: string; vars: VarDef[] }[] = [
   {
     group: 'Fechas',
     vars: [
-      { key: 'fechaIngreso',      label: 'Fecha de ingreso',      example: '15 de mayo de 2026' },
-      { key: 'fechaIngresoCorta', label: 'Fecha ingreso (corta)', example: '15/05/2026' },
+      { key: 'fechaIngreso',           label: 'Fecha de ingreso',       example: '15 de mayo de 2026' },
+      { key: 'fechaIngresoCorta',      label: 'Fecha ingreso (corta)',  example: '15/05/2026' },
+      { key: 'fechaTerminoContrato',   label: 'Término de contrato',    example: '15 de agosto de 2026' },
       { key: 'fechaActual',       label: 'Fecha actual',          example: '11 de mayo de 2026' },
       { key: 'año',               label: 'Año actual',            example: '2026' },
     ],
@@ -72,6 +97,8 @@ const VARIABLES: { group: string; vars: VarDef[] }[] = [
     group: 'Saludo y proceso',
     vars: [
       { key: 'saludoHorario',     label: 'Saludo horario',        example: 'buenos días' },
+      { key: 'estimado',          label: 'Estimado/a',            example: 'Estimado' },
+      { key: 'mentorAsignado',    label: 'Mentor asignado',       example: 'Carlos Mendoza' },
       { key: 'diaNumero',         label: 'Día del proceso',       example: '30' },
       { key: 'nombreHito',        label: 'Nombre del hito',       example: 'Foto corporativa' },
       { key: 'instruccion',       label: 'Instrucción',           example: 'Completa antes del viernes.' },
@@ -339,6 +366,14 @@ function TemplateEditor({
   const previewTpl = usePreviewEmailTemplate()
   const sendTest   = useSendTestEmail()
 
+  // Spell check
+  const errorsRef = useRef<SpellError[]>([])
+  const [popover, setPopover] = useState<{ x: number; y: number; error: SpellError } | null>(null)
+
+  const spellCheckExt = useMemo(() =>
+    createSpellCheckExtension((errors) => { errorsRef.current = errors }),
+  [])
+
   // TipTap editor
   const editor = useEditor({
     extensions: [
@@ -346,9 +381,25 @@ function TemplateEditor({
       Underline,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-blue-600 underline cursor-pointer' } }),
+      spellCheckExt,
     ],
     content: template.bodyHtml || '<p></p>',
     onFocus: () => setActiveField('body'),
+    editorProps: {
+      handleClick(view, pos, event) {
+        const target = event.target as HTMLElement
+        if (target.classList.contains('spell-error')) {
+          const error = errorsRef.current.find(e => e.from <= pos && pos < e.to)
+          if (error) {
+            const rect = target.getBoundingClientRect()
+            setPopover({ x: rect.left, y: rect.bottom + 4, error })
+            return true
+          }
+        }
+        setPopover(null)
+        return false
+      },
+    },
   })
 
   // Sync editor content when template changes (component is keyed so this mainly handles init)
@@ -393,11 +444,20 @@ function TemplateEditor({
   const handleSendTest = async () => {
     if (!testEmail.trim()) return
     try {
-      await sendTest.mutateAsync({ key: template.key, to: testEmail.trim() })
-      alert(`Email de prueba enviado a ${testEmail}`)
+      const rendered = await previewTpl.mutateAsync(template.key)
+      const plainBody = htmlToPlain(rendered.html)
+      const sig = localStorage.getItem('gdp_email_signature') ?? ''
+      const fullBody = sig.trim() ? `${plainBody}\n\n--\n${sig.trim()}` : plainBody
+      const params = new URLSearchParams({
+        view: 'cm', fs: '1',
+        to:   testEmail.trim(),
+        su:   rendered.subject ?? template.subject,
+        body: fullBody,
+      })
+      window.open(`https://mail.google.com/mail/?${params.toString()}`, '_blank')
       setShowTest(false)
     } catch (err: any) {
-      alert(err?.response?.data?.message ?? 'Error al enviar')
+      alert(err?.response?.data?.message ?? 'Error al preparar el correo')
     }
   }
 
@@ -474,10 +534,10 @@ function TemplateEditor({
           />
           <button
             onClick={handleSendTest}
-            disabled={sendTest.isPending || !testEmail.trim()}
+            disabled={previewTpl.isPending || !testEmail.trim()}
             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
           >
-            {sendTest.isPending ? 'Enviando…' : 'Enviar'}
+            {previewTpl.isPending ? 'Preparando…' : 'Abrir en Gmail'}
           </button>
         </div>
       )}
@@ -491,6 +551,8 @@ function TemplateEditor({
           value={subject}
           onChange={e => setSubject(e.target.value)}
           onFocus={() => setActiveField('subject')}
+          spellCheck
+          lang="es"
           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
@@ -574,6 +636,44 @@ function TemplateEditor({
           />
         </div>
       </div>
+
+      {/* Popover de sugerencias ortográficas */}
+      {popover && (
+        <div
+          style={{ position: 'fixed', left: popover.x, top: popover.y, zIndex: 9999 }}
+          className="bg-white border border-gray-200 rounded-lg shadow-xl py-1 min-w-[140px] max-w-[220px]"
+        >
+          {popover.error.suggestions.length > 0 ? (
+            popover.error.suggestions.map(s => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => {
+                  editor?.chain().focus()
+                    .setTextSelection({ from: popover.error.from, to: popover.error.to })
+                    .insertContent(s)
+                    .run()
+                  setPopover(null)
+                }}
+                className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700"
+              >
+                {s}
+              </button>
+            ))
+          ) : (
+            <p className="px-3 py-1.5 text-xs text-gray-400 italic">Sin sugerencias</p>
+          )}
+          <div className="border-t border-gray-100 mt-0.5">
+            <button
+              type="button"
+              onClick={() => setPopover(null)}
+              className="block w-full text-left px-3 py-1 text-xs text-gray-400 hover:bg-gray-50"
+            >
+              Ignorar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Preview modal */}
       {showPreview && (

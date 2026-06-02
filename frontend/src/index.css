@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+.spell-error {
+  text-decoration: underline wavy red;
+  text-decoration-skip-ink: none;
+  cursor: pointer;
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;

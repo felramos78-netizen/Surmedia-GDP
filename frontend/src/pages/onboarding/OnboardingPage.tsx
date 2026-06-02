@@ -17,12 +17,19 @@ import AutomatizacionTab from './tabs/AutomatizacionTab'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function parseDateLocal(s: string): Date {
+  const [y, m, d] = s.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
 function fmt(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
+  return parseDateLocal(dateStr).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function daysIn(startDate: string) {
-  return Math.floor((Date.now() - new Date(startDate).getTime()) / 86_400_000)
+  const start = parseDateLocal(startDate); start.setHours(0, 0, 0, 0)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  return Math.floor((today.getTime() - start.getTime()) / 86_400_000)
 }
 
 function calcProgress(process: OnboardingProcess) {
@@ -280,7 +287,9 @@ function NewProcessModal({ onClose, onCreated, processes }: {
     birthDate: '', gender: '', nationality: '',
     // Datos laborales adicionales
     jobFamily: '', contractType: '', companyStartDate: '', contractEndDate: '',
-    workSchedule: '', distribucionJornada: '', supervisorName: '', supervisorTitle: '',
+    workSchedule: '', distribucionJornada: '', supervisorName: '', supervisorTitle: '', supervisorEmail: '',
+    supervisorFirstName: '', supervisorLastName: '',
+    mentorAsignado: '',
     // Vínculo laboral
     vinculo: '', reemplazaA: '',
     // Previsión social
@@ -302,6 +311,9 @@ function NewProcessModal({ onClose, onCreated, processes }: {
   const [supervisorSearch,     setSupervisorSearch]     = useState('')
   const [supervisorOpen,       setSupervisorOpen]       = useState(false)
   const supervisorRef = React.useRef<HTMLDivElement>(null)
+  const [mentorSearch,         setMentorSearch]         = useState('')
+  const [mentorOpen,           setMentorOpen]           = useState(false)
+  const mentorRef = React.useRef<HTMLDivElement>(null)
 
   const { data: rawTemplate = [], isLoading: templateLoading, isError: templateError, refetch: refetchTemplate } = useTemplateTasks()
   const template = rawTemplate.filter(t => t.isActive)
@@ -315,10 +327,15 @@ function NewProcessModal({ onClose, onCreated, processes }: {
     supervisorSearch.length >= 2 ? { search: supervisorSearch, status: ['ACTIVE'] } : {}
   )
   const supervisorResults = supervisorSearch.length >= 2 ? (supervisorEmpData?.data ?? []).slice(0, 6) : []
+  const { data: mentorEmpData } = useEmployees(
+    mentorSearch.length >= 2 ? { search: mentorSearch, status: ['ACTIVE'] } : {}
+  )
+  const mentorResults = mentorSearch.length >= 2 ? (mentorEmpData?.data ?? []).slice(0, 6) : []
 
   React.useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (supervisorRef.current && !supervisorRef.current.contains(e.target as Node)) setSupervisorOpen(false)
+      if (mentorRef.current && !mentorRef.current.contains(e.target as Node)) setMentorOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -380,6 +397,7 @@ function NewProcessModal({ onClose, onCreated, processes }: {
       distribucionJornada: emp.distribucionJornada ?? '',
       supervisorName:     emp.supervisorName ?? '',
       supervisorTitle:    emp.supervisorTitle ?? '',
+      supervisorEmail:    '',
       vinculo:            emp.vinculo ?? '',
       reemplazaA:         emp.reemplazaA ?? '',
       afp:    emp.afp ?? '',
@@ -419,7 +437,8 @@ function NewProcessModal({ onClose, onCreated, processes }: {
       city: '', commune: '', direccionCalle: '', direccionNumero: '', direccionDepto: '', address: '',
       birthDate: '', gender: '', nationality: '',
       jobFamily: '', contractType: '', companyStartDate: '', contractEndDate: '',
-      workSchedule: '', distribucionJornada: '', supervisorName: '', supervisorTitle: '',
+      workSchedule: '', distribucionJornada: '', supervisorName: '', supervisorTitle: '', supervisorEmail: '',
+      supervisorFirstName: '', supervisorLastName: '', mentorAsignado: '',
       vinculo: '', reemplazaA: '',
       afp: '', isapre: '', banco: '', tipoCuenta: '', numeroCuenta: '',
     }))
@@ -457,7 +476,9 @@ function NewProcessModal({ onClose, onCreated, processes }: {
       ['nationality', form.nationality], ['jobFamily', form.jobFamily], ['contractType', form.contractType],
       ['companyStartDate', form.companyStartDate], ['contractEndDate', form.contractEndDate],
       ['workSchedule', form.workSchedule], ['distribucionJornada', form.distribucionJornada],
-      ['supervisorName', form.supervisorName], ['supervisorTitle', form.supervisorTitle],
+      ['supervisorName', form.supervisorName], ['supervisorTitle', form.supervisorTitle], ['supervisorEmail', form.supervisorEmail],
+      ['supervisorFirstName', form.supervisorFirstName], ['supervisorLastName', form.supervisorLastName],
+      ['mentorAsignado', form.mentorAsignado],
       ['vinculo', form.vinculo], ['reemplazaA', form.reemplazaA],
       ['afp', form.afp], ['isapre', form.isapre],
       ['banco', form.banco], ['tipoCuenta', form.tipoCuenta], ['numeroCuenta', form.numeroCuenta],
@@ -1105,7 +1126,7 @@ function NewProcessModal({ onClose, onCreated, processes }: {
                         onMouseDown={e => e.preventDefault()}
                         onClick={() => {
                           const fullName = `${emp.firstName} ${emp.lastName}`
-                          setForm(f => ({ ...f, supervisorName: fullName, supervisorTitle: emp.jobTitle ?? f.supervisorTitle }))
+                          setForm(f => ({ ...f, supervisorName: fullName, supervisorTitle: emp.jobTitle ?? f.supervisorTitle, supervisorEmail: emp.email ?? '', supervisorFirstName: emp.firstName ?? '', supervisorLastName: (emp.lastName ?? '').split(' ')[0] }))
                           setSupervisorSearch('')
                           setSupervisorOpen(false)
                         }}
@@ -1128,6 +1149,42 @@ function NewProcessModal({ onClose, onCreated, processes }: {
                 <input type="text" placeholder="Cargo del supervisor" value={form.supervisorTitle}
                   onChange={e => field('supervisorTitle', e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div ref={mentorRef} className="relative">
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">Mentor asignado</label>
+                <input
+                  type="text"
+                  placeholder="Buscar mentor por nombre..."
+                  value={form.mentorAsignado}
+                  onChange={e => { field('mentorAsignado', e.target.value); setMentorSearch(e.target.value); setMentorOpen(true) }}
+                  onFocus={() => setMentorOpen(true)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {mentorOpen && mentorResults.length > 0 && (
+                  <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                    {mentorResults.map((emp: any) => (
+                      <button
+                        key={emp.id}
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => {
+                          setForm(f => ({ ...f, mentorAsignado: `${emp.firstName} ${emp.lastName}` }))
+                          setMentorSearch('')
+                          setMentorOpen(false)
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-blue-50 text-left border-b border-gray-50 last:border-0"
+                      >
+                        <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold flex items-center justify-center flex-shrink-0 uppercase">
+                          {emp.firstName[0]}{emp.lastName[0]}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-gray-800 truncate">{emp.firstName} {emp.lastName}</div>
+                          <div className="text-[10px] text-gray-400 truncate">{emp.jobTitle ?? '—'}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Vínculo</label>

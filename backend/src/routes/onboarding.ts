@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { runTaskAutomation } from '../services/automation.service'
 import { getFormResponses, getSheetRowsByUrl, findRowByRut, mapRowToEmployee } from '../services/sheets.service'
-import { sendEmail, buildFromDbTemplate } from '../services/email.service'
+import { sendEmail, sendTestEmail, buildFromDbTemplate } from '../services/email.service'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads', 'documents')
 
@@ -657,6 +657,10 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       telefono:             '+56 9 8765 4321',
       jornada:              'Mensual 40.0 hrs. (L, M, M, J, V)',
       supervisor:           'María López González',
+      nombreSupervisor:     'María',
+      apellidoSupervisor:   'López',
+      emailJefatura:        'supervisor@surmedia.cl',
+      mentorAsignado:       'Carlos Mendoza',
       afp:                  'Habitat',
       isapre:               'Banmédica',
       ciudad:               'Santiago',
@@ -671,9 +675,11 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       tipoCentro:           'Directo',
       fechaIngreso:         '15 de mayo de 2026',
       fechaIngresoCorta:    '15/05/2026',
+      fechaTerminoContrato: '15 de agosto de 2026',
       fechaActual:          fmt(now),
       año:                  now.getFullYear().toString(),
       saludoHorario:        hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
+      estimado:             'Estimado',
       diaNumero:            '30',
       nombreHito:           'Foto individual corporativa',
       instruccion:          'Por favor realiza esta acción antes del viernes.',
@@ -698,8 +704,8 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     if (!tpl) return reply.status(404).send({ message: 'Template no encontrado' })
     const { subject, html } = buildFromDbTemplate(tpl, makeSampleVars({ collaboratorEmail: req.body.to, email: req.body.to }))
     try {
-      await sendEmail({ to: req.body.to, subject: `[PRUEBA] ${subject}`, html })
-      return reply.send({ data: { sent: true, to: req.body.to } })
+      const result = await sendTestEmail({ to: req.body.to, subject: `[PRUEBA] ${subject}`, html })
+      return reply.send({ data: { sent: true, to: req.body.to, previewUrl: result.previewUrl } })
     } catch (err: any) {
       return reply.status(500).send({ message: `Error al enviar: ${err.message}` })
     }
@@ -1363,6 +1369,10 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
           telefono:             process.collaboratorPhone ?? '',
           jornada:              cd.workSchedule ?? '',
           supervisor:           cd.supervisorName ?? '',
+          nombreSupervisor:     cd.supervisorFirstName as string || (cd.supervisorName as string ?? '').split(' ')[0] || '',
+          apellidoSupervisor:   cd.supervisorLastName as string || (cd.supervisorName as string ?? '').split(' ')[1] || '',
+          emailJefatura:        cd.supervisorEmail ?? '',
+          mentorAsignado:       cd.mentorAsignado ?? '',
           afp:                  cd.afp ?? '',
           isapre:               cd.isapre ?? '',
           ciudad:               cd.city ?? '',
@@ -1376,9 +1386,11 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
           centroTrabajo:        process.costCenter ?? '',
           fechaIngreso:         new Date(process.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
           fechaIngresoCorta:    new Date(process.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+          fechaTerminoContrato: cd.contractEndDate ? new Date((cd.contractEndDate as string) + 'T12:00:00.000Z').toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }) : '',
           fechaActual:          now.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
           año:                  now.getFullYear().toString(),
           saludoHorario:        hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
+          estimado:             (['F', 'female'].includes(cd.gender ?? '')) ? 'Estimada' : 'Estimado',
           diaNumero:            String(Math.max(0, Math.floor((Date.now() - new Date(process.startDate).getTime()) / 86_400_000))),
           nombreHito:           task.name,
           instruccion:          (task.automationConfig as any)?.instruction ?? '',
@@ -1467,7 +1479,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     if (req.body.costCenter !== undefined)                updateData.costCenter                = req.body.costCenter?.trim() || null
     if (req.body.notes !== undefined)                     updateData.notes                     = req.body.notes?.trim() || null
     if (req.body.startDate !== undefined) {
-      const start = new Date(req.body.startDate)
+      const start = new Date(req.body.startDate + 'T12:00:00.000Z')
       const expectedEndDate = new Date(start)
       expectedEndDate.setDate(expectedEndDate.getDate() + 90)
       updateData.startDate        = start
@@ -1533,7 +1545,9 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
-    const html = `<div style="font-family:sans-serif;font-size:15px;line-height:1.7;color:#374151;">${body.replace(/\n/g, '<br>')}</div>`
+    const html = body.trimStart().startsWith('<')
+      ? body
+      : `<div style="font-family:sans-serif;font-size:15px;line-height:1.7;color:#374151;">${body.replace(/\n/g, '<br>')}</div>`
     try {
       const sent = await sendEmail({ to, from: from || undefined, cc: cc || undefined, subject, html, attachments })
       await prisma.emailLog.create({

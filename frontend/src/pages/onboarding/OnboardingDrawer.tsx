@@ -100,9 +100,18 @@ const TOOLS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmt(d: string) { return new Date(d).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) }
-function fmtShort(d: string) { return new Date(d).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' }) }
-function daysIn(s: string) { return Math.floor((Date.now() - new Date(s).getTime()) / 864e5) }
+// Parsea solo la parte de fecha (YYYY-MM-DD) sin conversión de timezone
+function parseDateLocal(s: string): Date {
+  const [y, m, d] = s.slice(0, 10).split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+function fmt(d: string) { return parseDateLocal(d).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) }
+function fmtShort(d: string) { return parseDateLocal(d).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' }) }
+function daysIn(s: string) {
+  const start = parseDateLocal(s); start.setHours(0, 0, 0, 0)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  return Math.floor((today.getTime() - start.getTime()) / 864e5)
+}
 
 // ─── ICS helpers ──────────────────────────────────────────────────────────────
 
@@ -116,7 +125,7 @@ function icsDateOnly(d: Date) {
 }
 
 function buildProcessICS(process: OnboardingProcess): string {
-  const base = new Date(process.startDate); base.setHours(12, 0, 0, 0)
+  const base = parseDateLocal(process.startDate); base.setHours(12, 0, 0, 0)
   const now = icsDateFmt(new Date())
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Surmedia GDP//Onboarding//ES', 'CALSCALE:GREGORIAN']
   let idx = 0
@@ -241,33 +250,61 @@ function AutoBadge({ type }: { type: TaskAutomationType }) {
 // ─── Plantillas de correo ─────────────────────────────────────────────────────
 
 function buildProcessVars(proc: OnboardingProcess): Record<string, string> {
+  const cd    = (proc.collaboratorData as Record<string, any>) ?? {}
   const name  = proc.collaboratorName ?? ''
   const parts = name.split(' ')
   const start = proc.startDate
-    ? new Date(proc.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+    ? parseDateLocal(proc.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+    : ''
+  const startCorta = proc.startDate
+    ? parseDateLocal(proc.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : ''
   const hour = new Date().getHours()
+  const now  = new Date()
+  const empresa = proc.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : 'Surmedia Consultoría Spa'
   return {
     nombre:            name,
-    primerNombre:      parts[0] ?? '',
-    apellido:          parts.slice(1).join(' ') ?? '',
+    primerNombre:      cd.primerNombre    ?? parts[0] ?? '',
+    segundoNombre:     cd.segundoNombre   ?? '',
+    primerApellido:    cd.primerApellido  ?? '',
+    segundoApellido:   cd.segundoApellido ?? '',
+    apellido:          cd.primerApellido
+      ? [cd.primerApellido, cd.segundoApellido].filter(Boolean).join(' ')
+      : parts.slice(1).join(' '),
+    rut:               proc.collaboratorRut ?? '',
     cargo:             proc.collaboratorPosition ?? '',
+    empresa,
     email:             proc.collaboratorEmail ?? '',
     emailPersonal:     proc.collaboratorPersonalEmail ?? '',
-    empresa:           proc.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : 'Surmedia Consultoría Spa',
     telefono:          proc.collaboratorPhone ?? '',
+    jornada:           cd.workSchedule ?? '',
+    afp:               cd.afp ?? '',
+    isapre:            cd.isapre ?? '',
+    ciudad:            cd.city ?? '',
+    comuna:            cd.commune ?? '',
+    direccion:         cd.address ?? '',
+    vinculo:           cd.vinculo ?? '',
+    supervisor:        cd.supervisorName ?? '',
+    nombreSupervisor:  cd.supervisorFirstName ?? (cd.supervisorName as string ?? '').split(' ')[0] ?? '',
+    apellidoSupervisor: cd.supervisorLastName ?? (cd.supervisorName as string ?? '').split(' ')[1] ?? '',
+    emailJefatura:     cd.supervisorEmail ?? '',
+    mentorAsignado:    cd.mentorAsignado ?? '',
+    estimado:          (['F', 'female'].includes(cd.gender ?? '')) ? 'Estimada' : 'Estimado',
     centroTrabajo:     proc.costCenter ?? '',
     fechaIngreso:      start,
-    fechaIngresoCorta: proc.startDate ? new Date(proc.startDate).toLocaleDateString('es-CL') : '',
-    fechaActual:       new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
-    año:               new Date().getFullYear().toString(),
+    fechaIngresoCorta: startCorta,
+    fechaTerminoContrato: cd.contractEndDate
+      ? parseDateLocal(cd.contractEndDate as string).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+      : '',
+    fechaActual:       now.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
+    año:               now.getFullYear().toString(),
     saludoHorario:     hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
     // Legacy compat
     collaboratorName:     name,
     collaboratorPosition: proc.collaboratorPosition ?? '',
     collaboratorEmail:    proc.collaboratorEmail ?? '',
     startDate:            start,
-    legalEntity:          proc.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : 'Surmedia Consultoría Spa',
+    legalEntity:          empresa,
   }
 }
 
@@ -282,6 +319,12 @@ function htmlToPlain(html: string): string {
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/li>/gi, '\n')
+    // Preservar enlaces: <a href="url">texto</a> → "texto\nurl"
+    .replace(/<a\s+[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_, url, text) => {
+      const cleanText = text.replace(/<[^>]+>/g, '').trim()
+      if (!cleanText || cleanText === url) return url
+      return `${cleanText}\n${url}`
+    })
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -557,25 +600,16 @@ function EmailPreviewModal({
     }
   }
 
-  const responsable  = (task.assignments ?? []).find((a: any) => a.roleType === 'RESPONSABLE_HITO')
-  const defaultFrom  = (responsable as any)?.profile?.email ?? 'rrhh@surmedia.cl'
-
-  // Build initial values from DB template (with vars applied) or fallback
-  const initFrom = dbTemplate?.fromEmail
-    ? applyVars(dbTemplate.fromEmail, vars)
-    : defaultFrom
-  const initTo = dbTemplate?.toEmails?.length
-    ? applyVars((dbTemplate.toEmails).join(', '), vars)
-    : (process.collaboratorEmail ?? process.collaboratorPersonalEmail ?? '')
-  const initCc = dbTemplate?.ccEmails?.length
-    ? applyVars((dbTemplate.ccEmails).join(', '), vars)
-    : ''
+  // Build initial values strictly from DB template (vars resolved). Empty if not in template.
+  const initFrom    = applyVars(dbTemplate?.fromEmail ?? '', vars)
+  const initTo      = applyVars((dbTemplate?.toEmails as string[] ?? []).join(', '), vars)
+  const initCc      = applyVars((dbTemplate?.ccEmails as string[] ?? []).join(', '), vars)
   const initSubject = dbTemplate
     ? applyVars(dbTemplate.subject, vars)
     : `[Onboarding] ${task.name} — ${process.collaboratorName}`
   const initBody = dbTemplate
-    ? applyVars(htmlToPlain(dbTemplate.bodyHtml), vars)
-    : `Hola ${process.collaboratorName},\n\nEste correo corresponde al hito "${task.name}".\n\nEquipo RRHH Surmedia`
+    ? applyVars(dbTemplate.bodyHtml, vars)
+    : `<p>Hola ${process.collaboratorName},</p><p>Este correo corresponde al hito "${task.name}".</p><p><strong>Equipo RRHH Surmedia</strong></p>`
 
   const [from,      setFrom]    = useState(initFrom)
   const [to,        setTo]      = useState(initTo)
@@ -584,6 +618,8 @@ function EmailPreviewModal({
   const [cc,        setCc]      = useState(initCc)
   const [subject,   setSubject] = useState(initSubject)
   const [body,      setBody]    = useState(initBody)
+  const [signature, setSignature] = useState(() => localStorage.getItem('gdp_email_signature') ?? '')
+  const [showSig,   setShowSig]   = useState(true)
 
   React.useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -600,22 +636,14 @@ function EmailPreviewModal({
     )
   )
 
-  const handleSend = async () => {
-    try {
-      await sendProcessEmail.mutateAsync({
-        processId: process.id,
-        to,
-        from: from || undefined,
-        cc: cc || undefined,
-        subject,
-        body,
-        templateKey: templateKey || undefined,
-      })
-      onSent()
-      onClose()
-    } catch (err: any) {
-      alert(err?.response?.data?.message ?? 'Error al enviar el correo')
-    }
+  const handleOpenGmail = () => {
+    const plainBody = htmlToPlain(body)
+    const sig = showSig && signature.trim() ? `\n\n--\n${signature.trim()}` : ''
+    const params = new URLSearchParams({ view: 'cm', fs: '1', to, su: subject, body: plainBody + sig })
+    if (cc) params.set('cc', cc)
+    window.open(`https://mail.google.com/mail/?${params.toString()}`, '_blank')
+    onSent()
+    onClose()
   }
 
   return (
@@ -675,10 +703,20 @@ function EmailPreviewModal({
             <input value={subject} onChange={e => setSubject(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
+          {templateKey && !dbTemplate && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              La plantilla <code className="font-mono bg-amber-100 px-1 rounded">{templateKey}</code> no existe en el sistema. Se usa un mensaje genérico.
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Cuerpo</label>
-            <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            <div className="border border-gray-200 rounded-lg overflow-hidden" style={{ height: '260px' }}>
+              <iframe
+                srcDoc={`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.7;color:#374151;padding:12px 16px;margin:0;}a{color:#2563eb;}p{margin:0 0 10px;}ul,ol{padding-left:20px;}li{margin-bottom:4px;}strong{font-weight:600;}em{font-style:italic;}</style></head><body>${body}</body></html>`}
+                className="w-full h-full border-0"
+                title="Vista previa del correo"
+              />
+            </div>
           </div>
           {linkedDocs.length > 0 && (
             <div>
@@ -708,15 +746,36 @@ function EmailPreviewModal({
               </div>
             </div>
           )}
+
+          {/* Firma */}
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowSig(v => !v)}
+              className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 text-xs font-medium text-gray-600"
+            >
+              <span>Firma</span>
+              {showSig ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+            {showSig && (
+              <textarea
+                rows={3}
+                value={signature}
+                onChange={e => {
+                  setSignature(e.target.value)
+                  localStorage.setItem('gdp_email_signature', e.target.value)
+                }}
+                placeholder="Ej: María López&#10;RRHH Surmedia&#10;rrhh@surmedia.cl"
+                className="w-full px-3 py-2 text-sm text-gray-700 border-0 focus:outline-none resize-none placeholder:text-gray-300"
+              />
+            )}
+          </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
-          <button onClick={handleSend} disabled={!to || sendProcessEmail.isPending}
+          <button onClick={handleOpenGmail} disabled={!to}
             className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-            {sendProcessEmail.isPending
-              ? <><Loader2 size={13} className="animate-spin" /> Enviando…</>
-              : <><Mail size={13} /> Enviar correo</>
-            }
+            <Mail size={13} /> Abrir en Gmail
           </button>
         </div>
       </div>
@@ -874,7 +933,7 @@ function TaskRow({
   const result     = task.automationResult as Record<string, any> | null
 
   const base = useMemo(() => {
-    const d = new Date(process.startDate); d.setHours(12, 0, 0, 0); return d
+    const d = parseDateLocal(process.startDate); d.setHours(12, 0, 0, 0); return d
   }, [process.startDate])
   const taskDate = computeTaskDate(task, base)
   const todayMid = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })()
@@ -1458,9 +1517,13 @@ function EditProcessModal({ process, onClose }: { process: OnboardingProcess; on
     startDate:            process.startDate ? process.startDate.slice(0, 10) : '',
     notes:                process.notes ?? '',
     // Extra from collaboratorData
-    supervisorName:   cd.supervisorName   ?? '',
-    supervisorTitle:  cd.supervisorTitle  ?? '',
-    vinculo:          cd.vinculo          ?? '',
+    supervisorName:      cd.supervisorName      ?? '',
+    supervisorTitle:     cd.supervisorTitle     ?? '',
+    supervisorEmail:     cd.supervisorEmail     ?? '',
+    supervisorFirstName: cd.supervisorFirstName ?? '',
+    supervisorLastName:  cd.supervisorLastName  ?? '',
+    mentorAsignado:      cd.mentorAsignado      ?? '',
+    vinculo:             cd.vinculo             ?? '',
     contractType:     cd.contractType     ?? '',
     contractEndDate:  cd.contractEndDate  ?? '',
   })
@@ -1480,9 +1543,19 @@ function EditProcessModal({ process, onClose }: { process: OnboardingProcess; on
   )
   const supervisorResults = supervisorSearch.length >= 2 ? (supervisorEmpData?.data ?? []).slice(0, 6) : []
 
+  // Mentor search
+  const [mentorSearch, setMentorSearch] = useState('')
+  const [mentorOpen, setMentorOpen]     = useState(false)
+  const mentorRef = React.useRef<HTMLDivElement>(null)
+  const { data: mentorEmpData } = useEmployees(
+    mentorSearch.length >= 2 ? { search: mentorSearch, status: ['ACTIVE'] } : {}
+  )
+  const mentorResults = mentorSearch.length >= 2 ? (mentorEmpData?.data ?? []).slice(0, 6) : []
+
   React.useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (supervisorRef.current && !supervisorRef.current.contains(e.target as Node)) setSupervisorOpen(false)
+      if (mentorRef.current && !mentorRef.current.contains(e.target as Node)) setMentorOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -1494,8 +1567,12 @@ function EditProcessModal({ process, onClose }: { process: OnboardingProcess; on
     if (!form.collaboratorName.trim()) return
     try {
       const collaboratorData: Record<string, unknown> = {}
-      if (form.supervisorName)  collaboratorData.supervisorName  = form.supervisorName.trim()
-      if (form.supervisorTitle) collaboratorData.supervisorTitle = form.supervisorTitle.trim()
+      if (form.supervisorName)      collaboratorData.supervisorName      = form.supervisorName.trim()
+      if (form.supervisorTitle)     collaboratorData.supervisorTitle     = form.supervisorTitle.trim()
+      if (form.supervisorEmail)     collaboratorData.supervisorEmail     = form.supervisorEmail.trim()
+      if (form.supervisorFirstName) collaboratorData.supervisorFirstName = form.supervisorFirstName.trim()
+      if (form.supervisorLastName)  collaboratorData.supervisorLastName  = form.supervisorLastName.trim()
+      if (form.mentorAsignado)      collaboratorData.mentorAsignado      = form.mentorAsignado.trim()
       if (form.vinculo)         collaboratorData.vinculo         = form.vinculo
       if (form.contractType)    collaboratorData.contractType    = form.contractType
       if (form.contractEndDate) collaboratorData.contractEndDate = form.contractEndDate
@@ -1655,7 +1732,7 @@ function EditProcessModal({ process, onClose }: { process: OnboardingProcess; on
                   {supervisorResults.map((emp: any) => (
                     <button key={emp.id} type="button" onMouseDown={e => e.preventDefault()}
                       onClick={() => {
-                        setForm(f => ({ ...f, supervisorName: `${emp.firstName} ${emp.lastName}`, supervisorTitle: emp.jobTitle ?? f.supervisorTitle }))
+                        setForm(f => ({ ...f, supervisorName: `${emp.firstName} ${emp.lastName}`, supervisorTitle: emp.jobTitle ?? f.supervisorTitle, supervisorEmail: emp.email ?? '', supervisorFirstName: emp.firstName ?? '', supervisorLastName: (emp.lastName ?? '').split(' ')[0] }))
                         setSupervisorSearch(''); setSupervisorOpen(false)
                       }}
                       className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 text-left border-b border-gray-50 last:border-0">
@@ -1672,6 +1749,29 @@ function EditProcessModal({ process, onClose }: { process: OnboardingProcess; on
                 onChange={e => field('supervisorTitle', e.target.value)}
                 placeholder="Cargo del supervisor"
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div ref={mentorRef} className="relative col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Mentor asignado</label>
+              <input type="text" placeholder="Buscar mentor por nombre..."
+                value={form.mentorAsignado}
+                onChange={e => { field('mentorAsignado', e.target.value); setMentorSearch(e.target.value); setMentorOpen(true) }}
+                onFocus={() => setMentorOpen(true)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              {mentorOpen && mentorResults.length > 0 && (
+                <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-40 overflow-y-auto">
+                  {mentorResults.map((emp: any) => (
+                    <button key={emp.id} type="button" onMouseDown={e => e.preventDefault()}
+                      onClick={() => {
+                        setForm(f => ({ ...f, mentorAsignado: `${emp.firstName} ${emp.lastName}` }))
+                        setMentorSearch(''); setMentorOpen(false)
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 text-left border-b border-gray-50 last:border-0">
+                      <div className="text-xs font-medium text-gray-800">{emp.firstName} {emp.lastName}</div>
+                      <div className="text-[10px] text-gray-400 ml-2">{emp.jobTitle ?? '—'}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Notas internas</label>

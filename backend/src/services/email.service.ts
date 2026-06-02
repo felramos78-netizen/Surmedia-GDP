@@ -45,6 +45,31 @@ export async function sendEmail(payload: EmailPayload): Promise<{ messageId: str
   return { messageId: info.messageId }
 }
 
+// Envío de prueba — usa Ethereal como fallback cuando SMTP no está configurado
+export async function sendTestEmail(payload: EmailPayload): Promise<{ messageId: string; previewUrl?: string }> {
+  const host = process.env.SMTP_HOST
+  const user = process.env.SMTP_USER
+  const pass = process.env.SMTP_PASSWORD
+  const { from: payloadFrom, ...rest } = payload
+  const from = payloadFrom ?? process.env.EMAIL_FROM ?? `"RRHH Surmedia" <${user ?? 'rrhh@surmedia.cl'}>`
+
+  if (!host || !user || !pass) {
+    const testAccount = await nodemailer.createTestAccount()
+    const testTransporter = nodemailer.createTransport({
+      host: 'smtp.ethereal.email',
+      port: 587,
+      secure: false,
+      auth: { user: testAccount.user, pass: testAccount.pass },
+    })
+    const info = await testTransporter.sendMail({ from, ...rest })
+    return { messageId: info.messageId, previewUrl: nodemailer.getTestMessageUrl(info) || undefined }
+  }
+
+  const transporter = getTransporter()
+  const info = await transporter.sendMail({ from, ...rest })
+  return { messageId: info.messageId }
+}
+
 // ─── Templates ────────────────────────────────────────────────────────────────
 
 export interface TemplateVars {
