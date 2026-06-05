@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react'
 import { X, CheckCircle2, Circle, Clock, Building2, CalendarDays, AlertTriangle, Mail, Calendar, RefreshCw, Wrench, Globe, Plus, Trash2, Loader2, ChevronDown, ChevronUp, Pencil, Check, Save, FileText, ExternalLink, Users, ListChecks, Download, Play, Paperclip } from 'lucide-react'
-import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment, useVerifySheet, useApplySheetData, useEmailTemplates, useDocuments, useSendProcessEmail } from '@/hooks/useOnboarding'
+import { useOnboardingProcess, useUpdateTask, useAddTask, useDeleteTask, useRunAutomation, useUpdateOnboardingStatus, useUpdateOnboarding, useDeleteOnboarding, useAddTaskAssignment, useDeleteTaskAssignment, useVerifySheet, useApplySheetData, useEmailTemplates, useDocuments, useSendProcessEmail, useCreateProcessDraft } from '@/hooks/useOnboarding'
 import { useProfiles, ROLE_TYPES } from '@/hooks/useProfiles'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
 import { useJobTitles, useEmployees, useUpdateEmployee } from '@/hooks/useDotacion'
@@ -316,6 +316,8 @@ function applyVars(text: string, vars: Record<string, string>): string {
 
 function htmlToPlain(html: string): string {
   return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/li>/gi, '\n')
@@ -575,7 +577,8 @@ function EmailPreviewModal({
   )
 
   const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null)
-  const sendProcessEmail = useSendProcessEmail()
+  const sendProcessEmail    = useSendProcessEmail()
+  const createProcessDraft  = useCreateProcessDraft()
 
   const handleDownloadDoc = async (docId: string, docFileName: string) => {
     setDownloadingDocId(docId)
@@ -620,6 +623,9 @@ function EmailPreviewModal({
   const [body,      setBody]    = useState(initBody)
   const [signature, setSignature] = useState(() => localStorage.getItem('gdp_email_signature') ?? '')
   const [showSig,   setShowSig]   = useState(true)
+  const [sendError,   setSendError]   = useState('')
+  const [sent,        setSent]        = useState(false)
+  const [draftOpened, setDraftOpened] = useState(false)
 
   React.useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -636,14 +642,49 @@ function EmailPreviewModal({
     )
   )
 
-  const handleOpenGmail = () => {
-    const plainBody = htmlToPlain(body)
-    const sig = showSig && signature.trim() ? `\n\n--\n${signature.trim()}` : ''
-    const params = new URLSearchParams({ view: 'cm', fs: '1', to, su: subject, body: plainBody + sig })
-    if (cc) params.set('cc', cc)
-    window.open(`https://mail.google.com/mail/?${params.toString()}`, '_blank')
-    onSent()
-    onClose()
+  const handleOpenInGmail = async () => {
+    setSendError('')
+    const sigHtml = showSig && signature.trim()
+      ? `<br><br><span style="color:#666;font-size:13px;line-height:1.5;">--<br>${signature.trim().replace(/\n/g, '<br>')}</span>`
+      : ''
+    try {
+      const result = await createProcessDraft.mutateAsync({
+        processId: process.id,
+        to,
+        from:        from || undefined,
+        cc:          cc   || undefined,
+        subject,
+        body:        body + sigHtml,
+        templateKey: templateKey || undefined,
+      })
+      window.open(result.gmailUrl, '_blank')
+      setDraftOpened(true)
+    } catch (err: any) {
+      setSendError(err?.response?.data?.message ?? 'Error al crear el borrador')
+    }
+  }
+
+  const handleSend = async () => {
+    setSendError('')
+    const sigHtml = showSig && signature.trim()
+      ? `<br><br><span style="color:#666;font-size:13px;line-height:1.5;">--<br>${signature.trim().replace(/\n/g, '<br>')}</span>`
+      : ''
+    try {
+      await sendProcessEmail.mutateAsync({
+        processId: process.id,
+        to,
+        from:        from || undefined,
+        cc:          cc   || undefined,
+        subject,
+        body:        body + sigHtml,
+        templateKey: templateKey || undefined,
+      })
+      setSent(true)
+      onSent()
+      setTimeout(onClose, 1500)
+    } catch (err: any) {
+      setSendError(err?.response?.data?.message ?? 'Error al enviar el correo')
+    }
   }
 
   return (
@@ -771,12 +812,43 @@ function EmailPreviewModal({
             )}
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
-          <button onClick={handleOpenGmail} disabled={!to}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-            <Mail size={13} /> Abrir en Gmail
-          </button>
+        <div className="flex flex-col gap-2 px-6 py-4 border-t border-gray-100">
+          {sendError && (
+            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{sendError}</div>
+          )}
+          {sent && (
+            <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              <CheckCircle2 size={13} /> Correo enviado correctamente.
+            </div>
+          )}
+          {draftOpened && !sent && (
+            <div className="flex items-center gap-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+              <ExternalLink size={13} /> Borrador creado — búscalo en la carpeta Borradores de Gmail.
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2">
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
+              Cancelar
+            </button>
+            <button
+              onClick={handleOpenInGmail}
+              disabled={!to || createProcessDraft.isPending || sent}
+              className="px-4 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2"
+            >
+              {createProcessDraft.isPending
+                ? <><Loader2 size={13} className="animate-spin" /> Preparando…</>
+                : <><ExternalLink size={13} /> Abrir en Gmail</>}
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={!to || sendProcessEmail.isPending || sent}
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+            >
+              {sendProcessEmail.isPending
+                ? <><Loader2 size={13} className="animate-spin" /> Enviando…</>
+                : <><Mail size={13} /> Enviar</>}
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -10,7 +10,8 @@ const googleClient = new OAuth2Client(
 export function getGoogleAuthUrl(): string {
   return googleClient.generateAuthUrl({
     access_type: 'offline',
-    scope: ['openid', 'email', 'profile'],
+    prompt:       'consent',   // siempre devuelve refresh_token
+    scope: ['openid', 'email', 'profile', 'https://mail.google.com/'],
     hd: process.env.GOOGLE_DOMAIN ?? 'surmedia.cl',
   })
 }
@@ -61,21 +62,28 @@ export async function handleGoogleCallback(code: string, fastify: FastifyInstanc
     throw new AuthError('Error de base de datos', 'db_error')
   }
 
+  const refreshToken = tokens.refresh_token ?? undefined
+
   try {
     if (!user) {
       user = await fastify.prisma.user.create({
         data: {
-          email: payload.email,
-          name: payload.name ?? payload.email,
-          googleId: payload.sub,
-          avatarUrl: payload.picture,
-          role: 'EMPLOYEE',
+          email:             payload.email,
+          name:              payload.name ?? payload.email,
+          googleId:          payload.sub,
+          avatarUrl:         payload.picture,
+          role:              'EMPLOYEE',
+          googleRefreshToken: refreshToken,
         },
       })
-    } else if (!user.googleId) {
+    } else {
       user = await fastify.prisma.user.update({
         where: { id: user.id },
-        data: { googleId: payload.sub, avatarUrl: payload.picture },
+        data: {
+          googleId:  payload.sub,
+          avatarUrl: payload.picture,
+          ...(refreshToken ? { googleRefreshToken: refreshToken } : {}),
+        },
       })
     }
   } catch (err) {
@@ -85,7 +93,7 @@ export async function handleGoogleCallback(code: string, fastify: FastifyInstanc
 
   const token = fastify.jwt.sign(
     { userId: user.id, email: user.email, role: user.role },
-    { expiresIn: '8h' },
+    { expiresIn: '7d' },
   )
 
   return { user, token }

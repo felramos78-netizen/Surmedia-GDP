@@ -36,9 +36,10 @@ model User {
   name         String
   role         UserRole  @default(EMPLOYEE)
   avatarUrl    String?
-  googleId     String?   @unique
-  microsoftId  String?   @unique
-  passwordHash String?
+  googleId           String?   @unique
+  microsoftId        String?   @unique
+  passwordHash       String?
+  googleRefreshToken String?
   employee     Employee? @relation(fields: [employeeId], references: [id])
   employeeId   String?   @unique
   createdAt    DateTime  @default(now())

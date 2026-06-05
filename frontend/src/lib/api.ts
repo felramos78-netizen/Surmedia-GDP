@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { useAuthStore } from '@/store/auth'
 
 const api = axios.create({
   baseURL: '/api',
@@ -13,21 +14,9 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  async (error) => {
-    const original = error.config
-    if (error.response?.status === 401 && !original._retry) {
-      original._retry = true
-      try {
-        const { data } = await axios.post('/api/auth/login', {
-          email: 'framos@surmedia.cl',
-          password: '1234',
-        })
-        localStorage.setItem('gdp_token', data.token)
-        original.headers.Authorization = `Bearer ${data.token}`
-        return api(original)
-      } catch {
-        localStorage.removeItem('gdp_token')
-      }
+  (error) => {
+    if (error.response?.status === 401) {
+      useAuthStore.getState().logout()
     }
     return Promise.reject(error)
   },

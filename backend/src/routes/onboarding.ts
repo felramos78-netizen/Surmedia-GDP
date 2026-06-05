@@ -4,6 +4,7 @@ import path from 'path'
 import { runTaskAutomation } from '../services/automation.service'
 import { getFormResponses, getSheetRowsByUrl, findRowByRut, mapRowToEmployee } from '../services/sheets.service'
 import { sendEmail, sendTestEmail, buildFromDbTemplate } from '../services/email.service'
+import { sendEmailViaGmail, createGmailDraft, fetchGmailSignature } from '../services/gmail.service'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads', 'documents')
 
@@ -1548,14 +1549,114 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     const html = body.trimStart().startsWith('<')
       ? body
       : `<div style="font-family:sans-serif;font-size:15px;line-height:1.7;color:#374151;">${body.replace(/\n/g, '<br>')}</div>`
+
+    // Usar Gmail API si el usuario tiene refresh token; si no, caer a SMTP
+    const dbUser = req.user?.email
+      ? await prisma.user.findUnique({ where: { email: req.user.email }, select: { email: true, googleRefreshToken: true } }).catch(() => null)
+      : null
+    const senderEmail = from || dbUser?.email || process.env.SMTP_USER || 'rrhh@surmedia.cl'
+
     try {
-      const sent = await sendEmail({ to, from: from || undefined, cc: cc || undefined, subject, html, attachments })
+      let messageId: string
+      if (dbUser?.googleRefreshToken) {
+        const sent = await sendEmailViaGmail({
+          refreshToken: dbUser.googleRefreshToken,
+          from:         senderEmail,
+          to,
+          cc:           cc || undefined,
+          subject,
+          html,
+          attachments,
+        })
+        messageId = sent.messageId
+      } else {
+        const sent = await sendEmail({ to, from: senderEmail, cc: cc || undefined, subject, html, attachments })
+        messageId = sent.messageId
+      }
+
       await prisma.emailLog.create({
         data: { processId: process.id, toEmail: to, subject, status: 'SENT', templateKey: templateKey || null },
       }).catch(() => {})
-      return reply.send({ data: { sent: true, to, messageId: sent.messageId, attachmentCount: attachments.length } })
+      return reply.send({ data: { sent: true, to, messageId, attachmentCount: attachments.length } })
     } catch (err: any) {
       return reply.status(500).send({ message: `Error al enviar: ${err.message}` })
+    }
+  })
+
+  // POST /:id/create-draft — crear borrador en Gmail del usuario (no envía)
+  fastify.post<{
+    Params: { id: string }
+    Body: { to: string; from?: string; cc?: string; subject: string; body: string; templateKey?: string }
+  }>('/:id/create-draft', async (req, reply) => {
+    const { to, from, cc, subject, body, templateKey } = req.body
+    if (!to?.trim()) return reply.status(400).send({ message: 'to es requerido' })
+
+    const process = await prisma.onboardingProcess.findUnique({ where: { id: req.params.id } })
+    if (!process) return reply.status(404).send({ message: 'Proceso no encontrado' })
+
+    const dbUser = req.user?.email
+      ? await prisma.user.findUnique({ where: { email: req.user.email }, select: { email: true, googleRefreshToken: true } }).catch(() => null)
+      : null
+
+    if (!dbUser?.googleRefreshToken) {
+      return reply.status(400).send({ message: 'No hay cuenta de Google conectada. Ve a localhost:4000/api/auth/google para conectarla.' })
+    }
+
+    const html = body.trimStart().startsWith('<')
+      ? body
+      : `<div style="font-family:sans-serif;font-size:15px;line-height:1.7;color:#374151;">${body.replace(/\n/g, '<br>')}</div>`
+
+    const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
+    if (templateKey) {
+      const linkedDocs = await prisma.onboardingDocument.findMany({
+        where: { templateLinks: { some: { templateKey } }, isActive: true },
+        include: { templateLinks: { where: { templateKey } } },
+      }).catch(() => [])
+      const vars = buildSendVars(process)
+      for (const doc of linkedDocs) {
+        const fullPath = path.join(UPLOADS_DIR, doc.filePath)
+        if (!fs.existsSync(fullPath)) continue
+        try {
+          const rendered = renderDocx(fullPath, vars)
+          const sendAsPdf = (doc.templateLinks[0]?.sendAs ?? 'PDF') === 'PDF'
+          if (sendAsPdf) {
+            try {
+              const pdfBuffer = await docxToPdf(rendered)
+              attachments.push({ filename: doc.fileName.replace('.docx', '.pdf'), content: pdfBuffer, contentType: 'application/pdf' })
+            } catch {
+              attachments.push({ filename: doc.fileName, content: rendered, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+            }
+          } else {
+            attachments.push({ filename: doc.fileName, content: rendered, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+          }
+        } catch {}
+      }
+    }
+
+    try {
+      const senderEmail = from || dbUser.email
+
+      // Agregar firma de Gmail si el cuerpo no la incluye ya
+      const gmailSig = await fetchGmailSignature(dbUser.googleRefreshToken, senderEmail)
+      const htmlWithSig = gmailSig
+        ? `${html}<br><br><div class="gmail_signature">${gmailSig}</div>`
+        : html
+
+      const { messageId } = await createGmailDraft({
+        refreshToken: dbUser.googleRefreshToken,
+        from:         senderEmail,
+        to,
+        cc:           cc || undefined,
+        subject,
+        html:         htmlWithSig,
+        attachments,
+      })
+      const gmailUrl = messageId
+        ? `https://mail.google.com/mail/u/0/#drafts/${messageId}`
+        : 'https://mail.google.com/mail/u/0/#drafts'
+      return reply.send({ data: { messageId, gmailUrl } })
+    } catch (err: any) {
+      return reply.status(500).send({ message: `Error al crear borrador: ${err.message}` })
     }
   })
 

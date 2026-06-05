@@ -326,6 +326,23 @@ export function useSendProcessEmail() {
   })
 }
 
+export function useCreateProcessDraft() {
+  return useMutation({
+    mutationFn: async ({ processId, to, from, cc, subject, body, templateKey }: {
+      processId:   string
+      to:          string
+      from?:       string
+      cc?:         string
+      subject:     string
+      body:        string
+      templateKey?: string
+    }) => {
+      const { data } = await api.post(`/onboarding/${processId}/create-draft`, { to, from, cc, subject, body, templateKey })
+      return data.data as { draftId: string; gmailUrl: string }
+    },
+  })
+}
+
 // ─── Email Logs ───────────────────────────────────────────────────────────────
 
 export function useEmailLogs(processId?: string) {

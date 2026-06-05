@@ -52,11 +52,19 @@ async function fetchErrors(rawText: string): Promise<SpellError[]> {
     if (!resp.ok) return []
     const data = await resp.json()
 
-    return (data.matches ?? []).map((m: any) => ({
-      offset:      m.offset,
-      length:      m.length,
-      suggestions: (m.replacements ?? []).slice(0, 5).map((r: any) => r.value),
-    }))
+    return (data.matches ?? [])
+      .filter((m: any) =>
+        m.rule?.issueType === 'misspelling' ||
+        m.type?.typeName === 'UnknownWord'
+      )
+      .map((m: any) => ({
+        offset:      m.offset,
+        length:      m.length,
+        suggestions: (m.replacements ?? [])
+          .map((r: any) => r.value as string)
+          .filter((s: string) => !s.includes(' '))
+          .slice(0, 5),
+      }))
   } catch {
     return []
   }

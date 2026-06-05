@@ -4,6 +4,8 @@ import { createSpellCheckExtension, type SpellError } from '@/lib/spellcheck'
 
 function htmlToPlain(html: string): string {
   return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/li>/gi, '\n')
@@ -34,7 +36,7 @@ import {
 } from 'lucide-react'
 import {
   useEmailTemplates, useUpdateEmailTemplate, useCreateEmailTemplate, useDeleteEmailTemplate,
-  usePreviewEmailTemplate, useSendTestEmail, useEmailLogs,
+  usePreviewEmailTemplate, useEmailLogs,
   useTemplateTasks,
 } from '@/hooks/useOnboarding'
 import type { EmailTemplate, EmailLog } from '@/types'
@@ -364,7 +366,6 @@ function TemplateEditor({
 
   const updateTpl  = useUpdateEmailTemplate()
   const previewTpl = usePreviewEmailTemplate()
-  const sendTest   = useSendTestEmail()
 
   // Spell check
   const errorsRef = useRef<SpellError[]>([])
@@ -441,24 +442,20 @@ function TemplateEditor({
     setShowPreview(true)
   }
 
-  const handleSendTest = async () => {
+  const handleSendTest = () => {
     if (!testEmail.trim()) return
-    try {
-      const rendered = await previewTpl.mutateAsync(template.key)
-      const plainBody = htmlToPlain(rendered.html)
-      const sig = localStorage.getItem('gdp_email_signature') ?? ''
-      const fullBody = sig.trim() ? `${plainBody}\n\n--\n${sig.trim()}` : plainBody
-      const params = new URLSearchParams({
-        view: 'cm', fs: '1',
-        to:   testEmail.trim(),
-        su:   rendered.subject ?? template.subject,
-        body: fullBody,
-      })
-      window.open(`https://mail.google.com/mail/?${params.toString()}`, '_blank')
-      setShowTest(false)
-    } catch (err: any) {
-      alert(err?.response?.data?.message ?? 'Error al preparar el correo')
-    }
+    const sampleVars = Object.fromEntries(VARIABLES.flatMap(g => g.vars.map(v => [v.key, v.example])))
+    const applyV = (t: string) =>
+      t.replace(/\{\{(\w+)\}\}/g, (_, k) => sampleVars[k] ?? '')
+       .replace(/\{(\w+)\}/g, (_, k) => sampleVars[k] ?? '')
+    const bodyHtml      = applyV(editor?.getHTML() ?? template.bodyHtml)
+    const plainBody     = htmlToPlain(bodyHtml)
+    const resolvedSubj  = applyV(subject || template.subject)
+    const sig = localStorage.getItem('gdp_email_signature') ?? ''
+    const fullBody = sig.trim() ? `${plainBody}\n\n--\n${sig.trim()}` : plainBody
+    const params = new URLSearchParams({ view: 'cm', fs: '1', to: testEmail.trim(), su: resolvedSubj, body: fullBody })
+    window.open(`https://mail.google.com/mail/?${params.toString()}`, '_blank')
+    setShowTest(false)
   }
 
   const insertVar = (varKey: string) => {
@@ -534,10 +531,10 @@ function TemplateEditor({
           />
           <button
             onClick={handleSendTest}
-            disabled={previewTpl.isPending || !testEmail.trim()}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
+            disabled={!testEmail.trim()}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap"
           >
-            {previewTpl.isPending ? 'Preparando…' : 'Abrir en Gmail'}
+            Abrir en Gmail
           </button>
         </div>
       )}
