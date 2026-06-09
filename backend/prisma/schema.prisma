@@ -639,6 +639,36 @@ model EmailLog {
 }
 
 // ─────────────────────────────────────────────
+// Reglas de correo para eventos de Calendario
+// ─────────────────────────────────────────────
+
+enum CalendarEmailEventType {
+  CUMPLEANOS
+  ANIVERSARIO_LABORAL
+  RECONOCIMIENTO
+}
+
+model CalendarEmailRule {
+  id              String                 @id @default(uuid())
+  name            String
+  eventType       CalendarEmailEventType
+  fromProfileId   String?                // Perfil remitente ("De:")
+  subject         String
+  bodyHtml        String                 @db.Text
+  daysBeforeEvent Int                    @default(0)
+  sendTime        String                 @default("09:00") // HH:MM hora Chile
+  toColaborador   Boolean                @default(true)
+  toDirectEmails  Json                   @default("[]")    // Para: emails directos adicionales
+  ccProfileIds    Json                   @default("[]")    // CC: perfiles del sistema
+  ccCustomEmails  Json                   @default("[]")    // CC: emails adicionales
+  isActive        Boolean                @default(false)   // true = envío automático por SMTP
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@map("calendar_email_rules")
+}
+
+// ─────────────────────────────────────────────
 // Formularios de onboarding
 // ─────────────────────────────────────────────
 

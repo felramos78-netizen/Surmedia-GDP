@@ -15,6 +15,8 @@ import payrollRoutes from './routes/payroll'
 import workCenterRoutes from './routes/workCenters'
 import bukRoutes from './routes/buk'
 import calendarRoutes from './routes/calendar'
+import calendarEmailRoutes from './routes/calendarEmail'
+import { startCalendarEmailScheduler } from './services/calendarEmailScheduler'
 import smartRoutes from './routes/smart'
 import budgetRoutes from './routes/budget'
 import documentsRoutes from './routes/documents'
@@ -47,7 +49,8 @@ async function bootstrap() {
   await app.register(payrollRoutes,    { prefix: '/api/payroll' })
   await app.register(workCenterRoutes, { prefix: '/api/work-centers' })
   await app.register(bukRoutes,        { prefix: '/api/buk' })
-  await app.register(calendarRoutes,  { prefix: '/api/calendar' })
+  await app.register(calendarRoutes,      { prefix: '/api/calendar' })
+  await app.register(calendarEmailRoutes, { prefix: '/api/calendar/email-rules' })
   await app.register(smartRoutes,     { prefix: '/api/smart' })
   await app.register(budgetRoutes,    { prefix: '/api/budget' })
   await app.register(documentsRoutes, { prefix: '/api/onboarding' })
@@ -62,6 +65,8 @@ async function bootstrap() {
       return reply.status(500).send({ ok: false, error: e.message, code: e.code })
     }
   })
+
+  startCalendarEmailScheduler(app.prisma)
 
   const port = Number(process.env.PORT ?? 4000)
   await app.listen({ port, host: '0.0.0.0' })

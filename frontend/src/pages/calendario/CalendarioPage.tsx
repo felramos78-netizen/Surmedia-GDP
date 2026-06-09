@@ -1,7 +1,8 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, CalendarDays, X, CalendarPlus, ExternalLink, Check, ArrowRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CalendarDays, X, CalendarPlus, ExternalLink, Check, ArrowRight, Mail } from 'lucide-react'
 import api from '@/lib/api'
+import EmailRulesDrawer from './EmailRulesDrawer'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -32,7 +33,8 @@ const FILTER_GROUPS: FilterGroup[] = [
   { key: 'onboarding',  label: 'Onboarding',        color: '#8b5cf6', types: ['ONBOARDING', 'ONBOARDING_TASK'] },
   { key: 'contratos',   label: 'Venc. Contratos',   color: '#d97706', types: ['VENCIMIENTO'] },
   { key: 'relevantes',  label: 'Fechas Relevantes', color: '#0891b2', types: ['FECHA_RELEVANTE'] },
-  { key: 'cumpleanos',  label: 'Cumpleaños',        color: '#db2777', types: ['CUMPLEANOS'] },
+  { key: 'cumpleanos',   label: 'Cumpleaños',        color: '#db2777', types: ['CUMPLEANOS'] },
+  { key: 'aniversarios', label: 'Aniversarios',      color: '#7c3aed', types: ['ANIVERSARIO_LABORAL'] },
 ]
 
 const TYPE_LABELS: Record<string, string> = {
@@ -41,7 +43,7 @@ const TYPE_LABELS: Record<string, string> = {
   PERMISO: 'Permiso', OTRO: 'Otro', INGRESO: 'Ingreso', SALIDA: 'Salida',
   ONBOARDING: 'Hito onboarding', ONBOARDING_TASK: 'Tarea onboarding',
   VENCIMIENTO: 'Venc. contrato', FECHA_RELEVANTE: 'Fecha relevante',
-  CUMPLEANOS: 'Cumpleaños',
+  CUMPLEANOS: 'Cumpleaños', ANIVERSARIO_LABORAL: 'Aniversario laboral',
 }
 
 // ── Helpers de fecha ──────────────────────────────────────────────────────────
@@ -952,8 +954,9 @@ export default function CalendarioPage() {
   const [activeGroups, setActiveGroups] = useState<Set<string>>(
     () => new Set(FILTER_GROUPS.map(g => g.key)),
   )
-  const [selectedEvent, setSelectedEvent]     = useState<CalEvent | null>(null)
+  const [selectedEvent, setSelectedEvent]       = useState<CalEvent | null>(null)
   const [showProfileModal, setShowProfileModal] = useState(false)
+  const [showEmailRules, setShowEmailRules]     = useState(false)
   const [hiddenProcessIds, setHiddenProcessIds] = useState<Set<string>>(new Set())
 
   // Rango de consulta según la vista
@@ -1057,6 +1060,15 @@ export default function CalendarioPage() {
         )}
 
         <button
+          onClick={() => setShowEmailRules(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600"
+          title="Gestionar correos automáticos de cumpleaños y aniversarios"
+        >
+          <Mail size={15} />
+          <span className="hidden sm:inline">Correos</span>
+        </button>
+
+        <button
           onClick={() => setShowProfileModal(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600"
           title="Cargar eventos filtrados a Google Calendar de un perfil"
@@ -1123,6 +1135,11 @@ export default function CalendarioPage() {
           activeTypes={activeTypes}
           onClose={() => setShowProfileModal(false)}
         />
+      )}
+
+      {/* ── Drawer de correos automáticos ── */}
+      {showEmailRules && (
+        <EmailRulesDrawer onClose={() => setShowEmailRules(false)} />
       )}
     </div>
   )

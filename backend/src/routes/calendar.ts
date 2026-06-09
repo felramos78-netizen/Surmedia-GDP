@@ -199,7 +199,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
     // ── 7. Cumpleaños ─────────────────────────────────────────────────────────
     const birthEmps = await app.prisma.employee.findMany({
       where: { status: { in: ['ACTIVE', 'ON_LEAVE'] }, birthDate: { not: null } },
-      select: { id: true, firstName: true, lastName: true, birthDate: true },
+      select: { id: true, firstName: true, lastName: true, birthDate: true, email: true, jobTitle: true },
     })
     for (const emp of birthEmps) {
       if (!emp.birthDate) continue
@@ -213,7 +213,32 @@ export default async function calendarRoutes(app: FastifyInstance) {
             title: `${emp.firstName} ${emp.lastName}`,
             start: toDS(bdate), end: toDS(bdate),
             color: '#db2777',
-            meta: { employeeId: emp.id },
+            meta: { employeeId: emp.id, email: emp.email, jobTitle: emp.jobTitle },
+          })
+        }
+      }
+    }
+
+    // ── 8. Aniversarios laborales ─────────────────────────────────────────────
+    const annivEmps = await app.prisma.employee.findMany({
+      where: { status: { in: ['ACTIVE', 'ON_LEAVE'] } },
+      select: { id: true, firstName: true, lastName: true, startDate: true, email: true, jobTitle: true },
+    })
+    for (const emp of annivEmps) {
+      const am        = emp.startDate.getUTCMonth()
+      const ad        = emp.startDate.getUTCDate()
+      const startYear = emp.startDate.getUTCFullYear()
+      for (let y = sy; y <= ey; y++) {
+        if (y <= startYear) continue
+        const adate = new Date(Date.UTC(y, am, ad))
+        if (adate >= s && adate <= e) {
+          const years = y - startYear
+          ev.push({
+            id: `anniv-${emp.id}-${y}`, type: 'ANIVERSARIO_LABORAL',
+            title: `${emp.firstName} ${emp.lastName} · ${years} año${years !== 1 ? 's' : ''}`,
+            start: toDS(adate), end: toDS(adate),
+            color: '#7c3aed',
+            meta: { employeeId: emp.id, email: emp.email, jobTitle: emp.jobTitle, years },
           })
         }
       }
