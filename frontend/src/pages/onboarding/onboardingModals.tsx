@@ -2,7 +2,7 @@
 // de correo y creación de evento de Google Calendar. Extraído de OnboardingDrawer.tsx.
 import React, { useState, useRef } from 'react'
 import { X, AlertTriangle, Loader2, Check, CheckCircle2, ExternalLink, Mail, ChevronUp, ChevronDown, FileText, Paperclip, Download, Calendar, Pencil, Save, RotateCcw, Trash2 } from 'lucide-react'
-import { useVerifySheet, useApplySheetData, useUpdateTask, useEmailTemplates, useDocuments, useSendProcessEmail, useCreateProcessDraft, useDocumentHtml, useSaveEmailVersions } from '@/hooks/useOnboarding'
+import { useVerifySheet, useApplySheetData, useUpdateTask, useEmailTemplates, useDocuments, useSendProcessEmail, useCreateProcessDraft, useDocumentParagraphs, useSaveEmailVersions } from '@/hooks/useOnboarding'
 import { useProfiles } from '@/hooks/useProfiles'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import type { OnboardingTask, OnboardingProcess, EmailVersion, EmailVersionDoc } from '@/types'
@@ -243,7 +243,8 @@ export function EmailPreviewModal({
 
   const [selectedVersionId, setSelectedVersionId] = useState<string>('original')
   const [docFormats, setDocFormats] = useState<Record<string, 'WORD' | 'PDF'>>({})
-  const [docEdits,   setDocEdits]   = useState<Record<string, string>>({})
+  // Ediciones de texto por documento: docId → { índiceDePárrafo → textoNuevo }
+  const [docEdits,   setDocEdits]   = useState<Record<string, Record<string, string>>>({})
   const [editingDocId, setEditingDocId] = useState<string | null>(null)
   const [versionSaved, setVersionSaved] = useState(false)
 
@@ -332,22 +333,22 @@ export function EmailPreviewModal({
     const v = versions.find(x => x.id === id)
     if (!v) return
     setFrom(v.from || initFrom); setTo(v.to || initTo); setCc(v.cc ?? ''); setSubject(v.subject || initSubject); setBody(v.body || initBody)
-    const edits: Record<string, string> = {}
+    const edits: Record<string, Record<string, string>> = {}
     const fmts:  Record<string, 'WORD' | 'PDF'> = {}
     for (const d of linkedDocs) {
       const vd = v.documents?.[d.id]
-      if (vd?.html) edits[d.id] = vd.html
+      if (vd?.paragraphs && Object.keys(vd.paragraphs).length) edits[d.id] = vd.paragraphs
       fmts[d.id] = vd?.sendAs ?? defaultSendAs(d)
     }
     setDocEdits(edits); setDocFormats(fmts)
   }
 
   // Mapa de overrides de documentos para enviar/borrador.
-  const buildDocsPayload = (): Record<string, { html?: string; sendAs: 'WORD' | 'PDF' }> => {
-    const out: Record<string, { html?: string; sendAs: 'WORD' | 'PDF' }> = {}
+  const buildDocsPayload = (): Record<string, { paragraphs?: Record<string, string>; sendAs: 'WORD' | 'PDF' }> => {
+    const out: Record<string, { paragraphs?: Record<string, string>; sendAs: 'WORD' | 'PDF' }> = {}
     for (const doc of linkedDocs) {
-      const html = docEdits[doc.id]
-      out[doc.id] = { sendAs: docFormats[doc.id] ?? defaultSendAs(doc), ...(html ? { html } : {}) }
+      const edits = docEdits[doc.id]
+      out[doc.id] = { sendAs: docFormats[doc.id] ?? defaultSendAs(doc), ...(edits && Object.keys(edits).length ? { paragraphs: edits } : {}) }
     }
     return out
   }
@@ -355,7 +356,7 @@ export function EmailPreviewModal({
   const handleSaveVersion = async () => {
     const docs: Record<string, EmailVersionDoc> = {}
     for (const doc of linkedDocs) {
-      docs[doc.id] = { html: docEdits[doc.id] ?? '', sendAs: docFormats[doc.id] ?? defaultSendAs(doc), name: doc.name }
+      docs[doc.id] = { paragraphs: docEdits[doc.id] ?? {}, sendAs: docFormats[doc.id] ?? defaultSendAs(doc), name: doc.name }
     }
     const now = new Date().toISOString()
     const newVersion: EmailVersion = {
@@ -525,7 +526,7 @@ export function EmailPreviewModal({
                     <div className="flex items-center gap-2 min-w-0">
                       <FileText size={13} className="text-gray-400 flex-shrink-0" />
                       <span className="text-xs text-gray-700 truncate">{doc.name}</span>
-                      {docEdits[doc.id] && (
+                      {docEdits[doc.id] && Object.keys(docEdits[doc.id]).length > 0 && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0">editado</span>
                       )}
                     </div>
@@ -645,8 +646,8 @@ export function EmailPreviewModal({
         processId={process.id}
         docId={editingDocId}
         docName={(linkedDocs.find((d: any) => d.id === editingDocId)?.name) ?? 'Documento'}
-        initialHtml={docEdits[editingDocId]}
-        onSave={(html) => { const id = editingDocId; setDocEdits(prev => ({ ...prev, [id]: html })); setEditingDocId(null) }}
+        initialEdits={docEdits[editingDocId] ?? {}}
+        onSave={(edits) => { const id = editingDocId; setDocEdits(prev => ({ ...prev, [id]: edits })); setEditingDocId(null) }}
         onClose={() => setEditingDocId(null)}
       />
     )}
@@ -657,23 +658,37 @@ export function EmailPreviewModal({
 // ─── Modal editor de documento adjunto ───────────────────────────────────────
 
 function DocumentEditorModal({
-  processId, docId, docName, initialHtml, onSave, onClose,
+  processId, docId, docName, initialEdits, onSave, onClose,
 }: {
   processId: string
   docId: string
   docName: string
-  initialHtml?: string
-  onSave: (html: string) => void
+  initialEdits: Record<string, string>
+  onSave: (edits: Record<string, string>) => void
   onClose: () => void
 }) {
   useEscapeKey(onClose)
-  const { data, isLoading, isError } = useDocumentHtml(processId, docId)
-  const [html, setHtml] = useState<string | null>(initialHtml && initialHtml.trim() ? initialHtml : null)
+  const { data, isLoading, isError } = useDocumentParagraphs(processId, docId)
+  const original = data?.paragraphs ?? []
+  const [edits, setEdits] = useState<Record<string, string>>(initialEdits)
 
-  // Si no hay edición previa, sembrar el editor con el HTML original al cargar.
-  React.useEffect(() => {
-    if (html === null && data?.html != null) setHtml(data.html)
-  }, [data, html])
+  const valueFor = (i: number) => edits[String(i)] ?? original[i] ?? ''
+  const setPara = (i: number, text: string) => {
+    setEdits(prev => {
+      const next = { ...prev }
+      if (text === (original[i] ?? '')) delete next[String(i)]
+      else next[String(i)] = text
+      return next
+    })
+  }
+  const handleSave = () => {
+    // Conservar solo los párrafos que realmente difieren del original.
+    const clean: Record<string, string> = {}
+    for (const [k, v] of Object.entries(edits)) {
+      if (v !== (original[Number(k)] ?? '')) clean[k] = v
+    }
+    onSave(clean)
+  }
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4">
@@ -681,7 +696,7 @@ function DocumentEditorModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div>
             <h2 className="text-sm font-semibold text-gray-900">Editar documento</h2>
-            <p className="text-xs text-gray-400 mt-0.5">{data?.name ?? docName} · cambios solo para este correo</p>
+            <p className="text-xs text-gray-400 mt-0.5">{data?.name ?? docName} · solo texto · se conserva el formato (logo, estilos)</p>
           </div>
           <button onClick={onClose} aria-label="Cerrar" className="p-1.5 rounded-lg hover:bg-gray-100"><X size={15} /></button>
         </div>
@@ -699,13 +714,27 @@ function DocumentEditorModal({
             </div>
           )}
           {!isLoading && !isError && (
-            <RichTextEditor value={html ?? ''} onChange={setHtml} height={420} />
+            <div className="flex flex-col gap-2">
+              {original.map((text, i) => text.trim() === '' ? null : (
+                <div key={i} className="flex flex-col gap-0.5">
+                  <textarea
+                    value={valueFor(i)}
+                    onChange={e => setPara(i, e.target.value)}
+                    rows={Math.max(1, Math.ceil((valueFor(i).length || 1) / 90))}
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 resize-y ${edits[String(i)] !== undefined ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'}`}
+                  />
+                </div>
+              ))}
+              {original.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-8">El documento no tiene texto editable.</p>
+              )}
+            </div>
           )}
         </div>
 
         <div className="flex items-center justify-between gap-2 px-6 py-4 border-t border-gray-100">
           <button
-            onClick={() => { if (data?.html != null) setHtml(data.html) }}
+            onClick={() => setEdits({})}
             disabled={isLoading || isError}
             className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg disabled:opacity-50"
           >
@@ -714,7 +743,7 @@ function DocumentEditorModal({
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
             <button
-              onClick={() => onSave(html ?? '')}
+              onClick={handleSave}
               disabled={isLoading || isError}
               className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2"
             >

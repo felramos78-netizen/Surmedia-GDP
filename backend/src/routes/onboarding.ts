@@ -5,7 +5,7 @@ import { runTaskAutomation } from '../services/automation.service'
 import { getFormResponses, getSheetRowsByUrl, findRowByRut, mapRowToEmployee, getSheetHeadersByUrl, suggestColumnMappings, SHEET_TARGET_FIELDS } from '../services/sheets.service'
 import { sendEmail, sendTestEmail, buildFromDbTemplate } from '../services/email.service'
 import { sendEmailViaGmail, createGmailDraft, fetchGmailSignature, docxToPdfViaGoogleDrive } from '../services/gmail.service'
-import { examenesVar, beneficiosVar, tipoContratoVar, plazoContratoVar, stripRemovedParagraphs, stripSentinel, htmlToDocxBuffer } from '../services/docxTemplate'
+import { examenesVar, beneficiosVar, tipoContratoVar, plazoContratoVar, stripRemovedParagraphs, stripSentinel, extractParagraphs, applyParagraphEdits } from '../services/docxTemplate'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads', 'documents')
 
@@ -46,7 +46,7 @@ const DOCX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordpro
 async function buildEmailAttachments(
   linkedDocs: any[],
   vars: Record<string, string>,
-  documents: Record<string, { html?: string; sendAs?: string }> | undefined,
+  documents: Record<string, { paragraphs?: Record<string, string>; sendAs?: string }> | undefined,
   refreshToken?: string | null,
 ): Promise<Array<{ filename: string; content: Buffer; contentType: string }>> {
   const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
@@ -54,13 +54,17 @@ async function buildEmailAttachments(
     const override = documents?.[doc.id]
     const renderedName = stripSentinel(doc.name.replace(/\{\{([^{}]+)\}\}/g, (_: string, k: string) => vars[k.trim()] ?? '')).trim() || doc.name
 
+    const fullPath = path.join(UPLOADS_DIR, doc.filePath)
+    if (!fs.existsSync(fullPath)) continue
     let docxBuf: Buffer
-    if (override?.html) {
-      try { docxBuf = await htmlToDocxBuffer(override.html) } catch { continue }
-    } else {
-      const fullPath = path.join(UPLOADS_DIR, doc.filePath)
-      if (!fs.existsSync(fullPath)) continue
-      try { docxBuf = renderDocx(fullPath, vars) } catch { continue }
+    try { docxBuf = renderDocx(fullPath, vars) } catch { continue }
+
+    // Aplica solo las ediciones de texto del usuario, conservando todo el formato.
+    const edits = override?.paragraphs
+    if (edits && Object.keys(edits).length) {
+      const numEdits: Record<number, string> = {}
+      for (const [k, v] of Object.entries(edits)) numEdits[Number(k)] = v
+      try { docxBuf = applyParagraphEdits(docxBuf, numEdits) } catch { /* usa el render sin editar */ }
     }
 
     const sendAs = override?.sendAs ?? doc.templateLinks?.[0]?.sendAs ?? 'WORD'
@@ -1694,8 +1698,8 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: process })
   })
 
-  // GET /:id/documents/:docId/html — documento renderizado (variables aplicadas) como HTML editable
-  fastify.get<{ Params: { id: string; docId: string } }>('/:id/documents/:docId/html', async (req, reply) => {
+  // GET /:id/documents/:docId/paragraphs — párrafos de texto del documento renderizado (variables aplicadas)
+  fastify.get<{ Params: { id: string; docId: string } }>('/:id/documents/:docId/paragraphs', async (req, reply) => {
     const process = await prisma.onboardingProcess.findUnique({ where: { id: req.params.id } })
     if (!process) return reply.status(404).send({ message: 'Proceso no encontrado' })
 
@@ -1711,11 +1715,10 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
 
     const renderedName = stripSentinel(doc.name.replace(/\{\{([^{}]+)\}\}/g, (_: string, k: string) => vars[k.trim()] ?? '')).trim() || doc.name
     try {
-      const mammoth = require('mammoth')
-      const result = await mammoth.convertToHtml({ buffer: rendered })
-      return reply.send({ data: { html: result.value as string, name: renderedName } })
+      const paragraphs = extractParagraphs(rendered)
+      return reply.send({ data: { paragraphs, name: renderedName } })
     } catch {
-      return reply.status(422).send({ message: 'Error al convertir el documento a HTML' })
+      return reply.status(422).send({ message: 'Error al leer el documento' })
     }
   })
 

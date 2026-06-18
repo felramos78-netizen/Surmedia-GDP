@@ -80,7 +80,11 @@
       "Bash(echo \"EXIT=$?\")",
       "Bash(ls node_modules/.bin/playwright)",
       "Bash(ls node_modules/playwright/.local-browsers)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git branch *)",
+      "Bash(npm audit *)",
+      "Bash(echo \"TSC_EXIT=$?\")"
     ]
   }
 }

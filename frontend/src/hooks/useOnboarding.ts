@@ -309,7 +309,7 @@ export function useSendTestEmail() {
   })
 }
 
-type DocumentOverrides = Record<string, { html?: string; sendAs?: 'WORD' | 'PDF' }>
+type DocumentOverrides = Record<string, { paragraphs?: Record<string, string>; sendAs?: 'WORD' | 'PDF' }>
 
 export function useSendProcessEmail() {
   return useMutation({
@@ -347,13 +347,13 @@ export function useCreateProcessDraft() {
   })
 }
 
-// HTML editable de un documento renderizado con las variables del proceso.
-export function useDocumentHtml(processId: string, docId: string | null) {
+// Párrafos de texto de un documento renderizado con las variables del proceso.
+export function useDocumentParagraphs(processId: string, docId: string | null) {
   return useQuery({
-    queryKey: ['docHtml', processId, docId],
+    queryKey: ['docParagraphs', processId, docId],
     queryFn: async () => {
-      const { data } = await api.get(`/onboarding/${processId}/documents/${docId}/html`)
-      return data.data as { html: string; name: string }
+      const { data } = await api.get(`/onboarding/${processId}/documents/${docId}/paragraphs`)
+      return data.data as { paragraphs: string[]; name: string }
     },
     enabled: !!processId && !!docId,
     staleTime: 0,

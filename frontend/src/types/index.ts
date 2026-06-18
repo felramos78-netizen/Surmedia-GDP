@@ -254,9 +254,10 @@ export interface OnboardingTask {
 }
 
 export interface EmailVersionDoc {
-  html:   string
-  sendAs: 'WORD' | 'PDF'
-  name:   string
+  // Ediciones de texto por índice de párrafo (solo los párrafos modificados).
+  paragraphs: Record<string, string>
+  sendAs:     'WORD' | 'PDF'
+  name:       string
 }
 
 export interface EmailVersion {
