@@ -16,7 +16,7 @@ const ENTITY_LABEL: Record<LegalEntity, string> = {
   SURMEDIA_CONSULTORIA:    'Consultoría',
 }
 const ENTITY_COLOR: Record<LegalEntity, string> = {
-  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+  COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
 const CONTRACT_LABEL: Record<string, string> = {
@@ -75,7 +75,7 @@ function empToForm(emp: Employee): FormData {
 
 // ─── Componentes de campo ─────────────────────────────────────────────────────
 
-const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white'
+const inputCls = 'w-full border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white'
 const labelCls = 'block text-xs text-gray-400 mb-1'
 
 function DisplayField({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value?: string | null }) {
@@ -251,7 +251,7 @@ function DatosTab({ emp, editing, form, setForm }: {
     <div className="space-y-5">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Datos personales */}
-        <div className="bg-white rounded-xl border border-blue-100 p-5 space-y-3">
+        <div className="bg-white rounded-xl border border-brand-100 p-5 space-y-3">
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos personales</h3>
           <TextField label="RUT" field="rut" form={form} setForm={setForm} />
           <div className="grid grid-cols-2 gap-3">
@@ -278,7 +278,7 @@ function DatosTab({ emp, editing, form, setForm }: {
         </div>
 
         {/* Datos laborales */}
-        <div className="bg-white rounded-xl border border-blue-100 p-5 space-y-3">
+        <div className="bg-white rounded-xl border border-brand-100 p-5 space-y-3">
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos laborales</h3>
           <SelectField label="Estado" field="status" form={form} setForm={setForm} options={[
             { value: 'ACTIVE',    label: 'Activo' },
@@ -310,7 +310,7 @@ function DatosTab({ emp, editing, form, setForm }: {
       </div>
 
       {/* Datos bancarios */}
-      <div className="bg-white rounded-xl border border-blue-100 p-5 space-y-3">
+      <div className="bg-white rounded-xl border border-brand-100 p-5 space-y-3">
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-4">Datos bancarios</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <TextField label="Banco"          field="banco"        form={form} setForm={setForm} />
@@ -350,7 +350,7 @@ function ContractCard({ contract, empId }: { contract: Contract; empId: string }
           <select
             value={type}
             onChange={e => setType(e.target.value as Contract['type'])}
-            className="border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            className="border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
           >
             {Object.entries(CONTRACT_LABEL).map(([v, l]) => (
               <option key={v} value={v}>{l}</option>
@@ -370,7 +370,7 @@ function ContractCard({ contract, empId }: { contract: Contract; empId: string }
           </span>
           {editing ? (
             <>
-              <button onClick={save} disabled={update.isPending} className="text-xs px-2 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              <button onClick={save} disabled={update.isPending} className="text-xs px-2 py-1 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors">
                 {update.isPending ? '…' : 'Guardar'}
               </button>
               <button onClick={cancel} className="text-xs px-2 py-1 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors">
@@ -378,7 +378,7 @@ function ContractCard({ contract, empId }: { contract: Contract; empId: string }
               </button>
             </>
           ) : (
-            <button onClick={() => setEditing(true)} className="text-xs text-blue-600 hover:text-blue-800 transition-colors">
+            <button onClick={() => setEditing(true)} aria-label="Editar" className="text-xs text-brand-600 hover:text-brand-800 transition-colors">
               <Pencil size={13} />
             </button>
           )}
@@ -397,7 +397,7 @@ function ContractCard({ contract, empId }: { contract: Contract; empId: string }
               type="date"
               value={endDate}
               onChange={e => setEndDate(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white mt-1"
+              className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white mt-1"
             />
           </div>
         ) : contract.endDate ? (
@@ -448,7 +448,7 @@ function PayrollMonthCard({ entry }: {
   const totalBonuses  = bonusItems.reduce((s, i) => s + i.amount, 0)
   const totalOvertime = overtimeItems.reduce((s, i) => s + i.amount, 0)
   const entityColor: Record<string, string> = {
-    COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+    COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
     SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
   }
   const entityShort: Record<string, string> = {
@@ -472,7 +472,7 @@ function PayrollMonthCard({ entry }: {
         </div>
         <div className="flex gap-3 mt-1 text-xs text-gray-400">
           <span>Bruto: {formatCLP(entry.grossSalary)}</span>
-          {totalBonuses  > 0 && <span className="text-blue-500">Bonos: +{formatCLP(totalBonuses)}</span>}
+          {totalBonuses  > 0 && <span className="text-brand-500">Bonos: +{formatCLP(totalBonuses)}</span>}
           {totalOvertime > 0 && <span className="text-amber-500">HH.EE.: +{formatCLP(totalOvertime)}</span>}
         </div>
       </button>
@@ -491,7 +491,7 @@ function PayrollMonthCard({ entry }: {
           </div>
           {bonusItems.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-blue-600 mb-2">Bonos — {formatCLP(totalBonuses)}</p>
+              <p className="text-xs font-semibold text-brand-600 mb-2">Bonos — {formatCLP(totalBonuses)}</p>
               <div className="space-y-1">
                 {bonusItems.map((item, i) => (
                   <div key={i} className="flex justify-between text-xs">
@@ -586,7 +586,7 @@ function CentrosTab({ emp }: { emp: Employee }) {
               {!isAdding && available.length > 0 && (
                 <button
                   onClick={() => { setAddingFor(entity); setSelectedCenter('') }}
-                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                  className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-medium transition-colors"
                 >
                   <Plus size={13} />Agregar
                 </button>
@@ -613,6 +613,7 @@ function CentrosTab({ emp }: { emp: Employee }) {
                     disabled={unassign.isPending}
                     className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
                     title="Quitar"
+                    aria-label="Quitar"
                   >
                     <X size={15} />
                   </button>
@@ -626,7 +627,7 @@ function CentrosTab({ emp }: { emp: Employee }) {
                   autoFocus
                   value={selectedCenter}
                   onChange={e => setSelectedCenter(e.target.value)}
-                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
                   <option value="">Seleccionar centro…</option>
                   {available.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -634,12 +635,14 @@ function CentrosTab({ emp }: { emp: Employee }) {
                 <button
                   onClick={() => handleAssign(entity)}
                   disabled={!selectedCenter || assign.isPending}
-                  className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  aria-label="Confirmar"
+                  className="px-3 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50 transition-colors"
                 >
                   <Check size={15} />
                 </button>
                 <button
                   onClick={() => { setAddingFor(null); setSelectedCenter('') }}
+                  aria-label="Cancelar"
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 text-gray-400 transition-colors"
                 >
                   <X size={15} />
@@ -671,7 +674,7 @@ export default function ColaboradorDetallePage() {
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-64">
-      <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
     </div>
   )
   if (!emp) return <div className="p-8 text-center text-gray-400">Colaborador no encontrado.</div>
@@ -721,18 +724,18 @@ export default function ColaboradorDetallePage() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Cabecera */}
-      <div className={`bg-white border-b sticky top-0 z-10 transition-colors ${editing ? 'border-blue-200' : 'border-gray-200'}`}>
+      <div className={`bg-white border-b sticky top-0 z-10 transition-colors ${editing ? 'border-brand-200' : 'border-gray-200'}`}>
         <div className="max-w-5xl mx-auto px-6">
           <button
             onClick={() => navigate('/colaboradores')}
-            className="flex items-center gap-1.5 py-3 text-sm text-gray-500 hover:text-blue-600 transition-colors"
+            className="flex items-center gap-1.5 py-3 text-sm text-gray-500 hover:text-brand-600 transition-colors"
           >
             <ArrowLeft size={15} />
             Colaboradores
           </button>
 
           <div className="flex items-center gap-5 pb-5">
-            <div className="w-14 h-14 rounded-full bg-blue-600 text-white text-xl font-bold flex items-center justify-center flex-shrink-0">
+            <div className="w-14 h-14 rounded-full bg-brand-600 text-white text-xl font-bold flex items-center justify-center flex-shrink-0">
               {initials}
             </div>
             <div className="flex-1 min-w-0">
@@ -750,7 +753,7 @@ export default function ColaboradorDetallePage() {
                 }`}>
                   {editing ? (STATUS_CONFIG[form.status as string]?.label ?? status.label) : status.label}
                 </span>
-                {editing && <span className="text-xs text-blue-600 font-medium">Modo edición</span>}
+                {editing && <span className="text-xs text-brand-600 font-medium">Modo edición</span>}
               </div>
               <p className="text-sm text-gray-500 mt-0.5">
                 {editing ? (form.jobTitle || '—') : (emp.jobTitle ?? emp.jobFamily ?? 'Sin cargo asignado')}
@@ -787,6 +790,7 @@ export default function ColaboradorDetallePage() {
                   ) : (
                     <button
                       onClick={() => setConfirmDelete(true)}
+                      aria-label="Eliminar"
                       className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-red-200 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
                     >
                       <Trash2 size={14} />
@@ -812,7 +816,7 @@ export default function ColaboradorDetallePage() {
                   <button
                     onClick={saveEdit}
                     disabled={update.isPending}
-                    className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
                   >
                     <Check size={14} />
                     {update.isPending ? 'Guardando…' : 'Guardar'}
@@ -835,7 +839,7 @@ export default function ColaboradorDetallePage() {
                 onClick={() => { setTab(t); if (t !== 'Datos') setEditing(false) }}
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   tab === t
-                    ? 'border-blue-600 text-blue-700'
+                    ? 'border-brand-600 text-brand-700'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -1026,7 +1030,7 @@ export default function ColaboradorDetallePage() {
                       </div>
                       <div className="grid grid-cols-4 gap-4">
                         {[
-                          { label: 'Legales', value: vb.saldoLegal, color: 'text-blue-600' },
+                          { label: 'Legales', value: vb.saldoLegal, color: 'text-brand-600' },
                           { label: 'Progresivas', value: vb.saldoProgresivas, color: 'text-indigo-600' },
                           { label: 'Administrativos', value: vb.saldoAdministrativos, color: 'text-purple-600' },
                           { label: 'Total saldo', value: vb.saldoLegal + vb.saldoProgresivas + vb.saldoAdministrativos, color: 'text-gray-900' },

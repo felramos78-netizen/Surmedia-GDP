@@ -250,6 +250,26 @@ export interface OnboardingTask {
   completedNote?:   string | null
   subTasks?:        SubTaskInstance[]
   assignments?:     TaskAssignment[]
+  emailVersions?:   EmailVersion[] | null
+}
+
+export interface EmailVersionDoc {
+  html:   string
+  sendAs: 'WORD' | 'PDF'
+  name:   string
+}
+
+export interface EmailVersion {
+  id:        string
+  name:      string
+  createdAt: string
+  updatedAt: string
+  from:      string
+  to:        string
+  cc:        string
+  subject:   string
+  body:      string
+  documents: Record<string, EmailVersionDoc>
 }
 
 export interface OnboardingProcess {

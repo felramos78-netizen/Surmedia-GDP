@@ -2,7 +2,7 @@ import { Users, FileText, UserPlus, Calendar } from 'lucide-react'
 import { useAuthStore } from '@/store/auth'
 
 const stats = [
-  { label: 'Colaboradores activos', value: '—', icon: Users, color: 'text-blue-600 bg-blue-50' },
+  { label: 'Colaboradores activos', value: '—', icon: Users, color: 'text-brand-600 bg-brand-50' },
   { label: 'Contratos por vencer', value: '—', icon: FileText, color: 'text-amber-600 bg-amber-50' },
   { label: 'Procesos activos', value: '—', icon: UserPlus, color: 'text-green-600 bg-green-50' },
   { label: 'Solicitudes pendientes', value: '—', icon: Calendar, color: 'text-purple-600 bg-purple-50' },

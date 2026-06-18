@@ -23,8 +23,8 @@ function toDS(d: Date): string {
 function interpolate(template: string, vars: Record<string, string>): string {
   const lv = Object.fromEntries(Object.entries(vars).map(([k, v]) => [k.toLowerCase(), v]))
   return template
-    .replace(/\{\{(\w+)\}\}/g, (_, k) => lv[k.toLowerCase()] ?? '')
-    .replace(/\{(\w+)\}/g, (_, k) => lv[k.toLowerCase()] ?? '')
+    .replace(/\{\{([\wáéíóúÁÉÍÓÚñÑ]+)\}\}/g, (_, k) => lv[k.toLowerCase()] ?? '')
+    .replace(/\{([\wáéíóúÁÉÍÓÚñÑ]+)\}/g, (_, k) => lv[k.toLowerCase()] ?? '')
 }
 
 function htmlToText(html: string): string {

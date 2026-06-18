@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { createSpellCheckExtension, type SpellError } from '@/lib/spellcheck'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 
 function htmlToPlain(html: string): string {
   return html
@@ -61,7 +62,7 @@ const VARIABLES: { group: string; vars: VarDef[] }[] = [
       { key: 'email',             label: 'Email corporativo',     example: 'juan@surmedia.cl' },
       { key: 'emailPersonal',     label: 'Email personal',        example: 'juan@gmail.com' },
       { key: 'telefono',          label: 'Teléfono',              example: '+56 9 8765 4321' },
-      { key: 'jornada',           label: 'Jornada laboral',       example: 'Mensual 40.0 hrs.' },
+      { key: 'jornada',           label: 'Jornada laboral',       example: 'lunes a viernes' },
       { key: 'supervisor',          label: 'Supervisor (nombre completo)', example: 'María López' },
       { key: 'nombreSupervisor',   label: 'Primer nombre supervisor',     example: 'María' },
       { key: 'apellidoSupervisor', label: 'Primer apellido supervisor',   example: 'López' },
@@ -106,6 +107,20 @@ const VARIABLES: { group: string; vars: VarDef[] }[] = [
       { key: 'instruccion',       label: 'Instrucción',           example: 'Completa antes del viernes.' },
     ],
   },
+  {
+    group: 'Contrato y oferta',
+    vars: [
+      { key: 'razónsocial',         label: 'Razón social',                    example: 'Comunicaciones Surmedia Spa' },
+      { key: 'fechaActuallarga',    label: 'Fecha actual (larga)',             example: '15 de junio de 2026' },
+      { key: 'tipoJornada',         label: 'Tipo de jornada (texto)',          example: 'jornada ordinaria de 40 horas semanales' },
+      { key: 'horario',             label: 'Horario de trabajo',              example: 'Lunes a viernes de 9:00 a 18:15 horas con 45 minutos de colación' },
+      { key: 'modalidad',           label: 'Modalidad de trabajo',            example: 'Modalidad de trabajo híbrida' },
+      { key: 'sueldoLiquidolargo',   label: 'Sueldo líquido (texto)',          example: '$1.200.000 líquidos mensuales.' },
+      { key: 'sueldoLíquidolargo',  label: 'Sueldo líquido (con acento)',     example: '$1.200.000 líquidos mensuales.' },
+      { key: 'beneficios',          label: 'Beneficios',                      example: 'Seguro de salud complementario, día libre de cumpleaños' },
+      { key: 'oficina',             label: 'Dirección de oficina',             example: 'Av. Las Condes 7700, oficina 403B' },
+    ],
+  },
 ]
 
 // ─── TipTap Toolbar ───────────────────────────────────────────────────────────
@@ -122,7 +137,7 @@ function ToolbarBtn({
       title={title}
       className={`p-1.5 rounded text-[13px] transition-colors ${
         active
-          ? 'bg-blue-100 text-blue-700'
+          ? 'bg-brand-100 text-brand-700'
           : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
       }`}
     >
@@ -134,6 +149,7 @@ function ToolbarBtn({
 // ─── Modal de insertar enlace ──────────────────────────────────────────────────
 
 function LinkModal({ editor, onClose }: { editor: ReturnType<typeof useEditor>; onClose: () => void }) {
+  useEscapeKey(onClose)
   const hasSelection = editor ? !editor.state.selection.empty : false
   const currentHref = editor?.isActive('link') ? editor.getAttributes('link').href ?? '' : ''
   const [url, setUrl]     = useState(currentHref)
@@ -162,7 +178,7 @@ function LinkModal({ editor, onClose }: { editor: ReturnType<typeof useEditor>; 
       <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-sm">
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-900">Insertar enlace</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-400"><X size={14} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="p-1 rounded hover:bg-gray-100 text-gray-400"><X size={14} /></button>
         </div>
         <div className="px-5 py-4 space-y-3">
           {!hasSelection && (
@@ -175,7 +191,7 @@ function LinkModal({ editor, onClose }: { editor: ReturnType<typeof useEditor>; 
                 value={label}
                 onChange={e => setLabel(e.target.value)}
                 placeholder="Ej: Formulario de datos personales"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
           )}
@@ -189,7 +205,7 @@ function LinkModal({ editor, onClose }: { editor: ReturnType<typeof useEditor>; 
               onChange={e => setUrl(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleSave() }}
               placeholder="Ej: docs.google.com/forms/..."
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
             <p className="text-[10px] text-gray-400 mt-1">No es necesario incluir https:// — se agrega automáticamente.</p>
           </div>
@@ -207,7 +223,7 @@ function LinkModal({ editor, onClose }: { editor: ReturnType<typeof useEditor>; 
             <button
               onClick={handleSave}
               disabled={!url.trim()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
             >
               <LinkIcon size={12} /> Insertar
             </button>
@@ -270,6 +286,7 @@ function RichToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
 // ─── Modal nueva plantilla ────────────────────────────────────────────────────
 
 function NewTemplateModal({ onClose }: { onClose: () => void }) {
+  useEscapeKey(onClose)
   const [name,    setName]    = useState('')
   const [key,     setKey]     = useState('')
   const [keyTouched, setKeyTouched] = useState(false)
@@ -298,7 +315,7 @@ function NewTemplateModal({ onClose }: { onClose: () => void }) {
       <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="text-sm font-semibold text-gray-900">Nueva plantilla de correo</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={15} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={15} /></button>
         </div>
         <div className="px-5 py-4 space-y-3">
           {error && <p className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
@@ -311,7 +328,7 @@ function NewTemplateModal({ onClose }: { onClose: () => void }) {
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="Ej: Carta oferta de trabajo"
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <div>
@@ -320,7 +337,7 @@ function NewTemplateModal({ onClose }: { onClose: () => void }) {
               value={displayKey}
               onChange={e => { setKeyTouched(true); setKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_')) }}
               placeholder="se genera automáticamente"
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
             />
             <p className="text-[10px] text-gray-400 mt-1">Identificador único, solo letras minúsculas y guiones bajos.</p>
           </div>
@@ -330,7 +347,7 @@ function NewTemplateModal({ onClose }: { onClose: () => void }) {
           <button
             onClick={handleSave}
             disabled={!name.trim() || !displayKey.trim() || create.isPending}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
           >
             {create.isPending ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
             Crear plantilla
@@ -362,6 +379,8 @@ function TemplateEditor({
   const [showTest,    setShowTest]    = useState(false)
   const [activeField, setActiveField] = useState<'subject' | 'body'>('body')
 
+  useEscapeKey(() => { if (showPreview) setShowPreview(false) })
+
   const subjectRef = useRef<HTMLInputElement>(null)
 
   const updateTpl  = useUpdateEmailTemplate()
@@ -381,7 +400,7 @@ function TemplateEditor({
       StarterKit,
       Underline,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-blue-600 underline cursor-pointer' } }),
+      Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-brand-600 underline cursor-pointer' } }),
       spellCheckExt,
     ],
     content: template.bodyHtml || '<p></p>',
@@ -446,8 +465,8 @@ function TemplateEditor({
     if (!testEmail.trim()) return
     const sampleVars = Object.fromEntries(VARIABLES.flatMap(g => g.vars.map(v => [v.key, v.example])))
     const applyV = (t: string) =>
-      t.replace(/\{\{(\w+)\}\}/g, (_, k) => sampleVars[k] ?? '')
-       .replace(/\{(\w+)\}/g, (_, k) => sampleVars[k] ?? '')
+      t.replace(/\{\{([\wáéíóúÁÉÍÓÚñÑ]+)\}\}/g, (_, k) => sampleVars[k] ?? '')
+       .replace(/\{([\wáéíóúÁÉÍÓÚñÑ]+)\}/g, (_, k) => sampleVars[k] ?? '')
     const bodyHtml      = applyV(editor?.getHTML() ?? template.bodyHtml)
     const plainBody     = htmlToPlain(bodyHtml)
     const resolvedSubj  = applyV(subject || template.subject)
@@ -485,12 +504,12 @@ function TemplateEditor({
               onChange={e => setName(e.target.value)}
               onBlur={() => setEditingName(false)}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') setEditingName(false) }}
-              className="font-semibold text-gray-900 text-sm border border-blue-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
+              className="font-semibold text-gray-900 text-sm border border-brand-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-brand-500 w-full"
             />
           ) : (
             <div className="flex items-center gap-1.5 group">
               <h3 className="font-semibold text-gray-900 text-sm">{name}</h3>
-              <button onClick={() => setEditingName(true)} className="p-0.5 rounded text-gray-300 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-all" title="Editar nombre">
+              <button onClick={() => setEditingName(true)} className="p-0.5 rounded text-gray-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-all" title="Editar nombre" aria-label="Editar nombre">
                 <Pencil size={12} />
               </button>
             </div>
@@ -507,7 +526,7 @@ function TemplateEditor({
           <button
             onClick={handleSave}
             disabled={!dirty || updateTpl.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Save size={12} /> {updateTpl.isPending ? 'Guardando…' : 'Guardar'}
           </button>
@@ -521,18 +540,18 @@ function TemplateEditor({
       )}
 
       {showTest && (
-        <div className="flex gap-2 items-center bg-blue-50 border border-blue-100 rounded-lg p-3">
+        <div className="flex gap-2 items-center bg-brand-50 border border-brand-100 rounded-lg p-3">
           <input
             type="email"
             value={testEmail}
             onChange={e => setTestEmail(e.target.value)}
             placeholder="email@ejemplo.cl"
-            className="flex-1 text-sm px-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 text-sm px-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
           <button
             onClick={handleSendTest}
             disabled={!testEmail.trim()}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap"
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 whitespace-nowrap"
           >
             Abrir en Gmail
           </button>
@@ -550,7 +569,7 @@ function TemplateEditor({
           onFocus={() => setActiveField('subject')}
           spellCheck
           lang="es"
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 
@@ -564,7 +583,7 @@ function TemplateEditor({
             value={fromEmail}
             onChange={e => setFromEmail(e.target.value)}
             placeholder='rrhh@surmedia.cl  o  "email"'
-            className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
           />
         </div>
         <div className="grid grid-cols-[64px_1fr] items-center gap-2">
@@ -574,7 +593,7 @@ function TemplateEditor({
             value={toEmailsStr}
             onChange={e => setToEmailsStr(e.target.value)}
             placeholder='"email", rrhh@surmedia.cl  (separados por coma)'
-            className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
           />
         </div>
         <div className="grid grid-cols-[64px_1fr] items-center gap-2">
@@ -584,7 +603,7 @@ function TemplateEditor({
             value={ccEmailsStr}
             onChange={e => setCcEmailsStr(e.target.value)}
             placeholder='"emailPersonal"  (opcional)'
-            className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
           />
         </div>
         <p className="text-[10px] text-gray-400">Usa variables como <code className="bg-white px-1 rounded border border-gray-200">{'{{email}}'}</code> o <code className="bg-white px-1 rounded border border-gray-200">{'{{emailPersonal}}'}</code> para reemplazar con el correo del colaborador.</p>
@@ -609,7 +628,7 @@ function TemplateEditor({
                     type="button"
                     onClick={() => insertVar(v.key)}
                     title={`${v.label} · ej: ${v.example}`}
-                    className="text-[11px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded hover:bg-blue-100 hover:text-blue-700 transition-colors font-mono"
+                    className="text-[11px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded hover:bg-brand-100 hover:text-brand-700 transition-colors font-mono"
                   >
                     {`{{${v.key}}}`}
                   </button>
@@ -625,7 +644,7 @@ function TemplateEditor({
         <label className="block text-xs font-medium text-gray-600 mb-1.5">
           Cuerpo del correo
         </label>
-        <div className="border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+        <div className="border border-gray-200 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-brand-500 focus-within:border-brand-500">
           <RichToolbar editor={editor} />
           <EditorContent
             editor={editor}
@@ -652,7 +671,7 @@ function TemplateEditor({
                     .run()
                   setPopover(null)
                 }}
-                className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700"
+                className="block w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-brand-50 hover:text-brand-700"
               >
                 {s}
               </button>
@@ -678,7 +697,7 @@ function TemplateEditor({
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
               <span className="font-medium text-sm text-gray-900">Preview: {template.name}</span>
-              <button onClick={() => setShowPreview(false)} className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
+              <button onClick={() => setShowPreview(false)} aria-label="Cerrar" className="text-gray-400 hover:text-gray-700"><X size={16} /></button>
             </div>
             <div className="flex-1 overflow-auto p-1">
               <iframe srcDoc={previewHtml} title="Email preview" className="w-full h-full min-h-[500px] border-0 rounded-lg" />
@@ -703,7 +722,7 @@ function EmailLogTable() {
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-10">
-      <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
     </div>
   )
 
@@ -808,7 +827,7 @@ export default function CorreosPanel() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -842,7 +861,7 @@ export default function CorreosPanel() {
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plantillas</p>
               <button
                 onClick={() => setShowCreate(true)}
-                className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-colors"
+                className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-brand-600 transition-colors"
                 title="Nueva plantilla"
               >
                 <Plus size={14} />
@@ -856,10 +875,10 @@ export default function CorreosPanel() {
                   <button
                     key={tpl.key}
                     onClick={() => handleSelectTemplate(tpl.key)}
-                    className={`w-full group flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors ${isActive ? 'bg-blue-50' : ''}`}
+                    className={`w-full group flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors ${isActive ? 'bg-brand-50' : ''}`}
                   >
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>{tpl.name}</p>
+                      <p className={`text-sm font-medium truncate ${isActive ? 'text-brand-700' : 'text-gray-800'}`}>{tpl.name}</p>
                       <p className="text-[10px] text-gray-400 mt-0.5 truncate">{tpl.key}</p>
                       {linkedHitos.length > 0 && (
                         <div className="flex items-center gap-1 mt-1">
@@ -875,6 +894,7 @@ export default function CorreosPanel() {
                         onClick={e => handleDelete(tpl, e)}
                         className="p-1 rounded text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
                         title="Eliminar plantilla"
+                        aria-label="Eliminar plantilla"
                       >
                         <Trash2 size={11} />
                       </button>

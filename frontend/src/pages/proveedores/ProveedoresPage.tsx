@@ -24,7 +24,7 @@ function ProveedorCard({ prov, onClick }: { prov: SmartProveedor; onClick: () =>
   return (
     <button
       onClick={onClick}
-      className="w-full text-left bg-white border border-gray-100 rounded-xl p-4 hover:border-blue-200 hover:shadow-sm transition-all"
+      className="w-full text-left bg-white border border-gray-100 rounded-xl p-4 hover:border-brand-200 hover:shadow-sm transition-all"
     >
       {/* Avatar + name */}
       <div className="flex items-start gap-3 mb-3">
@@ -42,7 +42,7 @@ function ProveedorCard({ prov, onClick }: { prov: SmartProveedor; onClick: () =>
       {/* Tags */}
       <div className="flex flex-wrap gap-1 mb-3">
         {prov.area && (
-          <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-2 py-0.5">
+          <span className="text-[10px] bg-brand-50 text-brand-700 border border-brand-100 rounded-full px-2 py-0.5">
             {prov.area}
           </span>
         )}
@@ -69,7 +69,7 @@ function ProveedorCard({ prov, onClick }: { prov: SmartProveedor; onClick: () =>
           )}
           {cmpCount > 0 && (
             <span className="flex items-center gap-1">
-              <ShoppingCart size={11} className="text-blue-500" />
+              <ShoppingCart size={11} className="text-brand-500" />
               {cmpCount} compras
             </span>
           )}
@@ -126,10 +126,10 @@ export default function ProveedoresPage() {
           <input
             value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Buscar proveedor o RUT…"
-            className="pl-7 pr-8 py-2 text-sm border border-gray-200 rounded-lg w-64 focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="pl-7 pr-8 py-2 text-sm border border-gray-200 rounded-lg w-64 focus:outline-none focus:ring-1 focus:ring-brand-400"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+            <button onClick={() => setSearch('')} aria-label="Limpiar búsqueda" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
               <X size={12} />
             </button>
           )}
@@ -137,7 +137,7 @@ export default function ProveedoresPage() {
 
         {areas.length > 0 && (
           <select value={area} onChange={e => setArea(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400">
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400">
             <option value="">Todas las áreas</option>
             {areas.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
@@ -145,7 +145,7 @@ export default function ProveedoresPage() {
 
         {categorias.length > 0 && (
           <select value={categoria} onChange={e => setCategoria(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400">
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400">
             <option value="">Todas las categorías</option>
             {categorias.map(c => <option key={c} value={c}>{c}</option>)}
           </select>

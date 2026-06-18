@@ -1,1576 +1,27 @@
-import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
-import { createPortal } from 'react-dom'
-import { SmartTab } from './SmartTab'
-import { DotacionTab } from './DotacionTab'
-import * as XLSX from 'xlsx'
-import type { LucideIcon } from 'lucide-react'
+import { useState, useMemo, useEffect, Fragment } from 'react'
 import {
-  Plus, Pencil, Trash2, X, Save, Building2, Users, Briefcase,
+  Plus, Pencil, Trash2, Building2, Users, Briefcase,
   ChevronDown, ChevronUp, ChevronsUpDown, DollarSign, TrendingUp,
-  TrendingDown, BarChart2, Search, Wallet, Percent, UserPlus,
-  UserMinus, Stethoscope, Repeat, RefreshCw, FileDown, Filter,
-  Eye, EyeOff,
+  TrendingDown, BarChart2, Search, Percent, UserPlus,
+  UserMinus, RefreshCw, FileDown, Eye, EyeOff,
 } from 'lucide-react'
 import {
-  useWorkCenters, useCreateWorkCenter, useUpdateWorkCenter, useDeleteWorkCenter,
-  useAddIngreso, useUpdateIngreso, useDeleteIngreso,
+  useWorkCenters, useUpdateWorkCenter, useDeleteWorkCenter,
 } from '@/hooks/useWorkCenters'
 import { usePayrollTable, usePayrollYears, useMovements, useExpiringContracts, useEmployeeStats } from '@/hooks/useDotacion'
-import type { WorkCenter, WorkCenterIngreso, CostType, LegalEntity, PayrollRawEntry, PayrollItem, EmployeeStatus } from '@/types'
-
-// ─── Formatting ───────────────────────────────────────────────────────────────
-
-const CLP = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 })
-const fmt = (n: number) => n === 0 ? <span className="text-gray-300">—</span> : CLP.format(n)
-function fmtShort(n: number): string {
-  if (n === 0) return '—'
-  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`
-  if (n >= 1_000_000)     return `$${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000)         return `$${(n / 1_000).toFixed(0)}K`
-  return CLP.format(n)
-}
-
-const MONTHS_LABEL: Record<number, string> = {
-  1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',
-  7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic',
-}
-const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: MONTHS_LABEL[i + 1] }))
-
-// ─── Dashboard card order ─────────────────────────────────────────────────────
-const WC_CARD_IDS = [
-  'centros', 'colaboradores', 'contratacion',
-  'directo', 'indirecto', 'total-payroll',
-  'fin-gastos', 'fin-ingresos', 'fin-diferencia',
-] as const
-type WCCardId = typeof WC_CARD_IDS[number]
-
-// ─── Label/color maps ─────────────────────────────────────────────────────────
-
-const COST_TYPE_LABEL: Record<CostType, string>  = { DIRECTO: 'Directo', INDIRECTO: 'Indirecto' }
-const COST_TYPE_COLOR: Record<CostType, string>  = {
-  DIRECTO:   'bg-blue-100 text-blue-700',
-  INDIRECTO: 'bg-gray-100 text-gray-600',
-}
-const LEGAL_ENTITY_LABEL: Record<LegalEntity, string> = {
-  COMUNICACIONES_SURMEDIA: 'Comunicaciones',
-  SURMEDIA_CONSULTORIA:    'Consultoría',
-}
-const LEGAL_ENTITY_COLOR: Record<LegalEntity, string> = {
-  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
-  SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
-}
-
-// ─── Payroll parsing (same regexes as PayrollView.tsx) ────────────────────────
-
-const SUELDO_BASE_RE   = /sueldo[\s_-]?base/i
-const GRATIFICACION_RE = /gratificaci[oó]n/i
-const HH_ANY_RE        = /horas?\s?extras?|hh[\s_-]?extra/i
-const HH_50_RE         = /(horas?\s?extras?|h\.?e\.?|hh[\s_-]?extra).*50|50.*(horas?\s?extras?)/i
-const HH_100_RE        = /(horas?\s?extras?|h\.?e\.?|hh[\s_-]?extra).*100|100.*(horas?\s?extras?)/i
-
-interface ParsedItems {
-  sueldoBase: number; gratificacion: number
-  hhTotal: number; hh50Hours: number; hh100Hours: number; hhDetail: string
-  bonosTotal: number; bonosNames: string
-  noImponiblesTotal: number; noImponiblesNames: string
-}
-
-function extractHours(items: PayrollItem[]): number {
-  return items.reduce((s, i) => {
-    const m = i.name.match(/(\d+(?:[.,]\d+)?)\s*h(ora)?/i)
-    return s + (m ? parseFloat(m[1].replace(',', '.')) : 0)
-  }, 0)
-}
-
-function parsePayrollItems(items: PayrollItem[], grossSalary = 0): ParsedItems {
-  let sueldoBase = 0, gratificacion = 0
-  const hh50: PayrollItem[] = [], hh100: PayrollItem[] = []
-  const bonos: PayrollItem[] = [], noImponibles: PayrollItem[] = []
-
-  for (const item of items) {
-    if (item.type === 'descuento') continue
-    const n = item.name
-    if (SUELDO_BASE_RE.test(n))   { sueldoBase    += item.amount; continue }
-    if (GRATIFICACION_RE.test(n)) { gratificacion  += item.amount; continue }
-    if (HH_50_RE.test(n))         { hh50.push(item);              continue }
-    if (HH_100_RE.test(n))        { hh100.push(item);             continue }
-    if (HH_ANY_RE.test(n))        { hh50.push(item);              continue }
-    if (item.taxable === false) { noImponibles.push(item) } else { bonos.push(item) }
-  }
-
-  const hhTotal   = [...hh50, ...hh100].reduce((s, i) => s + i.amount, 0)
-  const valorHora = grossSalary > 0 ? grossSalary / 240 : 0
-  let hh50Hours   = extractHours(hh50)
-  let hh100Hours  = extractHours(hh100)
-  if (hh50Hours  === 0 && hh50.length  > 0 && valorHora > 0)
-    hh50Hours  = Math.round(hh50.reduce ((s, i) => s + i.amount, 0) / (valorHora * 1.5) * 10) / 10
-  if (hh100Hours === 0 && hh100.length > 0 && valorHora > 0)
-    hh100Hours = Math.round(hh100.reduce((s, i) => s + i.amount, 0) / (valorHora * 2.0) * 10) / 10
-
-  const parts: string[] = []
-  if (hh50.length)  { const nn = [...new Set(hh50.map (i => i.name))].join(', '); parts.push(hh50Hours  > 0 ? `${nn} (~${hh50Hours.toFixed(1)}h)`  : nn) }
-  if (hh100.length) { const nn = [...new Set(hh100.map(i => i.name))].join(', '); parts.push(hh100Hours > 0 ? `${nn} (~${hh100Hours.toFixed(1)}h)` : nn) }
-
-  return {
-    sueldoBase, gratificacion, hhTotal, hh50Hours, hh100Hours,
-    hhDetail:          parts.join('; ') || '—',
-    bonosTotal:        bonos.reduce       ((s, i) => s + i.amount, 0),
-    bonosNames:        [...new Set(bonos.map        (i => i.name))].join(', ') || '—',
-    noImponiblesTotal: noImponibles.reduce((s, i) => s + i.amount, 0),
-    noImponiblesNames: [...new Set(noImponibles.map (i => i.name))].join(', ') || '—',
-  }
-}
-
-// ─── AggRow — adds sueldoEstandar = base + gratif + noImp ────────────────────
-
-interface WCAggRow {
-  employeeId: string; employeeName: string; rut: string
-  legalEntity: string; status: EmployeeStatus; centers: string
-  jobTitle: string; ponderacion: number   // ponderacion: 1/n centros misma empresa
-  period: string; grossSalary: number; liquidSalary: number
-  sueldoEstandar: number   // = sueldoBase + gratificacion + noImponiblesTotal
-  sueldoBase: number; gratificacion: number
-  hhTotal: number; hh50Hours: number; hh100Hours: number; hhDetail: string
-  bonosTotal: number; bonosNames: string
-  noImponiblesTotal: number; noImponiblesNames: string
-}
-
-function getCenters(wcs: { legalEntity: string; workCenter: { name: string } }[] | undefined, le: string): string {
-  if (!wcs?.length) return '—'
-  const names = wcs.filter(w => w.legalEntity === le).map(w => w.workCenter.name)
-  return names.length > 0 ? names.join(', ') : '—'
-}
-
-function getPonderacion(wcs: { legalEntity: string; workCenter: { name: string } }[] | undefined, le: string): number {
-  if (!wcs?.length) return 1
-  const count = wcs.filter(w => w.legalEntity === le).length
-  return count > 0 ? 1 / count : 1
-}
-
-function aggregateWCRows(entries: PayrollRawEntry[], monthly: boolean): WCAggRow[] {
-  if (monthly) {
-    return entries.map(e => {
-      const p = parsePayrollItems(e.items ?? [], e.grossSalary)
-      return {
-        employeeId: e.employeeId,
-        employeeName: `${e.employee.firstName} ${e.employee.lastName}`,
-        rut: e.employee.rut, legalEntity: e.legalEntity, status: e.employee.status,
-        jobTitle: e.employee.jobTitle ?? '—',
-        ponderacion: getPonderacion(e.employee.workCenters, e.legalEntity),
-        centers: getCenters(e.employee.workCenters, e.legalEntity),
-        period: `${MONTHS_LABEL[e.month] ?? e.month} ${e.year}`,
-        grossSalary: e.grossSalary, liquidSalary: e.liquidSalary,
-        sueldoEstandar: p.sueldoBase + p.gratificacion + p.noImponiblesTotal,
-        ...p,
-      }
-    })
-  }
-  const map = new Map<string, WCAggRow>()
-  for (const e of entries) {
-    const key = `${e.employeeId}::${e.legalEntity}`
-    const p   = parsePayrollItems(e.items ?? [], e.grossSalary)
-    const se  = p.sueldoBase + p.gratificacion + p.noImponiblesTotal
-    const ex  = map.get(key)
-    if (!ex) {
-      map.set(key, {
-        employeeId: e.employeeId,
-        employeeName: `${e.employee.firstName} ${e.employee.lastName}`,
-        rut: e.employee.rut, legalEntity: e.legalEntity, status: e.employee.status,
-        jobTitle: e.employee.jobTitle ?? '—',
-        ponderacion: getPonderacion(e.employee.workCenters, e.legalEntity),
-        centers: getCenters(e.employee.workCenters, e.legalEntity),
-        period: `${e.year} (anual)`,
-        grossSalary: e.grossSalary, liquidSalary: e.liquidSalary,
-        sueldoEstandar: se, ...p,
-      })
-    } else {
-      ex.grossSalary       += e.grossSalary
-      ex.liquidSalary      += e.liquidSalary
-      ex.sueldoEstandar    += se
-      ex.sueldoBase        += p.sueldoBase
-      ex.gratificacion     += p.gratificacion
-      ex.hhTotal           += p.hhTotal
-      ex.hh50Hours         += p.hh50Hours
-      ex.hh100Hours        += p.hh100Hours
-      ex.bonosTotal        += p.bonosTotal
-      ex.noImponiblesTotal += p.noImponiblesTotal
-      const parts: string[] = []
-      if (ex.hh50Hours  > 0) parts.push(`~${ex.hh50Hours.toFixed(1)}h a 50%`)
-      if (ex.hh100Hours > 0) parts.push(`~${ex.hh100Hours.toFixed(1)}h a 100%`)
-      ex.hhDetail = parts.join('; ') || '—'
-      const allBonos = new Set([...ex.bonosNames.split(', ').filter(n => n !== '—'), ...p.bonosNames.split(', ').filter(n => n !== '—')])
-      ex.bonosNames = allBonos.size > 0 ? [...allBonos].join(', ') : '—'
-      const allNI = new Set([...ex.noImponiblesNames.split(', ').filter(n => n !== '—'), ...p.noImponiblesNames.split(', ').filter(n => n !== '—')])
-      ex.noImponiblesNames = allNI.size > 0 ? [...allNI].join(', ') : '—'
-    }
-  }
-  return [...map.values()]
-}
-
-// ─── sumPayrollStats ──────────────────────────────────────────────────────────
-
-function sumPayrollStats(entries: PayrollRawEntry[]) {
-  let grossSalary = 0, sueldoEstandar = 0, bonosTotal = 0, hhTotal = 0
-  for (const e of entries) {
-    const p = parsePayrollItems(e.items ?? [], e.grossSalary)
-    grossSalary    += e.grossSalary
-    sueldoEstandar += p.sueldoBase + p.gratificacion + p.noImponiblesTotal
-    bonosTotal     += p.bonosTotal
-    hhTotal        += p.hhTotal
-  }
-  return { grossSalary, sueldoEstandar, bonosTotal, hhTotal }
-}
-
-// ─── Sort ─────────────────────────────────────────────────────────────────────
-
-type SortKey = 'employeeName' | 'centers' | 'legalEntity' | 'period' | 'liquidSalary' | 'grossSalary' | 'sueldoEstandar' | 'sueldoBase' | 'gratificacion' | 'bonosTotal' | 'bonosNames' | 'hhTotal' | 'hhDetail' | 'noImponiblesTotal' | 'noImponiblesNames'
-type CenterSortKey = 'name' | 'ubicacion' | 'costType' | 'personal' | 'cargos' | 'ingresos' | 'gasto' | 'diferencia'
-type SortDir = 'asc' | 'desc'
-const NUMERIC_KEYS = new Set<SortKey>(['liquidSalary', 'grossSalary', 'sueldoEstandar', 'sueldoBase', 'gratificacion', 'bonosTotal', 'hhTotal', 'noImponiblesTotal'])
-
-function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
-  if (col !== sortKey) return <ChevronsUpDown size={12} className="text-gray-300 ml-1 inline" />
-  return sortDir === 'asc'
-    ? <ChevronUp   size={12} className="text-blue-500 ml-1 inline" />
-    : <ChevronDown size={12} className="text-blue-500 ml-1 inline" />
-}
-
-function SortTh({ label, col, sortKey, sortDir, onSort, right, highlight }: {
-  label: string; col: SortKey; sortKey: SortKey; sortDir: SortDir
-  onSort: (c: SortKey) => void; right?: boolean; highlight?: boolean
-}) {
-  return (
-    <th
-      onClick={() => onSort(col)}
-      className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700 ${right ? 'text-right' : ''} ${highlight ? 'bg-blue-50 text-blue-600' : 'text-gray-500'}`}
-    >
-      {label}<SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
-    </th>
-  )
-}
-
-// ─── Column filter for Remuneraciones ────────────────────────────────────────
-
-type RemColFilters = Record<string, Set<string>>
-
-function getRemVal(r: WCAggRow, col: string): string {
-  switch (col) {
-    case 'employeeName':      return r.employeeName
-    case 'legalEntity':       return LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity
-    case 'centers':           return r.centers
-    case 'period':            return r.period
-    case 'liquidSalary':      return r.liquidSalary      > 0 ? String(r.liquidSalary)      : '—'
-    case 'grossSalary':       return r.grossSalary       > 0 ? String(r.grossSalary)       : '—'
-    case 'sueldoEstandar':    return r.sueldoEstandar    > 0 ? String(r.sueldoEstandar)    : '—'
-    case 'sueldoBase':        return r.sueldoBase        > 0 ? String(r.sueldoBase)        : '—'
-    case 'gratificacion':     return r.gratificacion     > 0 ? String(r.gratificacion)     : '—'
-    case 'bonosTotal':        return r.bonosTotal        > 0 ? String(r.bonosTotal)        : '—'
-    case 'bonosNames':        return r.bonosNames
-    case 'hhTotal':           return r.hhTotal           > 0 ? String(r.hhTotal)           : '—'
-    case 'hhDetail':          return r.hhDetail
-    case 'noImponiblesTotal': return r.noImponiblesTotal > 0 ? String(r.noImponiblesTotal) : '—'
-    case 'noImponiblesNames': return r.noImponiblesNames
-    default: return ''
-  }
-}
-
-function FilterRemTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters, onFilterChange, right, highlight, sticky }: {
-  label:          string
-  col:            SortKey
-  sortKey:        SortKey
-  sortDir:        SortDir
-  onSort:         (c: SortKey) => void
-  allRows:        WCAggRow[]
-  colFilters:     RemColFilters
-  onFilterChange: (col: string, vals: Set<string>) => void
-  right?:         boolean
-  highlight?:     boolean
-  sticky?:        boolean
-}) {
-  const [open,         setOpen]         = useState(false)
-  const [filterSearch, setFilterSearch] = useState('')
-  const [dropPos,      setDropPos]      = useState({ top: 0, left: 0 })
-  const btnRef  = useRef<HTMLButtonElement>(null)
-  const dropRef = useRef<HTMLDivElement>(null)
-
-  const isFiltered = (colFilters[col]?.size ?? 0) > 0
-
-  useEffect(() => {
-    if (!open) return
-    function handler(e: MouseEvent) {
-      const t = e.target as Node
-      if (!btnRef.current?.contains(t) && !dropRef.current?.contains(t)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  function handleOpen() {
-    if (btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect()
-      setDropPos({ top: r.bottom + 2, left: r.left })
-    }
-    setOpen(o => !o)
-  }
-
-  const uniqueVals = useMemo(
-    () => [...new Set(allRows.map(r => getRemVal(r, col)))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })),
-    [allRows, col],
-  )
-
-  const visibleVals  = filterSearch ? uniqueVals.filter(v => v.toLowerCase().includes(filterSearch.toLowerCase())) : uniqueVals
-  const selected     = colFilters[col] ?? new Set<string>()
-  const allSelected  = visibleVals.length > 0 && visibleVals.every(v => selected.has(v))
-  const someSelected = !allSelected && visibleVals.some(v => selected.has(v))
-
-  function toggleAll() {
-    const next = new Set(selected)
-    allSelected ? visibleVals.forEach(v => next.delete(v)) : visibleVals.forEach(v => next.add(v))
-    onFilterChange(col, next)
-  }
-  function toggleVal(v: string) {
-    const next = new Set(selected)
-    next.has(v) ? next.delete(v) : next.add(v)
-    onFilterChange(col, next)
-  }
-
-  return (
-    <th className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide select-none whitespace-nowrap hover:text-gray-700 ${right ? 'text-right' : ''} ${highlight ? 'bg-blue-50 text-blue-600' : sticky ? 'bg-white text-gray-500' : 'text-gray-500'} ${sticky ? 'sticky left-0' : ''}`}>
-      <div className={`inline-flex items-center gap-1 ${right ? 'flex-row-reverse' : ''}`}>
-        <button onClick={() => onSort(col)} className="hover:text-gray-900 transition-colors cursor-pointer">
-          {label}<SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
-        </button>
-        <button
-          ref={btnRef}
-          onClick={handleOpen}
-          className={`rounded p-0.5 hover:bg-gray-200 transition-colors ${isFiltered ? 'text-blue-600 bg-blue-50' : 'text-gray-300 hover:text-gray-500'}`}
-        >
-          <Filter size={10} />
-        </button>
-      </div>
-
-      {open && createPortal(
-        <div
-          ref={dropRef}
-          style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
-          className="w-56 bg-white border border-gray-200 rounded-lg shadow-xl text-xs"
-        >
-          <div className="flex gap-1 p-1.5 border-b border-gray-100">
-            <button onClick={() => { onSort(col); setOpen(false) }}
-              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'asc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
-              ↑ A→Z
-            </button>
-            <button onClick={() => { if (col !== sortKey || sortDir !== 'desc') onSort(col); setOpen(false) }}
-              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'desc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
-              ↓ Z→A
-            </button>
-          </div>
-          <div className="p-1.5 border-b border-gray-100">
-            <input autoFocus value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
-              placeholder="Buscar…"
-              className="w-full px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
-          </div>
-          <div className="px-2 py-1 border-b border-gray-100">
-            <label className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
-              <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                ref={el => { if (el) el.indeterminate = someSelected }}
-                className="rounded border-gray-300 text-blue-600" />
-              <span className="font-medium">(Seleccionar todo)</span>
-            </label>
-          </div>
-          <div className="max-h-44 overflow-y-auto px-2 py-1">
-            {visibleVals.map(v => (
-              <label key={v} className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
-                <input type="checkbox" checked={selected.has(v)} onChange={() => toggleVal(v)}
-                  className="rounded border-gray-300 text-blue-600 shrink-0" />
-                <span className="truncate">{v}</span>
-              </label>
-            ))}
-            {visibleVals.length === 0 && <p className="text-gray-400 text-center py-2">Sin resultados</p>}
-          </div>
-          <div className="flex items-center justify-between px-2 py-1.5 border-t border-gray-100">
-            <span className="text-gray-400">{selected.size > 0 ? `${selected.size} sel.` : ''}</span>
-            {isFiltered && (
-              <button onClick={() => { onFilterChange(col, new Set()); setOpen(false) }}
-                className="text-red-500 hover:text-red-700 flex items-center gap-1">
-                <X size={10} /> Limpiar
-              </button>
-            )}
-          </div>
-        </div>,
-        document.body,
-      )}
-    </th>
-  )
-}
-
-// ─── FilterSelect ─────────────────────────────────────────────────────────────
-
-function FilterSelect({ value, onChange, options, placeholder }: {
-  value: string; onChange: (v: string) => void
-  options: { value: string; label: string }[]; placeholder: string
-}) {
-  return (
-    <div className="relative">
-      <select value={value} onChange={e => onChange(e.target.value)}
-        className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
-        <option value="">{placeholder}</option>
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-      <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-    </div>
-  )
-}
-
-// ─── MultiSelect ──────────────────────────────────────────────────────────────
-
-function MultiSelect<T extends string>({ label, selected, onChange, options }: {
-  label: string
-  selected: T[]
-  onChange: (v: T[]) => void
-  options: { value: T; label: string }[]
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handle(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [open])
-
-  function toggle(v: T) {
-    onChange(selected.includes(v) ? selected.filter(s => s !== v) : [...selected, v])
-  }
-
-  const count = selected.length
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        className={`flex items-center gap-1.5 pl-3 pr-2 py-2 text-sm border rounded-lg bg-white transition-colors ${
-          count > 0 ? 'border-blue-400 text-blue-700 bg-blue-50/60' : 'border-gray-200 text-gray-700 hover:border-gray-300'
-        }`}
-      >
-        {label}
-        {count > 0 && (
-          <span className="ml-0.5 bg-blue-600 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-            {count}
-          </span>
-        )}
-        <ChevronDown size={13} className={`ml-0.5 text-gray-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-lg min-w-max py-1.5">
-          <button
-            onClick={() => onChange([])}
-            className={`w-full px-3 py-1.5 text-sm text-left hover:bg-gray-50 ${count === 0 ? 'text-blue-600 font-semibold' : 'text-gray-500'}`}
-          >
-            Todos
-          </button>
-          <div className="border-t border-gray-100 my-1" />
-          {options.map(o => (
-            <button
-              key={o.value}
-              onClick={() => toggle(o.value)}
-              className={`w-full px-3 py-1.5 text-sm text-left flex items-center gap-2.5 hover:bg-gray-50 ${
-                selected.includes(o.value) ? 'text-blue-700 font-medium' : 'text-gray-700'
-              }`}
-            >
-              <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${
-                selected.includes(o.value) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'
-              }`}>
-                {selected.includes(o.value) && (
-                  <svg viewBox="0 0 12 12" className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="1.5,6 5,9.5 10.5,2.5" />
-                  </svg>
-                )}
-              </span>
-              {o.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── MiniStat card ────────────────────────────────────────────────────────────
-
-function MiniStat({ label, value, icon: Icon, color, sub }: {
-  label: string; value: string | number; icon: LucideIcon; color: string; sub?: string
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
-        <Icon size={18} />
-      </div>
-      <div>
-        <p className="text-xl font-bold text-gray-900 gdp-val">{value}</p>
-        <p className="text-xs text-gray-500 mt-0.5">{label}</p>
-        {sub && <p className="text-xs text-gray-400 gdp-val">{sub}</p>}
-      </div>
-    </div>
-  )
-}
-
-// ─── MovementList ─────────────────────────────────────────────────────────────
-
-function MovementList({ title, items, color }: {
-  title: string
-  items: { name: string; rut?: string; date?: string | Date; info?: string }[]
-  color: 'green' | 'red' | 'amber' | 'violet'
-}) {
-  const borderBg = { green: 'border-green-100 bg-green-50', red: 'border-red-100 bg-red-50', amber: 'border-amber-100 bg-amber-50', violet: 'border-violet-100 bg-violet-50' }
-  const dot      = { green: 'bg-green-500', red: 'bg-red-500', amber: 'bg-amber-400', violet: 'bg-violet-500' }
-  return (
-    <div>
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{title} ({items.length})</p>
-      <div className={`rounded-lg border p-3 space-y-2 gdp-content ${borderBg[color]}`}>
-        {items.slice(0, 6).map((item, i) => (
-          <div key={i} className="flex items-center gap-2 flex-wrap">
-            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot[color]}`} />
-            <span className="text-sm font-medium text-gray-900">{item.name}</span>
-            {item.rut && <span className="text-xs text-gray-400 font-mono">{item.rut}</span>}
-            {item.info && <span className="text-xs text-gray-500">{item.info}</span>}
-            {item.date && (
-              <span className="text-xs text-gray-400 ml-auto">
-                {new Date(item.date).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })}
-              </span>
-            )}
-          </div>
-        ))}
-        {items.length > 6 && <p className="text-xs text-gray-400">+{items.length - 6} más</p>}
-      </div>
-    </div>
-  )
-}
-
-// ─── Excel export ─────────────────────────────────────────────────────────────
-
-function applyClpFormat(ws: XLSX.WorkSheet, cols: number[], clpFmt = '$#,##0') {
-  const range = XLSX.utils.decode_range(ws['!ref']!)
-  for (let R = range.s.r + 1; R <= range.e.r; R++) {
-    for (const C of cols) {
-      const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })]
-      if (cell && typeof cell.v === 'number') cell.z = clpFmt
-    }
-  }
-}
-
-function exportCentrosToExcel(
-  centers: WorkCenter[],
-  allEntries: PayrollRawEntry[],
-  periodoLabel: string,
-  isMonthly: boolean,
-) {
-  const wb = XLSX.utils.book_new()
-  const CONTRACTUAL = 160_000
-
-  function filterForCenter(entries: PayrollRawEntry[], wc: WorkCenter): PayrollRawEntry[] {
-    const idSet = new Set(wc.employeeIds ?? [])
-    if (idSet.size > 0) return entries.filter(e => idSet.has(e.employeeId))
-    const byWC = entries.filter(e =>
-      e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
-    )
-    if (byWC.length > 0) return byWC
-    return entries.filter(e => e.employee.costCenter === wc.name)
-  }
-
-  // Pre-computar primer centro por empleado (en orden de la lista)
-  const employeeFirstCenter = new Map<string, string>()
-  for (const wc of centers) {
-    for (const e of filterForCenter(allEntries, wc)) {
-      if (!employeeFirstCenter.has(e.employeeId)) {
-        employeeFirstCenter.set(e.employeeId, wc.name)
-      }
-    }
-  }
-
-  // ── Hoja 1: Resumen ──────────────────────────────────────────────────────────
-  const data = centers.map(wc => {
-    const wcEntries = filterForCenter(allEntries, wc)
-    let gastoReal = 0, gastoEstandar = 0, gastoLiquido = 0
-    let gastoBonos = 0, gastoHH = 0, gastoNoImp = 0
-    for (const e of wcEntries) {
-      const p    = parsePayrollItems(e.items ?? [], e.grossSalary)
-      const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
-      gastoReal     += e.grossSalary * pond
-      gastoLiquido  += e.liquidSalary * pond
-      gastoEstandar += (p.sueldoBase + p.gratificacion + p.noImponiblesTotal) * pond
-      gastoBonos    += p.bonosTotal * pond
-      gastoHH       += p.hhTotal * pond
-      gastoNoImp    += p.noImponiblesTotal * pond
-    }
-    const nColabs   = new Set(wcEntries.map(e => e.employeeId)).size
-    // Solo cuenta empleados cuyo primer centro es este
-    const nPrimary  = new Set(
-      wcEntries.filter(e => employeeFirstCenter.get(e.employeeId) === wc.name).map(e => e.employeeId)
-    ).size
-    const exportMonths   = isMonthly ? 1 : Math.max(new Set(allEntries.map(e => e.month)).size, 1)
-    const gastoContract  = nPrimary * CONTRACTUAL * exportMonths
-    const ingresos       = (wc.totalIngresos ?? 0) * exportMonths
-    const diferencia     = ingresos > 0 ? ingresos - (gastoReal + gastoContract) : null
-    return {
-      'Centro':                wc.name,
-      'Ubicación':             wc.ubicacion ?? '',
-      'Tipo de Costo':         COST_TYPE_LABEL[wc.costType],
-      'Colaboradores período': nColabs,
-      'N° Cargos':             wc.positions?.length ?? 0,
-      'Ingresos':              ingresos,
-      'Sueldo Bruto':          gastoReal,
-      'Sueldo Estándar':       gastoEstandar,
-      'Sueldo Líquido':        gastoLiquido,
-      'Total Bonos':           gastoBonos,
-      'Total HH Extra':        gastoHH,
-      'Total Hab. No Imp.':    gastoNoImp,
-      'Gastos Contractuales':  gastoContract,
-      'Diferencia Ing−Gasto':  diferencia,
-    }
-  })
-
-  const sumCols = [
-    'Colaboradores período', 'N° Cargos', 'Ingresos',
-    'Sueldo Bruto', 'Sueldo Estándar', 'Sueldo Líquido',
-    'Total Bonos', 'Total HH Extra', 'Total Hab. No Imp.',
-    'Gastos Contractuales', 'Diferencia Ing−Gasto',
-  ]
-  const totals: Record<string, number | string | null> = {
-    'Centro': `TOTAL (${centers.length} centros)`,
-    'Ubicación': '', 'Tipo de Costo': '',
-  }
-  for (const col of sumCols) {
-    totals[col] = data.reduce((s, r) => {
-      const v = (r as Record<string, unknown>)[col]
-      return s + (typeof v === 'number' ? v : 0)
-    }, 0)
-  }
-
-  const ws = XLSX.utils.json_to_sheet([...data, totals])
-  ws['!cols'] = [
-    { wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 10 },
-    { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
-    { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 20 }, { wch: 22 },
-  ]
-  // cols: Ingresos(5), Bruto(6), Estándar(7), Líquido(8), Bonos(9), HH(10), NoImp(11), Contract(12), Diferencia(13)
-  applyClpFormat(ws, [5, 6, 7, 8, 9, 10, 11, 12, 13])
-  XLSX.utils.book_append_sheet(wb, ws, 'Resumen')
-
-  // ── Hoja por centro ──────────────────────────────────────────────────────────
-  for (const wc of centers) {
-    const wcEntries = filterForCenter(allEntries, wc)
-    const rows = aggregateWCRows(wcEntries, isMonthly)
-
-    type DetailRow = Record<string, string | number | null>
-    const chargedInCenter = new Set<string>()
-    const detailData: DetailRow[] = rows.map(r => {
-      const isFirstCenter = employeeFirstCenter.get(r.employeeId) === wc.name
-      const chargeHere    = isFirstCenter && !chargedInCenter.has(r.employeeId)
-      if (chargeHere) chargedInCenter.add(r.employeeId)
-      return {
-        'Colaborador':               r.employeeName,
-        'RUT':                       r.rut,
-        'Razón Social':              LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity,
-        'Cargo':                     r.jobTitle,
-        'Período':                   r.period,
-        'Ponderación':               r.ponderacion,
-        'Sueldo Bruto':              r.grossSalary,
-        'Sueldo Bruto Ponderado':    r.grossSalary       * r.ponderacion,
-        'Sueldo Estándar':           r.sueldoEstandar    * r.ponderacion,
-        'Sueldo Líquido':            r.liquidSalary      * r.ponderacion,
-        'Sueldo Base':               r.sueldoBase        * r.ponderacion,
-        'Gratificación':             r.gratificacion     * r.ponderacion,
-        'Total Bonos':               r.bonosTotal        * r.ponderacion,
-        'Bonos identificados':       r.bonosNames,
-        'Total HH Extra':            r.hhTotal           * r.ponderacion,
-        'HH identificadas':          r.hhDetail,
-        'Total Hab. No Imp.':        r.noImponiblesTotal * r.ponderacion,
-        'Hab. No Imp.':              r.noImponiblesNames,
-        'Gastos Contractuales':      chargeHere ? CONTRACTUAL : 0,
-      }
-    })
-
-    // Fila de totales
-    if (detailData.length > 0) {
-      const numCols = [
-        'Sueldo Bruto', 'Sueldo Bruto Ponderado', 'Sueldo Estándar', 'Sueldo Líquido', 'Sueldo Base',
-        'Gratificación', 'Total Bonos', 'Total HH Extra', 'Total Hab. No Imp.',
-        'Gastos Contractuales',
-      ]
-      const rowTotals: DetailRow = {
-        'Colaborador': `TOTAL (${detailData.length} colaboradores)`,
-        'RUT': '', 'Razón Social': '', 'Cargo': '', 'Período': '',
-        'Ponderación': null,
-        'Bonos identificados': '', 'HH identificadas': '', 'Hab. No Imp.': '',
-      }
-      for (const col of numCols) {
-        rowTotals[col] = detailData.reduce((s, r) => s + (typeof r[col] === 'number' ? (r[col] as number) : 0), 0)
-      }
-      detailData.push(rowTotals)
-    }
-
-    const dws = XLSX.utils.json_to_sheet(
-      detailData.length > 0
-        ? detailData
-        : [{ 'Colaborador': 'Sin datos de remuneración para el período seleccionado' }]
-    )
-    dws['!cols'] = [
-      { wch: 28 }, { wch: 14 }, { wch: 16 }, { wch: 28 }, { wch: 14 },
-      { wch: 12 }, { wch: 16 }, { wch: 20 }, { wch: 16 }, { wch: 16 },
-      { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 30 },
-      { wch: 14 }, { wch: 24 }, { wch: 18 }, { wch: 30 }, { wch: 20 },
-    ]
-    // CLP: Bruto(6), BrutoPond(7), Estándar(8), Líquido(9), Base(10), Gratif(11), Bonos(12), HH(14), NoImp(16), Contract(18)
-    applyClpFormat(dws, [6, 7, 8, 9, 10, 11, 12, 14, 16, 18])
-    const drng = XLSX.utils.decode_range(dws['!ref']!)
-    for (let R = drng.s.r + 1; R <= drng.e.r; R++) {
-      const cell = dws[XLSX.utils.encode_cell({ r: R, c: 5 })]
-      if (cell && typeof cell.v === 'number') cell.z = '0%'
-    }
-
-    const sheetName = wc.name.replace(/[\\/?*[\]:']/g, '').slice(0, 31)
-    XLSX.utils.book_append_sheet(wb, dws, sheetName || `Centro ${wc.id.slice(0, 6)}`)
-  }
-
-  const safe = periodoLabel.replace(/[\s/]+/g, '-').toLowerCase()
-  XLSX.writeFile(wb, `centros-de-trabajo${safe ? `-${safe}` : ''}.xlsx`)
-}
-
-function exportRemuneracionesToExcel(rows: WCAggRow[], centerName: string, periodoLabel: string) {
-  const CONTRACTUAL = 160_000
-  const STATUS_LABEL: Record<string, string> = {
-    ACTIVE: 'Activo', INACTIVE: 'Inactivo', ON_LEAVE: 'Con permiso', DUPLICATE: 'Duplicado',
-  }
-
-  // ── Hoja Remuneraciones: una fila por (empleado × centro) ────────────────────
-  type ExportRow = Record<string, string | number>
-  const data: ExportRow[] = []
-
-  for (const r of rows) {
-    const rawList = (r.centers && r.centers !== '—')
-      ? r.centers.split(', ').map(c => c.trim()).filter(Boolean)
-      : ['—']
-    // Si hay filtro de centro sólo mostramos ese centro; si no, expandimos
-    const targets = centerName ? [centerName] : rawList
-
-    for (const centro of targets) {
-      const isFirstCenter = rawList[0] === centro
-      data.push({
-        'Razón Social':               LEGAL_ENTITY_LABEL[r.legalEntity as LegalEntity] ?? r.legalEntity,
-        'Estado':                     STATUS_LABEL[r.status] ?? r.status,
-        'Centro':                     centro,
-        'Colaborador':                r.employeeName,
-        'RUT':                        r.rut,
-        'Cargo':                      r.jobTitle,
-        'Ponderación':                Math.round(r.ponderacion * 100),
-        'Sueldo bruto ponderado':     Math.round(r.grossSalary     * r.ponderacion),
-        'Sueldo estándar ponderado':  Math.round(r.sueldoEstandar  * r.ponderacion),
-        'Total bonos':                Math.round(r.bonosTotal       * r.ponderacion),
-        'Bonos identificados':        r.bonosNames,
-        'Total HH extra':             Math.round(r.hhTotal          * r.ponderacion),
-        'HH extra identificadas':     r.hhDetail,
-        'Gastos contractuales':       isFirstCenter ? CONTRACTUAL : 0,
-      })
-    }
-  }
-
-  // Ordenar: Razón Social → Centro → Colaborador
-  data.sort((a, b) => {
-    const rs = String(a['Razón Social']).localeCompare(String(b['Razón Social']), 'es')
-    if (rs !== 0) return rs
-    const cs = String(a['Centro']).localeCompare(String(b['Centro']), 'es')
-    if (cs !== 0) return cs
-    return String(a['Colaborador']).localeCompare(String(b['Colaborador']), 'es')
-  })
-
-  const ws = XLSX.utils.json_to_sheet(data)
-  ws['!cols'] = [
-    { wch: 16 }, // Razón Social
-    { wch: 10 }, // Estado
-    { wch: 24 }, // Centro
-    { wch: 28 }, // Colaborador
-    { wch: 14 }, // RUT
-    { wch: 24 }, // Cargo
-    { wch: 12 }, // Ponderación
-    { wch: 22 }, // Sueldo bruto ponderado
-    { wch: 24 }, // Sueldo estándar ponderado
-    { wch: 14 }, // Total bonos
-    { wch: 30 }, // Bonos identificados
-    { wch: 14 }, // Total HH extra
-    { wch: 30 }, // HH extra identificadas
-    { wch: 20 }, // Gastos contractuales
-  ]
-  // CLP: bruto=7, estándar=8, bonos=9, HH=11, contractuales=13
-  applyClpFormat(ws, [7, 8, 9, 11, 13])
-
-  // ── Hoja Dashboard ────────────────────────────────────────────────────────────
-  const totBruto    = data.reduce((s, r) => s + (r['Sueldo bruto ponderado']    as number || 0), 0)
-  const totEstandar = data.reduce((s, r) => s + (r['Sueldo estándar ponderado'] as number || 0), 0)
-  const totBonos    = data.reduce((s, r) => s + (r['Total bonos']               as number || 0), 0)
-  const totHH       = data.reduce((s, r) => s + (r['Total HH extra']            as number || 0), 0)
-  const totContract = data.reduce((s, r) => s + (r['Gastos contractuales']      as number || 0), 0)
-  const totEmpleados = new Set(rows.map(r => `${r.employeeId}::${r.legalEntity}`)).size
-
-  const byEntity = new Map<string, { n: number; bruto: number }>()
-  const byEstado = new Map<string, { n: number; bruto: number }>()
-  const byCentro = new Map<string, { n: number; bruto: number }>()
-  for (const r of data) {
-    const addTo = (m: typeof byEntity, key: string) => {
-      const ex = m.get(key) ?? { n: 0, bruto: 0 }
-      ex.n++; ex.bruto += r['Sueldo bruto ponderado'] as number || 0
-      m.set(key, ex)
-    }
-    addTo(byEntity, String(r['Razón Social']))
-    addTo(byEstado, String(r['Estado']))
-    addTo(byCentro, String(r['Centro']))
-  }
-  const sortedEntries = (m: typeof byEntity) =>
-    [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'))
-
-  type AoaCell = string | number | null
-  const aoa: AoaCell[][] = [
-    [`DASHBOARD — REMUNERACIONES ${periodoLabel.toUpperCase()}`, '', ''],
-    [],
-    ['Métricas generales', '', 'Valor'],
-    ['Colaboradores únicos', '', totEmpleados],
-    ['Filas en reporte (con expansión)', '', data.length],
-    ['Sueldo bruto ponderado total', '', totBruto],
-    ['Sueldo estándar ponderado total', '', totEstandar],
-    ['Total bonos', '', totBonos],
-    ['Total HH extra', '', totHH],
-    ['Gastos contractuales', '', totContract],
-    [],
-    ['Por Razón Social', 'Filas', 'Sueldo Bruto Ponderado'],
-    ...sortedEntries(byEntity).map(([k, v]) => [k, v.n, v.bruto] as AoaCell[]),
-    [],
-    ['Por Estado', 'Filas', 'Sueldo Bruto Ponderado'],
-    ...sortedEntries(byEstado).map(([k, v]) => [k, v.n, v.bruto] as AoaCell[]),
-    [],
-    ['Por Centro de Trabajo', 'Filas', 'Sueldo Bruto Ponderado'],
-    ...sortedEntries(byCentro).map(([k, v]) => [k, v.n, v.bruto] as AoaCell[]),
-  ]
-
-  const dws = XLSX.utils.aoa_to_sheet(aoa)
-  dws['!cols'] = [{ wch: 36 }, { wch: 10 }, { wch: 26 }]
-  // Aplicar formato CLP a columna 2 donde sea un número grande (montos)
-  const dashRng = XLSX.utils.decode_range(dws['!ref']!)
-  for (let R = dashRng.s.r; R <= dashRng.e.r; R++) {
-    const cell = dws[XLSX.utils.encode_cell({ r: R, c: 2 })]
-    if (cell && typeof cell.v === 'number' && cell.v > 999) cell.z = '$#,##0'
-  }
-
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Remuneraciones')
-  XLSX.utils.book_append_sheet(wb, dws, 'Dashboard')
-
-  const safe = periodoLabel.replace(/[\s/]+/g, '-').toLowerCase()
-  const centerSafe = centerName ? centerName.replace(/[\\/?*[\]:']/g, '').slice(0, 20) + '-' : ''
-  XLSX.writeFile(wb, `remuneraciones-${centerSafe}${safe || 'todos'}.xlsx`)
-}
-
-// ─── WorkCenterModal ──────────────────────────────────────────────────────────
-
-function WorkCenterModal({ initial, onClose }: { initial?: WorkCenter | null; onClose: () => void }) {
-  const [name,        setName]        = useState(initial?.name ?? '')
-  const [costType,    setCostType]    = useState<CostType>(initial?.costType ?? 'DIRECTO')
-  const [presupuesto, setPresupuesto] = useState(initial?.presupuesto ? String(Math.round(initial.presupuesto)) : '')
-  const [error,       setError]       = useState('')
-
-  const create    = useCreateWorkCenter()
-  const update    = useUpdateWorkCenter()
-  const isPending = create.isPending || update.isPending
-
-  async function handleSave() {
-    if (!name.trim()) { setError('El nombre es obligatorio'); return }
-    const budgetVal = presupuesto.trim() ? (Number(presupuesto.replace(/[^0-9]/g, '')) || null) : null
-    try {
-      if (initial) {
-        await update.mutateAsync({ id: initial.id, name: name.trim(), costType, presupuesto: budgetVal })
-      } else {
-        await create.mutateAsync({ name: name.trim(), costType, presupuesto: budgetVal })
-      }
-      onClose()
-    } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Error al guardar')
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">
-            {initial ? 'Editar centro' : 'Nuevo centro de trabajo'}
-          </h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-            <X size={16} className="text-gray-400" />
-          </button>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-            <input
-              value={name} onChange={e => { setName(e.target.value); setError('') }}
-              placeholder="Ej: CODELCO DET"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de costo</label>
-            <div className="flex gap-3">
-              {(['DIRECTO', 'INDIRECTO'] as CostType[]).map(t => (
-                <button key={t} onClick={() => setCostType(t)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                    costType === t ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {COST_TYPE_LABEL[t]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Presupuesto mensual (CLP)</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">$</span>
-              <input
-                value={presupuesto} onChange={e => setPresupuesto(e.target.value)}
-                placeholder="0"
-                className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <p className="text-xs text-gray-400 mt-1">Opcional · Permite calcular ejecución presupuestaria</p>
-          </div>
-          {error && <p className="text-sm text-red-500">{error}</p>}
-        </div>
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
-          <button
-            onClick={handleSave} disabled={isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
-          >
-            <Save size={14} />
-            {isPending ? 'Guardando…' : 'Guardar'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── WorkCenterDetailPanel ────────────────────────────────────────────────────
-
-type DetailSortKey = 'employeeName' | 'jobTitle' | 'ponderacion' | 'grossSalary' | 'sueldoEstandar' | 'bonosTotal' | 'hhTotal'
-
-function DetailSortIcon({ col, sortKey, sortDir }: { col: DetailSortKey; sortKey: DetailSortKey; sortDir: SortDir }) {
-  if (col !== sortKey) return <ChevronsUpDown size={11} className="text-gray-300 ml-0.5 inline" />
-  return sortDir === 'asc'
-    ? <ChevronUp   size={11} className="text-blue-500 ml-0.5 inline" />
-    : <ChevronDown size={11} className="text-blue-500 ml-0.5 inline" />
-}
-
-function WorkCenterDetailPanel({ wc, allEntries, year, month, onEdit, onClose }: {
-  wc: WorkCenter
-  allEntries: PayrollRawEntry[]
-  year: string; month: string
-  onEdit: () => void; onClose: () => void
-}) {
-  const [outerTab,  setOuterTab]  = useState<'personas' | 'honorarios'>('personas')
-  const [personTab, setPersonTab] = useState<'sueldos' | 'movimientos' | 'provisiones'>('sueldos')
-
-  // Ingresos state
-  const [addingIngreso, setAddingIngreso] = useState(false)
-  const [newName,       setNewName]       = useState('')
-  const [newAmount,     setNewAmount]     = useState('')
-  const [editingId,     setEditingId]     = useState<string | null>(null)
-  const [editName,      setEditName]      = useState('')
-  const [editAmount,    setEditAmount]    = useState('')
-
-  const addIngreso    = useAddIngreso()
-  const updateIngreso = useUpdateIngreso()
-  const deleteIngreso = useDeleteIngreso()
-  const updateWC      = useUpdateWorkCenter()
-
-  async function handleAddIngreso() {
-    const amt = Number(newAmount.replace(/[^0-9]/g, ''))
-    if (!newName.trim() || !amt) return
-    await addIngreso.mutateAsync({ workCenterId: wc.id, name: newName.trim(), amount: amt })
-    setNewName(''); setNewAmount(''); setAddingIngreso(false)
-  }
-
-  function startEdit(ing: WorkCenterIngreso) {
-    setEditingId(ing.id)
-    setEditName(ing.name)
-    setEditAmount(String(Math.round(ing.amount)))
-  }
-
-  async function handleUpdateIngreso() {
-    if (!editingId) return
-    const amt = Number(editAmount.replace(/[^0-9]/g, ''))
-    if (!editName.trim() || !amt) return
-    await updateIngreso.mutateAsync({ workCenterId: wc.id, ingresoId: editingId, name: editName.trim(), amount: amt })
-    setEditingId(null)
-  }
-
-  async function handleDeleteIngreso(ingresoId: string) {
-    await deleteIngreso.mutateAsync({ workCenterId: wc.id, ingresoId })
-  }
-
-  // Annual data (always year-only, for Gastos acumulados part 1)
-  const { data: annualEntries = [] } = usePayrollTable({ year, month: undefined })
-
-  // Movements for this center
-  const { data: movements, isLoading: movLoading } = useMovements({ year, month: month || undefined })
-
-  // Entries filtered to this work center
-  const centerEntries = useMemo(() =>
-    allEntries.filter(e =>
-      e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
-    ),
-  [allEntries, wc.name])
-
-  const centerAnnual = useMemo(() =>
-    annualEntries.filter(e =>
-      e.employee.workCenters?.some(a => a.workCenter.name === wc.name && a.legalEntity === e.legalEntity)
-    ),
-  [annualEntries, wc.name])
-
-  // Payroll aggregation for table (respects month selection)
-  const [detailSearch, setDetailSearch] = useState('')
-  const [detailSortKey, setDetailSortKey] = useState<DetailSortKey>('employeeName')
-  const [detailSortDir, setDetailSortDir] = useState<SortDir>('asc')
-
-  const payrollRows = useMemo(() => {
-    let rows = aggregateWCRows(centerEntries, !!month)
-    if (detailSearch) {
-      const q = detailSearch.toLowerCase()
-      rows = rows.filter(r => r.employeeName.toLowerCase().includes(q) || r.rut.includes(q))
-    }
-    return [...rows].sort((a, b) => {
-      const diff = typeof a[detailSortKey] === 'number'
-        ? (a[detailSortKey] as number) - (b[detailSortKey] as number)
-        : String(a[detailSortKey]).localeCompare(String(b[detailSortKey]), 'es')
-      return detailSortDir === 'asc' ? diff : -diff
-    })
-  }, [centerEntries, month, detailSearch, detailSortKey, detailSortDir])
-
-  function handleDetailSort(col: DetailSortKey) {
-    if (col === detailSortKey) setDetailSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setDetailSortKey(col); setDetailSortDir('asc') }
-  }
-
-  // Gastos acumulados stats (ponderados por centro)
-  const brutoanual = centerAnnual.reduce((s, e) => {
-    const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
-    return s + e.grossSalary * pond
-  }, 0)
-  const brutoMensual = month ? centerEntries.reduce((s, e) => {
-    const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
-    return s + e.grossSalary * pond
-  }, 0) : null
-
-  const estandarAnual = centerAnnual.reduce((s, e) => {
-    const p    = parsePayrollItems(e.items ?? [], e.grossSalary)
-    const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
-    return s + (p.sueldoBase + p.gratificacion + p.noImponiblesTotal) * pond
-  }, 0)
-  const estandarMensual = month ? centerEntries.reduce((s, e) => {
-    const p    = parsePayrollItems(e.items ?? [], e.grossSalary)
-    const pond = getPonderacion(e.employee.workCenters, e.legalEntity)
-    return s + (p.sueldoBase + p.gratificacion + p.noImponiblesTotal) * pond
-  }, 0) : null
-
-  // Movements filtered to this center
-  const filterByCenter = (emps: any[]) =>
-    (emps ?? []).filter((e: any) => e.workCenters?.some((a: any) => a.workCenter?.name === wc.name))
-
-  const movIngresos   = useMemo(() => filterByCenter(movements?.ingresos   ?? []), [movements, wc.name])
-  const movSalidas    = useMemo(() => filterByCenter(movements?.salidas    ?? []), [movements, wc.name])
-  const movVacaciones = useMemo(() =>
-    (movements?.vacaciones ?? []).filter((v: any) =>
-      v.employee?.workCenters?.some((a: any) => a.workCenter?.name === wc.name)
-    ),
-  [movements, wc.name])
-  const movLicencias  = useMemo(() =>
-    (movements?.licencias ?? []).filter((l: any) =>
-      l.employee?.workCenters?.some((a: any) => a.workCenter?.name === wc.name)
-    ),
-  [movements, wc.name])
-  const movReemplazos = useMemo(() => filterByCenter(movements?.reemplazos ?? []), [movements, wc.name])
-
-
-  const periodoLabel = month ? `${MONTHS_LABEL[Number(month)]} ${year}` : year
-
-  return (
-    <div className="border border-blue-200 rounded-xl bg-white mt-1 shadow-sm">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-blue-100 bg-blue-50/40 rounded-t-xl">
-        <div className="flex items-center gap-2">
-          <Building2 size={15} className="text-blue-500" />
-          <span className="font-semibold text-gray-900 text-sm">{wc.name}</span>
-          <span className={`ml-1 inline-block px-2 py-0.5 rounded-full text-xs font-medium ${COST_TYPE_COLOR[wc.costType]}`}>
-            {COST_TYPE_LABEL[wc.costType]}
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          <button onClick={onEdit}
-            className="text-xs text-gray-500 hover:text-blue-600 flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-100 transition-colors">
-            <Pencil size={12} /> Editar
-          </button>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-200 transition-colors ml-1">
-            <X size={14} className="text-gray-400" />
-          </button>
-        </div>
-      </div>
-
-      {/* Outer tabs: Personas | Honorarios */}
-      <div className="flex border-b border-gray-100">
-        {(['personas', 'honorarios'] as const).map(key => (
-          <button key={key} onClick={() => setOuterTab(key)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors capitalize ${
-              outerTab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {key.charAt(0).toUpperCase() + key.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      <div className="p-5">
-
-        {/* ══ PERSONAS ══ */}
-        {outerTab === 'personas' && (
-          <div className="space-y-4">
-            {/* Sub-tabs */}
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-              {(['sueldos', 'movimientos', 'provisiones'] as const).map(key => (
-                <button key={key} onClick={() => setPersonTab(key)}
-                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors capitalize ${
-                    personTab === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  {key.charAt(0).toUpperCase() + key.slice(1)}
-                </button>
-              ))}
-            </div>
-
-            {/* ── Sueldos ── */}
-            {personTab === 'sueldos' && (
-              <div className="space-y-4">
-                {!year ? (
-                  <p className="text-sm text-gray-400 text-center py-4">Selecciona un período para ver datos</p>
-                ) : (
-                  <>
-                    {/* ── Cálculos derivados ── */}
-                    {(() => {
-                      const CONTRACTUAL = 160_000
-                      // Solo cobra contratación a quienes tienen este como su primer centro
-                      const isPrimary = (e: PayrollRawEntry) =>
-                        (e.employee.workCenters ?? []).filter(a => a.legalEntity === e.legalEntity)[0]?.workCenter?.name === wc.name
-                      const nAnual   = new Set(centerAnnual .filter(isPrimary).map(e => `${e.employeeId}::${e.legalEntity}`)).size
-                      const nMensual = month ? new Set(centerEntries.filter(isPrimary).map(e => `${e.employeeId}::${e.legalEntity}`)).size : null
-
-                      const contractAnual   = centerAnnual .filter(isPrimary).length * CONTRACTUAL
-                      const contractMensual = month ? centerEntries.filter(isPrimary).length * CONTRACTUAL : null
-
-                      const totalGastosAnual   = brutoanual + contractAnual
-                      const totalGastosMensual = brutoMensual !== null ? brutoMensual + (contractMensual ?? 0) : null
-
-                      const monthsAnual    = Math.max(new Set(annualEntries.map(e => e.month)).size, 1)
-                      const ingresosAnual  = wc.totalIngresos * monthsAnual
-
-                      return (
-                        <>
-                          {/* 3 viñetas de detalle */}
-                          <div className="grid grid-cols-3 gap-4">
-
-                            {/* Gastos acumulados — 6 datos */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                                <TrendingUp size={13} className="text-gray-400" /> Gastos acumulados
-                              </p>
-                              <div className="space-y-2">
-                                {/* Bruto + Contractual */}
-                                <div className="bg-white rounded-lg border border-gray-100 p-2.5">
-                                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-1.5">Bruto + Contratación</p>
-                                  <div className="flex justify-between items-baseline">
-                                    <span className="text-[10px] text-gray-400">Anual {year}</span>
-                                    <span className="text-sm font-bold text-gray-900">{fmtShort(totalGastosAnual)}</span>
-                                  </div>
-                                  {month && (
-                                    <div className="flex justify-between items-baseline mt-1">
-                                      <span className="text-[10px] text-gray-400">{MONTHS_LABEL[Number(month)]}</span>
-                                      <span className="text-sm font-semibold text-gray-700">{fmtShort(totalGastosMensual ?? 0)}</span>
-                                    </div>
-                                  )}
-                                </div>
-                                {/* Sueldos brutos */}
-                                <div className="bg-white rounded-lg border border-gray-100 p-2.5">
-                                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-1.5">Sueldo bruto</p>
-                                  <div className="flex justify-between items-baseline">
-                                    <span className="text-[10px] text-gray-400">Anual {year}</span>
-                                    <span className="text-sm font-bold text-gray-900">{fmtShort(brutoanual)}</span>
-                                  </div>
-                                  {month && (
-                                    <div className="flex justify-between items-baseline mt-1">
-                                      <span className="text-[10px] text-gray-400">{MONTHS_LABEL[Number(month)]}</span>
-                                      <span className="text-sm font-semibold text-gray-700">{fmtShort(brutoMensual ?? 0)}</span>
-                                    </div>
-                                  )}
-                                </div>
-                                {/* Sueldos estándar */}
-                                <div className="bg-white rounded-lg border border-gray-100 p-2.5">
-                                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-1.5">Sueldo estándar</p>
-                                  <div className="flex justify-between items-baseline">
-                                    <span className="text-[10px] text-gray-400">Anual {year}</span>
-                                    <span className="text-sm font-bold text-blue-700">{fmtShort(estandarAnual)}</span>
-                                  </div>
-                                  {month && (
-                                    <div className="flex justify-between items-baseline mt-1">
-                                      <span className="text-[10px] text-gray-400">{MONTHS_LABEL[Number(month)]}</span>
-                                      <span className="text-sm font-semibold text-blue-600">{fmtShort(estandarMensual ?? 0)}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Gastos de contratación */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                                <DollarSign size={13} className="text-gray-400" /> Gastos de contratación
-                              </p>
-                              <div className="space-y-2">
-                                <div className="bg-white rounded-lg border border-gray-100 p-2.5">
-                                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-1.5">$160.000 / persona · primer centro</p>
-                                  <div className="flex justify-between items-baseline">
-                                    <span className="text-[10px] text-gray-400">Anual {year}</span>
-                                    <span className="text-sm font-bold text-gray-900">{fmtShort(contractAnual)}</span>
-                                  </div>
-                                  {month && contractMensual !== null && (
-                                    <div className="flex justify-between items-baseline mt-1">
-                                      <span className="text-[10px] text-gray-400">{MONTHS_LABEL[Number(month)]}</span>
-                                      <span className="text-sm font-semibold text-gray-700">{fmtShort(contractMensual)}</span>
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="bg-white rounded-lg border border-gray-100 p-2.5">
-                                  <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mb-1">Personas consideradas</p>
-                                  <p className="text-sm font-bold text-gray-900">{nAnual} {month && nMensual !== null ? `(${nMensual} en ${MONTHS_LABEL[Number(month)]})` : ''}</p>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Ingresos mensuales */}
-                            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                              <div className="flex items-center justify-between mb-3">
-                                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
-                                  <Wallet size={13} className="text-gray-400" /> Ingresos mensuales
-                                </p>
-                                {!addingIngreso && (
-                                  <button onClick={() => setAddingIngreso(true)}
-                                    className="text-xs text-gray-400 hover:text-blue-600 flex items-center gap-1 transition-colors">
-                                    <Plus size={11} /> Agregar
-                                  </button>
-                                )}
-                              </div>
-
-                              <div className="space-y-1.5">
-                                {wc.ingresos.map(ing => (
-                                  <div key={ing.id} className="bg-white rounded-lg border border-gray-100 p-2.5">
-                                    {editingId === ing.id ? (
-                                      <div className="space-y-1.5">
-                                        <input
-                                          autoFocus
-                                          value={editName}
-                                          onChange={e => setEditName(e.target.value)}
-                                          placeholder="Nombre"
-                                          className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        />
-                                        <div className="relative">
-                                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                                          <input
-                                            value={editAmount}
-                                            onChange={e => setEditAmount(e.target.value)}
-                                            placeholder="0"
-                                            className="w-full pl-6 pr-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                          />
-                                        </div>
-                                        <div className="flex gap-1.5">
-                                          <button
-                                            onClick={handleUpdateIngreso}
-                                            disabled={updateIngreso.isPending}
-                                            className="flex-1 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-1"
-                                          >
-                                            <Save size={11} /> Guardar
-                                          </button>
-                                          <button onClick={() => setEditingId(null)} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700">
-                                            Cancelar
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs text-gray-600 flex-1 truncate" title={ing.name}>{ing.name}</span>
-                                        <span className="text-sm font-bold text-emerald-700 whitespace-nowrap">{fmtShort(ing.amount)}</span>
-                                        <button onClick={() => startEdit(ing)} className="p-0.5 text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0">
-                                          <Pencil size={11} />
-                                        </button>
-                                        <button onClick={() => handleDeleteIngreso(ing.id)} disabled={deleteIngreso.isPending} className="p-0.5 text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">
-                                          <Trash2 size={11} />
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-
-                                {addingIngreso && (
-                                  <div className="bg-white rounded-lg border border-blue-200 p-2.5 space-y-1.5">
-                                    <input
-                                      autoFocus
-                                      value={newName}
-                                      onChange={e => setNewName(e.target.value)}
-                                      placeholder="Nombre (ej: Contrato Codelco)"
-                                      className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                    />
-                                    <div className="relative">
-                                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                                      <input
-                                        value={newAmount}
-                                        onChange={e => setNewAmount(e.target.value)}
-                                        placeholder="0"
-                                        onKeyDown={e => e.key === 'Enter' && handleAddIngreso()}
-                                        className="w-full pl-6 pr-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                      />
-                                    </div>
-                                    <div className="flex gap-1.5">
-                                      <button
-                                        onClick={handleAddIngreso}
-                                        disabled={addIngreso.isPending}
-                                        className="flex-1 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-1"
-                                      >
-                                        <Save size={11} /> Agregar
-                                      </button>
-                                      <button onClick={() => { setAddingIngreso(false); setNewName(''); setNewAmount('') }} className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700">
-                                        Cancelar
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {wc.ingresos.length === 0 && !addingIngreso && (
-                                  <p className="text-xs text-gray-400 text-center py-1">Sin ingresos definidos</p>
-                                )}
-                              </div>
-
-                              {wc.totalIngresos > 0 && (
-                                <div className="mt-2 bg-white rounded-lg border border-gray-100 p-2.5">
-                                  <div className="flex justify-between items-baseline">
-                                    <span className="text-[10px] text-gray-400">Total mensual</span>
-                                    <span className="text-sm font-bold text-emerald-700">{fmtShort(wc.totalIngresos)}</span>
-                                  </div>
-                                  <div className="flex justify-between items-baseline mt-1">
-                                    <span className="text-[10px] text-gray-400">Anual {year}</span>
-                                    <span className="text-sm font-bold text-emerald-600">{fmtShort(ingresosAnual)}</span>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-
-                          </div>
-                        </>
-                      )
-                    })()}
-
-                    {/* Tabla colaboradores */}
-                    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-                      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3">
-                        <div className="relative flex-1">
-                          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                          <input
-                            value={detailSearch} onChange={e => setDetailSearch(e.target.value)}
-                            placeholder="Buscar colaborador…"
-                            className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </div>
-                        <span className="text-xs text-gray-400 shrink-0">
-                          {payrollRows.length} colaborador{payrollRows.length !== 1 ? 'es' : ''} · {periodoLabel}
-                        </span>
-                        {payrollRows.length > 0 && (
-                          <button
-                            onClick={() => exportRemuneracionesToExcel(payrollRows, wc.name, periodoLabel)}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shrink-0"
-                            title="Exportar a Excel"
-                          >
-                            <FileDown size={13} />
-                            Excel
-                          </button>
-                        )}
-                      </div>
-                      {payrollRows.length === 0 ? (
-                        <p className="text-sm text-gray-400 text-center py-8">Sin datos de remuneraciones para este período</p>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="border-b border-gray-100 text-left">
-                                <th onClick={() => handleDetailSort('employeeName')}
-                                  className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 whitespace-nowrap sticky left-0 bg-white">
-                                  Colaborador<DetailSortIcon col="employeeName" sortKey={detailSortKey} sortDir={detailSortDir} />
-                                </th>
-                                <th onClick={() => handleDetailSort('jobTitle')}
-                                  className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 whitespace-nowrap">
-                                  Cargo<DetailSortIcon col="jobTitle" sortKey={detailSortKey} sortDir={detailSortDir} />
-                                </th>
-                                <th onClick={() => handleDetailSort('ponderacion')}
-                                  className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 whitespace-nowrap text-right">
-                                  Ponderación<DetailSortIcon col="ponderacion" sortKey={detailSortKey} sortDir={detailSortDir} />
-                                </th>
-                                <th onClick={() => handleDetailSort('grossSalary')}
-                                  className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 whitespace-nowrap text-right">
-                                  Sueldo bruto<DetailSortIcon col="grossSalary" sortKey={detailSortKey} sortDir={detailSortDir} />
-                                </th>
-                                <th onClick={() => handleDetailSort('sueldoEstandar')}
-                                  className="px-4 py-2.5 text-xs font-semibold text-blue-600 uppercase tracking-wide cursor-pointer hover:text-blue-700 whitespace-nowrap text-right bg-blue-50/40">
-                                  Sueldo estándar<DetailSortIcon col="sueldoEstandar" sortKey={detailSortKey} sortDir={detailSortDir} />
-                                </th>
-                                <th onClick={() => handleDetailSort('bonosTotal')}
-                                  className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 whitespace-nowrap text-right">
-                                  Total bonos<DetailSortIcon col="bonosTotal" sortKey={detailSortKey} sortDir={detailSortDir} />
-                                </th>
-                                <th className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                                  Bonos identificados
-                                </th>
-                                <th onClick={() => handleDetailSort('hhTotal')}
-                                  className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 whitespace-nowrap text-right">
-                                  Total HH extra<DetailSortIcon col="hhTotal" sortKey={detailSortKey} sortDir={detailSortDir} />
-                                </th>
-                                <th className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                                  HH extra identificadas
-                                </th>
-                                <th className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap text-right">
-                                  Gastos contractuales
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                              {payrollRows.map((r, i) => (
-                                <tr key={`${r.employeeId}-${i}`} className="hover:bg-gray-50 transition-colors">
-                                  <td className="px-4 py-2.5 whitespace-nowrap sticky left-0 bg-white">
-                                    <div className="flex items-center gap-2">
-                                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                                        r.status === 'ACTIVE' ? 'bg-green-500' : r.status === 'ON_LEAVE' ? 'bg-amber-400' : 'bg-gray-300'
-                                      }`} />
-                                      <div>
-                                        <p className="text-sm font-medium text-gray-900">{r.employeeName}</p>
-                                        <p className="text-xs text-gray-400 font-mono">{r.rut}</p>
-                                      </div>
-                                    </div>
-                                  </td>
-                                  <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap max-w-[160px] truncate" title={r.jobTitle}>{r.jobTitle}</td>
-                                  <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap font-mono text-xs">
-                                    {(r.ponderacion * 100).toFixed(0)}%
-                                  </td>
-                                  <td className="px-4 py-2.5 text-right font-medium text-gray-900 whitespace-nowrap">{fmt(r.grossSalary * r.ponderacion)}</td>
-                                  <td className={`px-4 py-2.5 text-right font-semibold whitespace-nowrap ${r.sueldoEstandar !== r.grossSalary ? 'text-blue-700 bg-blue-50/40' : 'text-gray-700'}`}>{fmt(r.sueldoEstandar * r.ponderacion)}</td>
-                                  <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{fmt(r.bonosTotal * r.ponderacion)}</td>
-                                  <td className="px-4 py-2.5 text-xs text-gray-500 max-w-[180px] truncate" title={r.bonosNames}>{r.bonosNames}</td>
-                                  <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">{fmt(r.hhTotal * r.ponderacion)}</td>
-                                  <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">{r.hhDetail}</td>
-                                  <td className="px-4 py-2.5 text-right text-gray-700 whitespace-nowrap">
-                                    {r.centers.split(', ')[0].trim() === wc.name
-                                      ? fmt(160_000)
-                                      : <span className="text-gray-300">—</span>}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* ── Movimientos ── */}
-            {personTab === 'movimientos' && (
-              <div>
-                {!year ? (
-                  <p className="text-sm text-gray-400 text-center py-4">Selecciona un período para ver movimientos</p>
-                ) : movLoading ? (
-                  <div className="text-center py-6"><RefreshCw size={20} className="animate-spin text-blue-400 mx-auto" /></div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                      <MiniStat label="Ingresos"   value={movIngresos.length}   icon={UserPlus}    color="text-green-600  bg-green-50"  />
-                      <MiniStat label="Salidas"    value={movSalidas.length}    icon={UserMinus}   color="text-red-500    bg-red-50"    />
-                      <MiniStat label="Vacaciones" value={movVacaciones.length} icon={TrendingDown} color="text-sky-600    bg-sky-50"   />
-                      <MiniStat label="Licencias"  value={movLicencias.length}  icon={Stethoscope} color="text-amber-600  bg-amber-50"  />
-                      <MiniStat label="Reemplazos" value={movReemplazos.length} icon={Repeat}      color="text-violet-600 bg-violet-50" />
-                    </div>
-                    {movIngresos.length > 0 && (
-                      <MovementList title="Ingresos" color="green"
-                        items={movIngresos.map((e: any) => ({ name: `${e.firstName} ${e.lastName}`, rut: e.rut, date: e.startDate }))} />
-                    )}
-                    {movSalidas.length > 0 && (
-                      <MovementList title="Salidas" color="red"
-                        items={movSalidas.map((e: any) => ({ name: `${e.firstName} ${e.lastName}`, rut: e.rut, date: e.endDate }))} />
-                    )}
-                    {movVacaciones.length > 0 && (
-                      <MovementList title="Vacaciones" color="green"
-                        items={movVacaciones.map((v: any) => ({
-                          name: `${v.employee.firstName} ${v.employee.lastName}`,
-                          date: v.startDate, info: `${v.days} días`,
-                        }))} />
-                    )}
-                    {movLicencias.length > 0 && (
-                      <MovementList title="Licencias médicas" color="amber"
-                        items={movLicencias.map((l: any) => ({
-                          name: `${l.employee.firstName} ${l.employee.lastName}`,
-                          rut: l.employee.rut, date: l.startDate, info: `${l.days} días`,
-                        }))} />
-                    )}
-                    {movReemplazos.length > 0 && (
-                      <MovementList title="Reemplazos" color="violet"
-                        items={movReemplazos.map((e: any) => ({
-                          name: `${e.firstName} ${e.lastName}`, rut: e.rut, date: e.startDate,
-                          info: e.reemplazaA ? `Reemplaza a: ${e.reemplazaA}` : undefined,
-                        }))} />
-                    )}
-                    {!movIngresos.length && !movSalidas.length && !movVacaciones.length && !movLicencias.length && !movReemplazos.length && (
-                      <p className="text-sm text-gray-400 text-center py-4">Sin movimientos en este centro para el período</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Provisiones ── */}
-            {personTab === 'provisiones' && (
-              <div className="py-10 text-center">
-                <p className="text-sm text-gray-400">Próximamente</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ══ HONORARIOS ══ */}
-        {outerTab === 'honorarios' && (
-          <div className="py-10 text-center">
-            <p className="text-sm text-gray-400">Próximamente</p>
-          </div>
-        )}
-
-      </div>
-    </div>
-  )
-}
+import type { WorkCenter, CostType, LegalEntity } from '@/types'
+import { SmartTab } from './SmartTab'
+import { DotacionTab } from './DotacionTab'
+import { WorkCenterModal } from './WorkCenterModal'
+import { WorkCenterDetailPanel } from './WorkCenterDetailPanel'
+import { FilterSelect, MultiSelect, FilterRemTh, MiniStat } from './wcComponents'
+import {
+  type WCCardId, type SortKey, type SortDir, type CenterSortKey, type RemColFilters,
+  MONTHS_LABEL, MONTHS, WC_CARD_IDS, NUMERIC_KEYS,
+  fmt, fmtShort, getPonderacion, aggregateWCRows, getRemVal,
+  COST_TYPE_LABEL, COST_TYPE_COLOR, LEGAL_ENTITY_LABEL, LEGAL_ENTITY_COLOR,
+} from './wcUtils'
+import { exportCentrosToExcel, exportRemuneracionesToExcel } from './wcExcel'
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -1790,7 +241,7 @@ export default function WorkCentersPage() {
             options={MONTHS} />
           <button
             onClick={() => setModal('create')}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors"
           >
             <Plus size={15} /> Nuevo centro
           </button>
@@ -1820,7 +271,7 @@ export default function WorkCentersPage() {
         ] as const).map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+              tab === key ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
             {label}
@@ -1918,7 +369,7 @@ export default function WorkCentersPage() {
                       <div className="mt-2 space-y-0.5">
                         {Object.entries(centerStats.byUbic).sort((a,b)=>b[1]-a[1]).map(([u,n])=>(
                           <div key={u} className="flex items-center gap-1.5">
-                            <div className="w-1.5 h-1.5 rounded-full bg-blue-300 flex-shrink-0"/>
+                            <div className="w-1.5 h-1.5 rounded-full bg-brand-300 flex-shrink-0"/>
                             <span className="text-[10px] text-gray-400 truncate">{n} · {u}</span>
                           </div>
                         ))}
@@ -1944,7 +395,7 @@ export default function WorkCentersPage() {
                             </div>
                             <div className="mt-2 space-y-1">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">{empStats?.activeComunicaciones ?? comActive}</span>
+                                <span className="text-[10px] font-semibold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-full">{empStats?.activeComunicaciones ?? comActive}</span>
                                 <span className="text-[10px] text-gray-400">Comunicaciones</span>
                               </div>
                               <div className="flex items-center gap-1.5">
@@ -1955,7 +406,7 @@ export default function WorkCentersPage() {
                           </>
                         : <div className="mt-2 space-y-1">
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">{empStats?.activeComunicaciones ?? '—'}</span>
+                              <span className="text-[10px] font-semibold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-full">{empStats?.activeComunicaciones ?? '—'}</span>
                               <span className="text-[10px] text-gray-400">Comunicaciones</span>
                             </div>
                             <div className="flex items-center gap-1.5">
@@ -1980,9 +431,9 @@ export default function WorkCentersPage() {
 
                 case 'directo': return (
                   <div className={C}>
-                    <div className={H}><span className={hl}><TrendingUp size={10} className="text-blue-400"/>Gasto Directo</span>{label&&<span className={sub}>{label}</span>}</div>
+                    <div className={H}><span className={hl}><TrendingUp size={10} className="text-brand-400"/>Gasto Directo</span>{label&&<span className={sub}>{label}</span>}</div>
                     <div className="p-4 flex-1">
-                      <p className="text-2xl font-bold text-blue-700">{payrollStats.directCost>0?fmtShort(payrollStats.directCost):noData}</p>
+                      <p className="text-2xl font-bold text-brand-700">{payrollStats.directCost>0?fmtShort(payrollStats.directCost):noData}</p>
                       {payrollStats.total>0&&<p className="text-xs text-gray-400 mt-1">{(100-payrollStats.pctIndirecto).toFixed(1)}% del gasto total</p>}
                     </div>
                   </div>
@@ -2040,7 +491,7 @@ export default function WorkCentersPage() {
 
             // ── Drag style helper ──────────────────────────────────────────
             const dragCls = (idx: number) =>
-              `rounded-xl transition-all duration-100 ${dgFrom===idx?'opacity-25 scale-[0.97]':''} ${dgOver===idx&&dgFrom!==null&&dgFrom!==idx?'ring-2 ring-blue-400 ring-offset-1':''}`
+              `rounded-xl transition-all duration-100 ${dgFrom===idx?'opacity-25 scale-[0.97]':''} ${dgOver===idx&&dgFrom!==null&&dgFrom!==idx?'ring-2 ring-brand-400 ring-offset-1':''}`
 
             return (
               <div className="space-y-3">
@@ -2084,7 +535,7 @@ export default function WorkCentersPage() {
                                 <span className="text-xs font-bold text-gray-900 ml-2 flex-shrink-0">{val>0?fmtShort(val):<span className="text-gray-300">—</span>}</span>
                               </div>
                               <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-blue-300 rounded-full transition-all duration-500" style={{width:`${pct}%`}}/>
+                                <div className="h-full bg-brand-300 rounded-full transition-all duration-500" style={{width:`${pct}%`}}/>
                               </div>
                               {locTotal>0&&<p className="text-[10px] text-gray-300 mt-0.5 text-right">{pct.toFixed(1)}%</p>}
                             </div>
@@ -2130,7 +581,7 @@ export default function WorkCentersPage() {
                       {/* Tabs */}
                       <div className="flex border-b border-gray-100 flex-shrink-0">
                         {([
-                          {key:'vacaciones' as const, label:'Vacaciones', count:vacaciones.length,        active:'border-blue-500 text-blue-600',    num:'text-blue-600'},
+                          {key:'vacaciones' as const, label:'Vacaciones', count:vacaciones.length,        active:'border-brand-500 text-brand-600',    num:'text-brand-600'},
                           {key:'licencias'  as const, label:'Licencias',  count:licencias.length,         active:'border-amber-500 text-amber-600',  num:'text-amber-600'},
                           {key:'reemplazos' as const, label:'Reemplazos', count:reemplazos.length,        active:'border-purple-500 text-purple-600',num:'text-purple-600'},
                           {key:'contratos'  as const, label:'Por vencer', count:expiringContracts.length, active:'border-rose-500 text-rose-600',    num:'text-rose-600'},
@@ -2155,7 +606,7 @@ export default function WorkCentersPage() {
                                 <p className="text-gray-400">{fmtDate(v.startDate)} → {fmtDate(v.endDate)}</p>
                                 <p className="text-gray-400 truncate">{getCenter(v.employee.workCenters)}</p>
                               </div>
-                              <span className="font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full flex-shrink-0">{v.days}d</span>
+                              <span className="font-bold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-full flex-shrink-0">{v.days}d</span>
                             </li>
                           ))}</ul>
                         )}
@@ -2222,7 +673,7 @@ export default function WorkCentersPage() {
                 <input
                   type="text" placeholder="Buscar centro…"
                   value={search} onChange={e => setSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
               <MultiSelect<CostType>
@@ -2269,13 +720,13 @@ export default function WorkCentersPage() {
                   const cTh = (label: string, col: CenterSortKey, right?: boolean) => (
                     <th
                       onClick={() => handleCenterSort(col)}
-                      className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700 ${right ? 'text-right' : ''} ${cSortKey === col ? 'text-blue-600' : 'text-gray-500'}`}
+                      className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700 ${right ? 'text-right' : ''} ${cSortKey === col ? 'text-brand-600' : 'text-gray-500'}`}
                     >
                       {label}
                       {cSortKey === col
                         ? (cSortDir === 'asc'
-                            ? <ChevronUp   size={12} className="ml-1 inline text-blue-500" />
-                            : <ChevronDown size={12} className="ml-1 inline text-blue-500" />)
+                            ? <ChevronUp   size={12} className="ml-1 inline text-brand-500" />
+                            : <ChevronDown size={12} className="ml-1 inline text-brand-500" />)
                         : <ChevronsUpDown size={12} className="ml-1 inline text-gray-300" />
                       }
                     </th>
@@ -2293,13 +744,13 @@ export default function WorkCentersPage() {
                       {cTh(periodoLabel ? `Costos ${periodoLabel}` : 'Costos período', 'gasto', true)}
                       <th
                         onClick={() => handleCenterSort('diferencia')}
-                        className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap text-right ${cSortKey === 'diferencia' ? 'text-blue-600' : 'text-gray-500'} hover:text-gray-700`}
+                        className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap text-right ${cSortKey === 'diferencia' ? 'text-brand-600' : 'text-gray-500'} hover:text-gray-700`}
                       >
                         Diferencia
                         {cSortKey === 'diferencia'
                           ? (cSortDir === 'asc'
-                              ? <ChevronUp   size={12} className="ml-1 inline text-blue-500" />
-                              : <ChevronDown size={12} className="ml-1 inline text-blue-500" />)
+                              ? <ChevronUp   size={12} className="ml-1 inline text-brand-500" />
+                              : <ChevronDown size={12} className="ml-1 inline text-brand-500" />)
                           : <ChevronsUpDown size={12} className="ml-1 inline text-gray-300" />
                         }
                       </th>
@@ -2313,11 +764,11 @@ export default function WorkCentersPage() {
                         <Fragment key={wc.id}>
                           <tr
                             onClick={() => setSelectedWC(isSelected ? null : wc)}
-                            className={`cursor-pointer transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                            className={`cursor-pointer transition-colors ${isSelected ? 'bg-brand-50' : 'hover:bg-gray-50'}`}
                           >
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
-                                <Building2 size={15} className={isSelected ? 'text-blue-500' : 'text-gray-400'} />
+                                <Building2 size={15} className={isSelected ? 'text-brand-500' : 'text-gray-400'} />
                                 <span className="text-sm font-medium text-gray-900">{wc.name}</span>
                               </div>
                             </td>
@@ -2325,7 +776,7 @@ export default function WorkCentersPage() {
                               <select
                                 value={wc.ubicacion ?? ''}
                                 onChange={e => updateWC.mutate({ id: wc.id, ubicacion: e.target.value || null })}
-                                className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-700 cursor-pointer"
+                                className="text-sm border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white text-gray-700 cursor-pointer"
                               >
                                 <option value="">—</option>
                                 {['Antofagasta', 'Atacama', 'Santiago', 'Rancagua', 'Transversal'].map(loc => (
@@ -2374,11 +825,11 @@ export default function WorkCentersPage() {
                             </td>
                             <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                               <div className="flex items-center gap-1">
-                                <button onClick={() => setModal(wc)}
-                                  className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                                <button onClick={() => setModal(wc)} aria-label="Editar centro"
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-brand-600 hover:bg-brand-50 transition-colors">
                                   <Pencil size={14} />
                                 </button>
-                                <button onClick={() => setConfirmId(wc.id)}
+                                <button onClick={() => setConfirmId(wc.id)} aria-label="Eliminar centro"
                                   className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
                                   <Trash2 size={14} />
                                 </button>
@@ -2457,7 +908,7 @@ export default function WorkCentersPage() {
           {year && payrollStats.total > 0 && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <MiniStat label={`Costo total${periodoLabel ? ` ${periodoLabel}` : ''}`} value={fmtShort(payrollStats.total)}       icon={DollarSign}  color="text-gray-600   bg-gray-100"   />
-              <MiniStat label="Costo directo"                                          value={fmtShort(payrollStats.directCost)}   icon={TrendingUp}  color="text-blue-600  bg-blue-50"    />
+              <MiniStat label="Costo directo"                                          value={fmtShort(payrollStats.directCost)}   icon={TrendingUp}  color="text-brand-600  bg-brand-50"    />
               <MiniStat label="Costo indirecto"                                        value={fmtShort(payrollStats.indirectCost)} icon={TrendingDown} color="text-gray-500  bg-gray-100"   />
               <MiniStat label="% Costo indirecto"                                      value={`${payrollStats.pctIndirecto.toFixed(1)}%`} icon={Percent} color="text-amber-600 bg-amber-50" />
             </div>
@@ -2470,7 +921,7 @@ export default function WorkCentersPage() {
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input type="text" placeholder="Nombre o RUT…"
                   value={remSearch} onChange={e => setRemSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 />
               </div>
               <span className="text-xs text-gray-400 whitespace-nowrap">
@@ -2496,7 +947,7 @@ export default function WorkCentersPage() {
               </div>
             ) : payrollLoading ? (
               <div className="p-16 text-center">
-                <RefreshCw size={24} className="animate-spin text-blue-400 mx-auto mb-3" />
+                <RefreshCw size={24} className="animate-spin text-brand-400 mx-auto mb-3" />
                 <p className="text-sm text-gray-400">Cargando remuneraciones…</p>
               </div>
             ) : rows.length === 0 ? (
@@ -2547,7 +998,7 @@ export default function WorkCentersPage() {
                         <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{row.period}</td>
                         <td className="px-4 py-3 text-right font-medium text-gray-900 whitespace-nowrap">{fmt(row.liquidSalary)}</td>
                         <td className="px-4 py-3 text-right text-gray-700 whitespace-nowrap">{fmt(row.grossSalary)}</td>
-                        <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${row.sueldoEstandar !== row.grossSalary ? 'text-blue-700 bg-blue-50/40' : 'text-gray-700'}`}>{fmt(row.sueldoEstandar)}</td>
+                        <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${row.sueldoEstandar !== row.grossSalary ? 'text-brand-700 bg-brand-50/40' : 'text-gray-700'}`}>{fmt(row.sueldoEstandar)}</td>
                         <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{fmt(row.sueldoBase)}</td>
                         <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{fmt(row.gratificacion)}</td>
                         <td className="px-4 py-3 text-right text-gray-600 whitespace-nowrap">{fmt(row.bonosTotal)}</td>

@@ -4,6 +4,7 @@ import { Search, RefreshCw, ChevronDown, Users, AlertTriangle, X, ChevronsUpDown
 import * as XLSX from 'xlsx'
 import { useEmployees, useEmployeeStats, useUpdateEmployee, type DotacionFilters } from '@/hooks/useDotacion'
 import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { formatDate } from '@/lib/utils'
 import type { Employee, Contract, LegalEntity } from '@/types'
 import EmployeeDrawer from './EmployeeDrawer'
@@ -15,7 +16,7 @@ const LEGAL_ENTITY_LABEL: Record<LegalEntity, string> = {
   SURMEDIA_CONSULTORIA:    'Consultoría',
 }
 const LEGAL_ENTITY_COLOR: Record<LegalEntity, string> = {
-  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+  COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
 const STATUS_LABEL: Record<string, string> = { ACTIVE: 'Activo', INACTIVE: 'Inactivo', ON_LEAVE: 'Con permiso', DUPLICATE: 'Duplicado' }
@@ -59,7 +60,7 @@ function StatCard({ label, value, sub, icon: Icon, color, detail, onClick, activ
   return (
     <div
       onClick={onClick}
-      className={`bg-white rounded-xl border p-5 flex flex-col gap-3 transition-all ${onClick ? 'cursor-pointer hover:shadow-md' : ''} ${active ? 'border-blue-400 ring-2 ring-blue-100' : 'border-gray-200'}`}
+      className={`bg-white rounded-xl border p-5 flex flex-col gap-3 transition-all ${onClick ? 'cursor-pointer hover:shadow-md' : ''} ${active ? 'border-brand-400 ring-2 ring-brand-100' : 'border-gray-200'}`}
     >
       <div className="flex items-center gap-4">
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${color}`}>
@@ -96,7 +97,7 @@ function FilterSelect({ value, onChange, options, placeholder }: {
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+        className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer"
       >
         <option value="">{placeholder}</option>
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -118,14 +119,14 @@ function PeriodFilter({ year, month, onYearChange, onMonthChange, placeholder = 
     <>
       <div className="relative">
         <select value={year} onChange={e => onYearChange(e.target.value)}
-          className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+          className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer">
           {YEARS.map(y => <option key={y} value={String(y)}>{String(y)}</option>)}
         </select>
         <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
       </div>
       <div className="relative">
         <select value={month} onChange={e => onMonthChange(e.target.value)}
-          className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+          className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer">
           <option value="">{placeholder}</option>
           {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
         </select>
@@ -169,7 +170,7 @@ function MultiFilterSelect({ values, onChange, options, placeholder }: {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className={`relative flex items-center pl-3 pr-8 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer whitespace-nowrap ${values.length > 0 ? 'border-blue-300 text-blue-700' : 'border-gray-200 text-gray-700'}`}
+        className={`relative flex items-center pl-3 pr-8 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer whitespace-nowrap ${values.length > 0 ? 'border-brand-300 text-brand-700' : 'border-gray-200 text-gray-700'}`}
       >
         {label}
         <ChevronDown size={14} className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -182,7 +183,7 @@ function MultiFilterSelect({ values, onChange, options, placeholder }: {
                 type="checkbox"
                 checked={values.includes(o.value)}
                 onChange={() => toggle(o.value)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
               />
               {o.label}
             </label>
@@ -201,8 +202,8 @@ type SortDir = 'asc' | 'desc'
 function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
   if (col !== sortKey) return <ChevronsUpDown size={12} className="text-gray-300 ml-1 inline" />
   return sortDir === 'asc'
-    ? <ChevronUp size={12} className="text-blue-500 ml-1 inline" />
-    : <ChevronDown size={12} className="text-blue-500 ml-1 inline" />
+    ? <ChevronUp size={12} className="text-brand-500 ml-1 inline" />
+    : <ChevronDown size={12} className="text-brand-500 ml-1 inline" />
 }
 
 function SortTh({ label, col, sortKey, sortDir, onSort }: {
@@ -303,7 +304,7 @@ function FilterEmpTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters
         <button
           ref={btnRef}
           onClick={handleOpen}
-          className={`rounded p-0.5 hover:bg-gray-200 transition-colors ${isFiltered ? 'text-blue-600 bg-blue-50' : 'text-gray-300 hover:text-gray-500'}`}
+          className={`rounded p-0.5 hover:bg-gray-200 transition-colors ${isFiltered ? 'text-brand-600 bg-brand-50' : 'text-gray-300 hover:text-gray-500'}`}
         >
           <Filter size={10} />
         </button>
@@ -317,24 +318,24 @@ function FilterEmpTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters
         >
           <div className="flex gap-1 p-1.5 border-b border-gray-100">
             <button onClick={() => { onSort(col); setOpen(false) }}
-              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'asc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'asc' ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-700'}`}>
               ↑ A→Z
             </button>
             <button onClick={() => { if (col !== sortKey || sortDir !== 'desc') onSort(col); setOpen(false) }}
-              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'desc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'desc' ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-700'}`}>
               ↓ Z→A
             </button>
           </div>
           <div className="p-1.5 border-b border-gray-100">
             <input autoFocus value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
               placeholder="Buscar…"
-              className="w-full px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              className="w-full px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
           </div>
           <div className="px-2 py-1 border-b border-gray-100">
             <label className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
               <input type="checkbox" checked={allSelected} onChange={toggleAll}
                 ref={el => { if (el) el.indeterminate = someSelected }}
-                className="rounded border-gray-300 text-blue-600" />
+                className="rounded border-gray-300 text-brand-600" />
               <span className="font-medium">(Seleccionar todo)</span>
             </label>
           </div>
@@ -342,7 +343,7 @@ function FilterEmpTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters
             {visibleVals.map(v => (
               <label key={v} className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
                 <input type="checkbox" checked={selected.has(v)} onChange={() => toggleVal(v)}
-                  className="rounded border-gray-300 text-blue-600 shrink-0" />
+                  className="rounded border-gray-300 text-brand-600 shrink-0" />
                 <span className="truncate">{v}</span>
               </label>
             ))}
@@ -367,6 +368,7 @@ function FilterEmpTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters
 // ─── Asignador de centros de trabajo ─────────────────────────────────────────
 
 function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => void }) {
+  useEscapeKey(onClose)
   const { data: allCenters = [] } = useWorkCenters()
   const assign = useAssignWorkCenter()
   const unassign = useUnassignWorkCenter()
@@ -400,7 +402,7 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
             <h2 className="font-semibold text-gray-900">{emp.firstName} {emp.lastName}</h2>
             <p className="text-xs text-gray-400 mt-0.5">Asignar centros de trabajo</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} className="text-gray-400" /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} className="text-gray-400" /></button>
         </div>
         <div className="px-6 py-4 space-y-4">
           {legalEntities.length > 1 && (
@@ -408,7 +410,7 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
               {legalEntities.map(le => (
                 <button key={le} onClick={() => setSelectedEntity(le)}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                    selectedEntity === le ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                    selectedEntity === le ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                   }`}>
                   {LEGAL_ENTITY_LABEL[le]}
                 </button>
@@ -423,9 +425,9 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {assignedForEntity.map(a => (
-                  <span key={a.id} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">
+                  <span key={a.id} className="inline-flex items-center gap-1 px-2 py-1 bg-brand-50 text-brand-700 rounded-lg text-xs font-medium">
                     {a.workCenter.name}
-                    <button onClick={() => handleUnassign(a.workCenterId)} className="hover:text-red-500 transition-colors ml-0.5">
+                    <button onClick={() => handleUnassign(a.workCenterId)} aria-label="Quitar centro" className="hover:text-red-500 transition-colors ml-0.5">
                       <X size={11} />
                     </button>
                   </span>
@@ -440,7 +442,7 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
               <select
                 value={selectedCenter}
                 onChange={e => setSelectedCenter(e.target.value)}
-                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 <option value="">Seleccionar centro…</option>
                 {available.map(c => (
@@ -450,7 +452,7 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
               <button
                 onClick={handleAssign}
                 disabled={!selectedCenter || assign.isPending}
-                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                className="px-3 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50 transition-colors"
               >
                 <Plus size={15} />
               </button>
@@ -487,14 +489,14 @@ function VinculoCell({ emp }: { emp: Employee }) {
         <div className="flex gap-1">
           {['Planta', 'Reemplazo'].map(v => (
             <button key={v} onClick={() => setVinculo(v)}
-              className="px-2 py-0.5 rounded text-xs border border-blue-300 text-blue-700 hover:bg-blue-50">{v}</button>
+              className="px-2 py-0.5 rounded text-xs border border-brand-300 text-brand-700 hover:bg-brand-50">{v}</button>
           ))}
           <button onClick={() => setVinculo(null)} className="px-2 py-0.5 rounded text-xs border border-gray-200 text-gray-400 hover:bg-gray-50">Quitar</button>
           <button onClick={() => setEditing(false)} className="text-gray-300 hover:text-gray-500 text-xs ml-1">✕</button>
         </div>
       ) : emp.vinculo ? (
         <div className="flex flex-col gap-0.5">
-          <button onClick={() => setEditing(true)} className="text-left text-gray-700 hover:text-blue-600 transition-colors">
+          <button onClick={() => setEditing(true)} className="text-left text-gray-700 hover:text-brand-600 transition-colors">
             {emp.vinculo}
           </button>
           {emp.vinculo === 'Reemplazo' && (
@@ -503,20 +505,20 @@ function VinculoCell({ emp }: { emp: Employee }) {
                 <input autoFocus value={reemplazoText} onChange={e => setReemplazoText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') saveReemplazo(); if (e.key === 'Escape') setEditingReemplazo(false) }}
                   placeholder="Nombre a quien reemplaza"
-                  className="text-xs border border-blue-300 rounded px-1.5 py-0.5 w-44 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                <button onClick={saveReemplazo} className="text-xs text-blue-600 hover:text-blue-800">✓</button>
+                  className="text-xs border border-brand-300 rounded px-1.5 py-0.5 w-44 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                <button onClick={saveReemplazo} className="text-xs text-brand-600 hover:text-brand-800">✓</button>
                 <button onClick={() => setEditingReemplazo(false)} className="text-xs text-gray-300 hover:text-gray-500">✕</button>
               </div>
             ) : (
               <button onClick={() => { setReemplazoText(emp.reemplazaA ?? ''); setEditingReemplazo(true) }}
-                className="text-xs text-left text-gray-400 hover:text-blue-500 transition-colors">
+                className="text-xs text-left text-gray-400 hover:text-brand-500 transition-colors">
                 {emp.reemplazaA ? `↳ ${emp.reemplazaA}` : '+ reemplaza a'}
               </button>
             )
           )}
         </div>
       ) : (
-        <button onClick={() => setEditing(true)} className="text-xs text-gray-300 hover:text-blue-400 transition-colors">+ asignar</button>
+        <button onClick={() => setEditing(true)} className="text-xs text-gray-300 hover:text-brand-400 transition-colors">+ asignar</button>
       )}
     </td>
   )
@@ -535,7 +537,7 @@ function EmployeeRow({ emp, onClick, preferLegalEntity }: { emp: Employee; onCli
         {/* Colaborador */}
         <td className="px-4 py-3 sticky left-0 bg-white group-hover:bg-gray-50">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{initials(emp)}</div>
+            <div className="w-8 h-8 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{initials(emp)}</div>
             <div>
               <div className="flex items-center gap-1.5">
                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${emp.status === 'ACTIVE' ? 'bg-green-500' : emp.status === 'ON_LEAVE' ? 'bg-amber-400' : emp.status === 'DUPLICATE' ? 'bg-orange-400' : 'bg-gray-300'}`} />
@@ -571,7 +573,7 @@ function EmployeeRow({ emp, onClick, preferLegalEntity }: { emp: Employee; onCli
                 )}
               </>
             ) : (
-              <span className="text-xs text-gray-300 group-hover/center:text-blue-400 transition-colors">+ asignar</span>
+              <span className="text-xs text-gray-300 group-hover/center:text-brand-400 transition-colors">+ asignar</span>
             )}
           </div>
         </td>
@@ -796,7 +798,7 @@ export default function EmployeesPage() {
         <StatCard
           label="Activos" value={stats?.active ?? '—'} icon={Users} color="text-green-600 bg-green-50"
           detail={[
-            { label: 'Comunicaciones', value: stats?.activeComunicaciones ?? '—', color: 'text-blue-600' },
+            { label: 'Comunicaciones', value: stats?.activeComunicaciones ?? '—', color: 'text-brand-600' },
             { label: 'Consultoría',    value: stats?.activeConsultoria    ?? '—', color: 'text-violet-600' },
           ]}
           active={(filters.status ?? []).includes('ACTIVE')}
@@ -805,7 +807,7 @@ export default function EmployeesPage() {
             setArrayFilter('status', curr.includes('ACTIVE') ? curr.filter(s => s !== 'ACTIVE') : [...curr, 'ACTIVE'])
           }}
         />
-        <StatCard label="Activos Comunicaciones" value={stats?.activeComunicaciones ?? '—'} icon={Users} color="text-blue-600 bg-blue-50" sub="Comunicaciones Surmedia Spa" />
+        <StatCard label="Activos Comunicaciones" value={stats?.activeComunicaciones ?? '—'} icon={Users} color="text-brand-600 bg-brand-50" sub="Comunicaciones Surmedia Spa" />
         <StatCard label="Activos Consultoría"    value={stats?.activeConsultoria    ?? '—'} icon={Users} color="text-violet-600 bg-violet-50" sub="Surmedia Consultoría Spa" />
       </div>
 
@@ -819,7 +821,7 @@ export default function EmployeesPage() {
             <input type="text" placeholder="Nombre, RUT, cargo o correo…"
               value={filters.search ?? ''}
               onChange={e => setFilter('search', e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <MultiFilterSelect
@@ -856,7 +858,7 @@ export default function EmployeesPage() {
 
         {/* Contenido */}
         {isLoading ? (
-          <div className="p-16 text-center"><RefreshCw size={24} className="animate-spin text-blue-400 mx-auto mb-3" /><p className="text-sm text-gray-400">Cargando colaboradores…</p></div>
+          <div className="p-16 text-center"><RefreshCw size={24} className="animate-spin text-brand-400 mx-auto mb-3" /><p className="text-sm text-gray-400">Cargando colaboradores…</p></div>
         ) : isError ? (
           <div className="p-16 text-center"><AlertTriangle size={24} className="text-red-300 mx-auto mb-3" /><p className="text-sm text-gray-500">Error cargando datos. Intenta nuevamente.</p></div>
         ) : employees.length === 0 ? (

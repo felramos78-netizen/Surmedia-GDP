@@ -149,7 +149,7 @@ export function useDeleteTaskAssignment() {
 export function useAddTask() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ processId, ...body }: { processId: string; period: string; name: string; tool?: string; automationType?: string }) => {
+    mutationFn: async ({ processId, ...body }: { processId: string; period: string; name?: string; tool?: string; automationType?: string; templateKey?: string }) => {
       const { data } = await api.post(`/onboarding/${processId}/tasks`, body)
       return data
     },
@@ -309,9 +309,11 @@ export function useSendTestEmail() {
   })
 }
 
+type DocumentOverrides = Record<string, { html?: string; sendAs?: 'WORD' | 'PDF' }>
+
 export function useSendProcessEmail() {
   return useMutation({
-    mutationFn: async ({ processId, to, from, cc, subject, body, templateKey }: {
+    mutationFn: async ({ processId, to, from, cc, subject, body, templateKey, documents }: {
       processId:   string
       to:          string
       from?:       string
@@ -319,8 +321,9 @@ export function useSendProcessEmail() {
       subject:     string
       body:        string
       templateKey?: string
+      documents?:  DocumentOverrides
     }) => {
-      const { data } = await api.post(`/onboarding/${processId}/send-email`, { to, from, cc, subject, body, templateKey })
+      const { data } = await api.post(`/onboarding/${processId}/send-email`, { to, from, cc, subject, body, templateKey, documents })
       return data.data as { sent: boolean; to: string; messageId: string; attachmentCount: number }
     },
   })
@@ -328,7 +331,7 @@ export function useSendProcessEmail() {
 
 export function useCreateProcessDraft() {
   return useMutation({
-    mutationFn: async ({ processId, to, from, cc, subject, body, templateKey }: {
+    mutationFn: async ({ processId, to, from, cc, subject, body, templateKey, documents }: {
       processId:   string
       to:          string
       from?:       string
@@ -336,9 +339,38 @@ export function useCreateProcessDraft() {
       subject:     string
       body:        string
       templateKey?: string
+      documents?:  DocumentOverrides
     }) => {
-      const { data } = await api.post(`/onboarding/${processId}/create-draft`, { to, from, cc, subject, body, templateKey })
+      const { data } = await api.post(`/onboarding/${processId}/create-draft`, { to, from, cc, subject, body, templateKey, documents })
       return data.data as { draftId: string; gmailUrl: string }
+    },
+  })
+}
+
+// HTML editable de un documento renderizado con las variables del proceso.
+export function useDocumentHtml(processId: string, docId: string | null) {
+  return useQuery({
+    queryKey: ['docHtml', processId, docId],
+    queryFn: async () => {
+      const { data } = await api.get(`/onboarding/${processId}/documents/${docId}/html`)
+      return data.data as { html: string; name: string }
+    },
+    enabled: !!processId && !!docId,
+    staleTime: 0,
+  })
+}
+
+// Guarda el array de versiones editadas del correo de un hito.
+export function useSaveEmailVersions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ processId, taskId, emailVersions }: { processId: string; taskId: string; emailVersions: any[] }) => {
+      const { data } = await api.put(`/onboarding/${processId}/tasks/${taskId}/email-versions`, { emailVersions })
+      return data.data
+    },
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['onboarding', vars.processId] })
+      queryClient.invalidateQueries({ queryKey: ['onboarding'] })
     },
   })
 }
@@ -450,7 +482,7 @@ export function useCreateSheetTemplate() {
 export function useUpdateSheetTemplate() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ key, ...body }: { key: string; name?: string; url?: string; rutColumn?: string; description?: string; sheetName?: string; isActive?: boolean }) => {
+    mutationFn: async ({ key, ...body }: { key: string; name?: string; url?: string; rutColumn?: string; description?: string; sheetName?: string; isActive?: boolean; columnMappings?: Record<string, string> }) => {
       const { data } = await api.patch<ApiResponse<OnboardingSheetTemplate>>(`/onboarding/sheet-templates/${key}`, body)
       return data.data
     },
@@ -463,6 +495,26 @@ export function useDeleteSheetTemplate() {
   return useMutation({
     mutationFn: async (key: string) => { await api.delete(`/onboarding/sheet-templates/${key}`) },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sheetTemplates'] }),
+  })
+}
+
+export function useSheetTargetFields() {
+  return useQuery({
+    queryKey: ['sheetTargetFields'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<{ key: string; label: string }[]>>('/onboarding/sheet-target-fields')
+      return data.data
+    },
+    staleTime: 1000 * 60 * 60,
+  })
+}
+
+export function useSheetColumns() {
+  return useMutation({
+    mutationFn: async (key: string) => {
+      const { data } = await api.get<ApiResponse<{ headers: string[]; suggested: Record<string, string>; current: Record<string, string> }>>(`/onboarding/sheet-templates/${key}/columns`)
+      return data.data
+    },
   })
 }
 

@@ -10,6 +10,7 @@ import {
 } from '@/hooks/useOnboarding'
 import type { OnboardingDocument, OnboardingDocumentTemplate } from '@/types'
 import api from '@/lib/api'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 
 // ─── Modal: vincular documento a plantilla ────────────────────────────────────
 
@@ -22,6 +23,7 @@ function LinkModal({
   existingKeys: string[]
   onClose: () => void
 }) {
+  useEscapeKey(onClose)
   const { data: templates = [] } = useEmailTemplates()
   const linkDoc = useLinkDocument()
   const [templateKey, setTemplateKey] = useState('')
@@ -47,7 +49,7 @@ function LinkModal({
       <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="text-sm font-semibold text-gray-900">Vincular a plantilla de correo</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={15} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={15} /></button>
         </div>
         <div className="px-5 py-4 space-y-4">
           {error && <p className="text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
@@ -62,7 +64,7 @@ function LinkModal({
               <select
                 value={templateKey}
                 onChange={e => setTemplateKey(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 <option value="">Seleccionar plantilla…</option>
                 {available.map(t => (
@@ -85,7 +87,7 @@ function LinkModal({
                     value={f}
                     checked={sendAs === f}
                     onChange={() => setSendAs(f)}
-                    className="accent-blue-600"
+                    className="accent-brand-600"
                   />
                   <span className="text-sm text-gray-700">
                     {f === 'WORD' ? 'Word (.docx)' : 'PDF'}
@@ -105,7 +107,7 @@ function LinkModal({
           <button
             onClick={handleSave}
             disabled={!templateKey || linkDoc.isPending}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
           >
             {linkDoc.isPending ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
             Vincular
@@ -162,19 +164,20 @@ function DocDetail({ doc }: { doc: OnboardingDocument }) {
         { vars: makeSampleVars(), format: 'WORD' },
         { responseType: 'blob' }
       )
-      const fallback = resp.headers['x-pdf-fallback'] === 'true'
-      const blob = new Blob([resp.data], {
-        type: fallback
-          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-          : resp.headers['content-type'],
-      })
+      const contentType = resp.headers['content-type'] ?? ''
+      const isPdf = contentType.includes('pdf')
+      const disposition = resp.headers['content-disposition'] ?? ''
+      const match = disposition.match(/filename="?([^";\r\n]+)"?/)
+      const downloadName = match
+        ? decodeURIComponent(match[1].trim())
+        : isPdf ? doc.fileName.replace('.docx', '.pdf') : doc.fileName
+      const blob = new Blob([resp.data], { type: contentType })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = fallback ? doc.fileName : doc.fileName.replace('.docx', '.pdf')
+      a.download = downloadName
       a.click()
       URL.revokeObjectURL(url)
-      if (fallback) alert('LibreOffice no está disponible. Se descargó el documento en formato Word.')
     } catch (err: any) {
       alert(`Error al renderizar: ${err?.response?.data?.message ?? err.message}`)
     } finally {
@@ -188,7 +191,7 @@ function DocDetail({ doc }: { doc: OnboardingDocument }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <FileText size={18} className="text-blue-600" />
+            <FileText size={18} className="text-brand-600" />
             <h3 className="font-semibold text-gray-900 text-sm">{doc.name}</h3>
           </div>
           <p className="text-xs text-gray-400 mt-0.5 ml-7">{doc.fileName}</p>
@@ -215,6 +218,7 @@ function DocDetail({ doc }: { doc: OnboardingDocument }) {
             onClick={handleDelete}
             className="p-1.5 text-gray-300 hover:text-red-400 border border-gray-200 rounded-lg hover:bg-red-50 transition-colors"
             title="Eliminar documento"
+            aria-label="Eliminar documento"
           >
             <Trash2 size={13} />
           </button>
@@ -239,7 +243,7 @@ function DocDetail({ doc }: { doc: OnboardingDocument }) {
           <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Plantillas de correo vinculadas</p>
           <button
             onClick={() => setShowLinkModal(true)}
-            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+            className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700"
           >
             <Plus size={12} /> Vincular
           </button>
@@ -249,7 +253,7 @@ function DocDetail({ doc }: { doc: OnboardingDocument }) {
           <div className="border-2 border-dashed border-gray-200 rounded-lg py-6 text-center">
             <Link2 size={20} className="text-gray-300 mx-auto mb-1.5" />
             <p className="text-xs text-gray-400">No vinculado a ninguna plantilla de correo</p>
-            <button onClick={() => setShowLinkModal(true)} className="text-xs text-blue-500 mt-1 hover:underline">
+            <button onClick={() => setShowLinkModal(true)} className="text-xs text-brand-500 mt-1 hover:underline">
               Vincular ahora
             </button>
           </div>
@@ -270,7 +274,7 @@ function DocDetail({ doc }: { doc: OnboardingDocument }) {
                     className={`text-[10px] font-medium px-2 py-0.5 rounded border transition-colors ${
                       link.sendAs === 'PDF'
                         ? 'border-red-200 text-red-600 bg-red-50 hover:bg-red-100'
-                        : 'border-blue-200 text-blue-600 bg-blue-50 hover:bg-blue-100'
+                        : 'border-brand-200 text-brand-600 bg-brand-50 hover:bg-brand-100'
                     }`}
                     title="Clic para cambiar formato"
                   >
@@ -280,6 +284,7 @@ function DocDetail({ doc }: { doc: OnboardingDocument }) {
                     onClick={() => handleUnlink(link)}
                     className="p-1 text-gray-300 hover:text-red-400 transition-colors"
                     title="Desvincular"
+                    aria-label="Desvincular"
                   >
                     <X size={12} />
                   </button>
@@ -303,30 +308,53 @@ function DocDetail({ doc }: { doc: OnboardingDocument }) {
 
 // Variables de muestra para vista previa
 function makeSampleVars(): Record<string, string> {
+  const hoy = new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
   return {
     nombre: 'Juan Pérez Ejemplo',
     primerNombre: 'Juan',
-    apellido: 'Pérez Ejemplo',
+    segundoNombre: 'Carlos',
+    primerApellido: 'Pérez',
+    segundoApellido: 'Soto',
+    apellido: 'Pérez Soto',
     rut: '12.345.678-9',
     cargo: 'Diseñador Gráfico',
     empresa: 'Comunicaciones Surmedia Spa',
+    'razónsocial': 'Comunicaciones Surmedia Spa',
+    razonSocial: 'Comunicaciones Surmedia Spa',
     email: 'juan.perez@surmedia.cl',
     emailPersonal: 'juanperez@gmail.com',
     telefono: '+56 9 8765 4321',
     centroTrabajo: 'Digital Surmedia',
     fechaIngreso: '15 de mayo de 2026',
     fechaIngresoCorta: '15/05/2026',
-    fechaActual: new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
+    fechaTerminoContrato: '15 de agosto de 2026',
+    fechaActual: hoy,
+    fechaActuallarga: hoy,
     año: new Date().getFullYear().toString(),
     supervisor: 'María López',
-    jornada: 'Mensual 40.0 hrs. (L, M, M, J, V)',
+    nombreSupervisor: 'María',
+    apellidoSupervisor: 'López',
+    emailJefatura: 'maria.lopez@surmedia.cl',
+    estimado: 'Estimado',
+    mentorAsignado: 'Carlos Mendoza',
+    vinculo: 'Planta',
+    jornada: 'lunes a viernes',
     ciudad: 'Santiago',
     comuna: 'Las Condes',
+    direccion: 'Av. Providencia 1234 Depto 501',
     afp: 'Habitat',
     isapre: 'Banmédica',
     saludoHorario: 'buenos días',
     diaNumero: '1',
     instruccion: 'Por favor realiza esta acción antes del viernes.',
+    // Condiciones de la oferta
+    tipoJornada: 'jornada ordinaria de 40 horas semanales',
+    horario: 'lunes a jueves de 9:00 a 18:15 horas con 45 minutos de colación, y los viernes de 9:00 a 15:00 horas',
+    modalidad: 'Modalidad de trabajo híbrida con días presenciales en nuestra oficina de Santiago y teletrabajo',
+    sueldoLiquidolargo: '$1.200.000 líquidos mensuales',
+    'sueldoLíquidolargo': '$1.200.000 líquidos mensuales',
+    beneficios: 'Seguro de salud complementario, día libre de cumpleaños, 5 días adicionales de vacaciones (al cumplir 1 año)',
+    oficina: 'Av. Las Condes 7700, oficina 403B',
   }
 }
 
@@ -366,7 +394,7 @@ export default function DocumentosPanel() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -380,7 +408,7 @@ export default function DocumentosPanel() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-colors"
+            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-brand-600 transition-colors"
             title="Subir documento .docx"
           >
             {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
@@ -402,7 +430,7 @@ export default function DocumentosPanel() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 mx-auto"
+              className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 mx-auto"
             >
               <Upload size={12} /> Subir .docx
             </button>
@@ -415,10 +443,10 @@ export default function DocumentosPanel() {
                 <button
                   key={doc.id}
                   onClick={() => setSelectedId(doc.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors ${isActive ? 'bg-blue-50' : ''}`}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors ${isActive ? 'bg-brand-50' : ''}`}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>
+                    <p className={`text-sm font-medium truncate ${isActive ? 'text-brand-700' : 'text-gray-800'}`}>
                       {doc.name}
                     </p>
                     <p className="text-[10px] text-gray-400 mt-0.5 truncate">{doc.fileName}</p>
@@ -440,7 +468,7 @@ export default function DocumentosPanel() {
 
         {/* Drop zone hint */}
         <div
-          className="mx-3 mb-3 mt-2 border-2 border-dashed border-gray-200 rounded-lg py-3 text-center cursor-pointer hover:border-blue-300 transition-colors"
+          className="mx-3 mb-3 mt-2 border-2 border-dashed border-gray-200 rounded-lg py-3 text-center cursor-pointer hover:border-brand-300 transition-colors"
           onClick={() => fileInputRef.current?.click()}
         >
           <p className="text-[10px] text-gray-400">Clic o arrastra un .docx aquí</p>

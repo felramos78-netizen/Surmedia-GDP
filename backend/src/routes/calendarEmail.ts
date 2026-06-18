@@ -20,8 +20,8 @@ function interpolate(template: string, vars: Record<string, string>): string {
   // normaliza clave a minúsculas para que {{Nombre}} == {{nombre}}
   const lv = Object.fromEntries(Object.entries(vars).map(([k, v]) => [k.toLowerCase(), v]))
   return template
-    .replace(/\{\{(\w+)\}\}/g, (_, k) => lv[k.toLowerCase()] ?? '')
-    .replace(/\{(\w+)\}/g, (_, k) => lv[k.toLowerCase()] ?? '')
+    .replace(/\{\{([\wáéíóúÁÉÍÓÚñÑ]+)\}\}/g, (_, k) => lv[k.toLowerCase()] ?? '')
+    .replace(/\{([\wáéíóúÁÉÍÓÚñÑ]+)\}/g, (_, k) => lv[k.toLowerCase()] ?? '')
 }
 
 function htmlToPlain(html: string): string {

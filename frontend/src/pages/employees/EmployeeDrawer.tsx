@@ -10,7 +10,7 @@ const LEGAL_ENTITY_LABEL: Record<LegalEntity, string> = {
 }
 
 const LEGAL_ENTITY_COLOR: Record<LegalEntity, string> = {
-  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+  COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
 
@@ -128,7 +128,7 @@ function PayrollMonthCard({ entry }: {
   const totalOvertime = overtimeItems.reduce((s, i) => s + i.amount, 0)
 
   const entityColor: Record<string, string> = {
-    COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+    COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
     SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
   }
   const entityShort: Record<string, string> = {
@@ -159,7 +159,7 @@ function PayrollMonthCard({ entry }: {
 
         <div className="flex gap-3 mt-0.5 text-xs text-gray-400">
           <span>Bruto: {formatCLP(entry.grossSalary)}</span>
-          {totalBonuses > 0 && <span className="text-blue-500">Bonos: +{formatCLP(totalBonuses)}</span>}
+          {totalBonuses > 0 && <span className="text-brand-500">Bonos: +{formatCLP(totalBonuses)}</span>}
           {totalOvertime > 0 && <span className="text-amber-500">HH.EE.: +{formatCLP(totalOvertime)}</span>}
         </div>
       </button>
@@ -169,7 +169,7 @@ function PayrollMonthCard({ entry }: {
 
           {bonusItems.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-blue-600 mb-1.5">
+              <p className="text-xs font-semibold text-brand-600 mb-1.5">
                 Bonos — {formatCLP(totalBonuses)}
               </p>
               <div className="space-y-1">
@@ -245,7 +245,7 @@ export default function EmployeeDrawer({ employeeId, onClose }: Props) {
       >
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <h3 className="font-semibold text-gray-900">Ficha del colaborador</h3>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
             <X size={18} className="text-gray-500" />
           </button>
         </div>
@@ -253,13 +253,13 @@ export default function EmployeeDrawer({ employeeId, onClose }: Props) {
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           {isLoading ? (
             <div className="flex items-center justify-center h-32">
-              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : employee ? (
             <>
               {/* Identidad */}
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-full bg-blue-600 text-white text-lg font-bold flex items-center justify-center flex-shrink-0">
+                <div className="w-14 h-14 rounded-full bg-brand-600 text-white text-lg font-bold flex items-center justify-center flex-shrink-0">
                   {`${employee.firstName[0] ?? ''}${employee.lastName[0] ?? ''}`.toUpperCase()}
                 </div>
                 <div>

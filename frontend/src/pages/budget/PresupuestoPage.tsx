@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from '@/lib/api'
 import type { BudgetCategory, BudgetItem, ApiResponse } from '@/types'
 import { formatCLP } from '@/lib/utils'
-import { Loader2, Pencil, Check, X } from 'lucide-react'
+import { Loader2, Pencil, Check, X, AlertTriangle } from 'lucide-react'
 
 function useBudget() {
   return useQuery<BudgetCategory[]>({
@@ -46,7 +46,7 @@ function AmountCell({ item, field }: { item: BudgetItem; field: 'annualAmount' }
       <div className="flex items-center justify-end gap-1">
         <input
           type="number"
-          className="w-36 px-2 py-0.5 border border-blue-400 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-36 px-2 py-0.5 border border-brand-400 rounded text-right text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
           value={value}
           onChange={e => setValue(parseInt(e.target.value) || 0)}
           onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
@@ -61,7 +61,7 @@ function AmountCell({ item, field }: { item: BudgetItem; field: 'annualAmount' }
   return (
     <button
       onClick={() => { setValue(item[field]); setEditing(true) }}
-      className="group flex items-center justify-end gap-1.5 w-full text-right hover:text-blue-700 transition-colors"
+      className="group flex items-center justify-end gap-1.5 w-full text-right hover:text-brand-700 transition-colors"
     >
       <span>{formatCLP(item[field])}</span>
       <Pencil size={11} className="opacity-0 group-hover:opacity-40 transition-opacity" />
@@ -88,7 +88,7 @@ function NameCell({ item }: { item: BudgetItem }) {
       <div className="flex items-center gap-1">
         <input
           type="text"
-          className="flex-1 px-2 py-0.5 border border-blue-400 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="flex-1 px-2 py-0.5 border border-brand-400 rounded text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
           value={value}
           onChange={e => setValue(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
@@ -103,7 +103,7 @@ function NameCell({ item }: { item: BudgetItem }) {
   return (
     <button
       onClick={() => { setValue(item.name); setEditing(true) }}
-      className="group flex items-center gap-1.5 text-left hover:text-blue-700 transition-colors"
+      className="group flex items-center gap-1.5 text-left hover:text-brand-700 transition-colors"
     >
       <span>{item.name}</span>
       <Pencil size={11} className="opacity-0 group-hover:opacity-40 transition-opacity" />
@@ -136,12 +136,12 @@ function PartidasTable({ categories }: { categories: BudgetCategory[] }) {
             const catTotal = cat.items.reduce((s, i) => s + i.annualAmount, 0)
             return (
               <React.Fragment key={cat.id}>
-                <tr className="bg-blue-600 text-white">
+                <tr className="bg-brand-600 text-white">
                   <td className="px-6 py-2 text-sm font-semibold">{cat.name}</td>
                   <td className="px-6 py-2 text-sm font-semibold text-right">{formatCLP(catTotal)}</td>
                 </tr>
                 {cat.items.map(item => (
-                  <tr key={item.id} className="border-b border-gray-100 hover:bg-blue-50/40 transition-colors">
+                  <tr key={item.id} className="border-b border-gray-100 hover:bg-brand-50/40 transition-colors">
                     <td className="px-6 py-2.5 text-sm text-gray-700 pl-10">
                       <NameCell item={item} />
                     </td>
@@ -153,7 +153,7 @@ function PartidasTable({ categories }: { categories: BudgetCategory[] }) {
               </React.Fragment>
             )
           })}
-          <tr className="bg-blue-700 text-white font-bold">
+          <tr className="bg-brand-700 text-white font-bold">
             <td className="px-6 py-3 text-sm uppercase tracking-wide">Total</td>
             <td className="px-6 py-3 text-sm text-right">{formatCLP(total)}</td>
           </tr>
@@ -182,7 +182,7 @@ function BeneficiosTable({ categories }: { categories: BudgetCategory[] }) {
           {categories.map(cat => (
             <React.Fragment key={cat.id}>
               {cat.items.map(item => (
-                <tr key={item.id} className="border-b border-gray-100 hover:bg-blue-50/40 transition-colors">
+                <tr key={item.id} className="border-b border-gray-100 hover:bg-brand-50/40 transition-colors">
                   <td className="px-6 py-2.5 text-sm text-gray-700">
                     <NameCell item={item} />
                   </td>
@@ -201,12 +201,21 @@ function BeneficiosTable({ categories }: { categories: BudgetCategory[] }) {
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function PresupuestoPage() {
-  const { data: categories, isLoading } = useBudget()
+  const { data: categories, isLoading, isError } = useBudget()
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-brand-600" />
+      </div>
+    )
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3">
+        <AlertTriangle size={24} className="text-red-300" />
+        <p className="text-sm text-gray-500">Error cargando el presupuesto. Intenta nuevamente.</p>
       </div>
     )
   }

@@ -35,7 +35,7 @@ function FieldInput({
   value:    unknown
   onChange: (v: unknown) => void
 }) {
-  const baseClass = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500'
+  const baseClass = 'w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500'
 
   if (field.type === 'textarea') {
     return (
@@ -71,7 +71,7 @@ function FieldInput({
           <label key={o} className="flex items-center gap-2.5 cursor-pointer group">
             <input type="radio" name={field.id} value={o} checked={value === o}
               onChange={() => onChange(o)} required={field.required}
-              className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
+              className="w-4 h-4 text-brand-600 border-gray-300 focus:ring-brand-500" />
             <span className="text-sm text-gray-700 group-hover:text-gray-900">{o}</span>
           </label>
         ))}
@@ -91,7 +91,7 @@ function FieldInput({
                 if (e.target.checked) onChange([...vals, o])
                 else onChange(vals.filter((v: string) => v !== o))
               }}
-              className="w-4 h-4 rounded text-blue-600 border-gray-300 focus:ring-blue-500"
+              className="w-4 h-4 rounded text-brand-600 border-gray-300 focus:ring-brand-500"
             />
             <span className="text-sm text-gray-700 group-hover:text-gray-900">{o}</span>
           </label>
@@ -129,7 +129,7 @@ export default function FormPublicPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -171,11 +171,11 @@ export default function FormPublicPage() {
     <div className="min-h-screen bg-gray-50 py-10 px-4">
       <div className="max-w-xl mx-auto">
         {/* Header */}
-        <div className="bg-gradient-to-br from-blue-700 to-blue-500 rounded-2xl px-6 py-8 mb-6 text-white text-center shadow-lg">
-          <p className="text-sm text-blue-200 mb-1">Surmedia · Gestión de Personas</p>
+        <div className="bg-gradient-to-br from-brand-700 to-brand-500 rounded-2xl px-6 py-8 mb-6 text-white text-center shadow-lg">
+          <p className="text-sm text-brand-200 mb-1">Surmedia · Gestión de Personas</p>
           <h1 className="text-2xl font-bold">{form.title}</h1>
           {form.process && (
-            <p className="text-blue-200 text-sm mt-2">
+            <p className="text-brand-200 text-sm mt-2">
               Onboarding de {form.process.collaboratorName}
             </p>
           )}
@@ -189,13 +189,13 @@ export default function FormPublicPage() {
               <label className="text-xs font-medium text-gray-600 block mb-1.5">Tu nombre</label>
               <input type="text" value={respondentName} onChange={e => setName(e.target.value)}
                 placeholder="Nombre completo"
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500" />
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 block mb-1.5">Tu email</label>
               <input type="email" value={respondentEmail} onChange={e => setEmail(e.target.value)}
                 placeholder="correo@ejemplo.cl"
-                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500" />
             </div>
           </div>
 
@@ -226,7 +226,7 @@ export default function FormPublicPage() {
           <button
             type="submit"
             disabled={submit.isPending}
-            className="w-full py-3 rounded-xl bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full py-3 rounded-xl bg-brand-600 text-white font-semibold text-sm hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {submit.isPending ? 'Enviando…' : 'Enviar formulario'}
           </button>

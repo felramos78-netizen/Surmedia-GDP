@@ -36,6 +36,35 @@ function makeOAuth2Client(refreshToken: string) {
   return client
 }
 
+export async function docxToPdfViaGoogleDrive(docxBuffer: Buffer, refreshToken: string): Promise<Buffer> {
+  const auth  = makeOAuth2Client(refreshToken)
+  const drive = google.drive({ version: 'v3', auth })
+
+  // Subir el DOCX convirtiéndolo a Google Doc
+  const { Readable } = await import('stream')
+  const uploadRes = await drive.files.create({
+    requestBody: { name: 'gdp-tmp-conversion', mimeType: 'application/vnd.google-apps.document' },
+    media: {
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      body:     Readable.from(docxBuffer),
+    },
+    fields: 'id',
+  })
+  const fileId = uploadRes.data.id!
+
+  try {
+    // Exportar como PDF
+    const exportRes = await drive.files.export(
+      { fileId, mimeType: 'application/pdf' },
+      { responseType: 'arraybuffer' }
+    )
+    return Buffer.from(exportRes.data as ArrayBuffer)
+  } finally {
+    // Eliminar el archivo temporal
+    await drive.files.delete({ fileId }).catch(() => {})
+  }
+}
+
 export async function fetchGmailSignature(refreshToken: string, senderEmail: string): Promise<string> {
   try {
     const gmail = google.gmail({ version: 'v1', auth: makeOAuth2Client(refreshToken) })

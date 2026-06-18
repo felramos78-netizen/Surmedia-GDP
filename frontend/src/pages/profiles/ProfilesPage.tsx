@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, Mail, Phone, Briefcase, X, UserCircle } from 'lucide-react'
 import { useProfiles, useCreateProfile, useUpdateProfile, useDeleteProfile } from '@/hooks/useProfiles'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import type { Profile } from '@/types'
 
 // ─── Modal ──────────────────────────────────────────────────────────────────
 
 function ProfileModal({ profile, onClose }: { profile?: Profile; onClose: () => void }) {
+  useEscapeKey(onClose)
   const [form, setForm] = useState({
     name:     profile?.name     ?? '',
     position: profile?.position ?? '',
@@ -43,7 +45,7 @@ function ProfileModal({ profile, onClose }: { profile?: Profile; onClose: () => 
           <h2 className="text-base font-semibold text-gray-900">
             {isEdit ? 'Editar perfil' : 'Nuevo perfil'}
           </h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} /></button>
         </div>
 
         {/* Body */}
@@ -53,31 +55,31 @@ function ProfileModal({ profile, onClose }: { profile?: Profile; onClose: () => 
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Nombre completo *</label>
               <input value={form.name} onChange={e => field('name', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="María González" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Cargo *</label>
               <input value={form.position} onChange={e => field('position', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="Analista RRHH" />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Teléfono</label>
               <input value={form.phone} onChange={e => field('phone', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="+56 9 XXXX XXXX" />
             </div>
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Correo *</label>
               <input type="email" value={form.email} onChange={e => field('email', e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="maria.gonzalez@surmedia.cl" />
             </div>
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Notas</label>
               <textarea value={form.notes} onChange={e => field('notes', e.target.value)} rows={2}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
                 placeholder="Información adicional..." />
             </div>
           </div>
@@ -90,7 +92,7 @@ function ProfileModal({ profile, onClose }: { profile?: Profile; onClose: () => 
             Cancelar
           </button>
           <button onClick={handleSave} disabled={saving || !form.name || !form.position || !form.email}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+            className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">
             {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Crear perfil'}
           </button>
         </div>
@@ -120,7 +122,7 @@ export default function ProfilesPage() {
           <p className="text-sm text-gray-500 mt-0.5">Personas y roles en el proceso de onboarding</p>
         </div>
         <button onClick={() => setModal('new')}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white text-sm rounded-lg hover:bg-brand-700">
           <Plus size={15} /> Nuevo perfil
         </button>
       </div>
@@ -133,7 +135,7 @@ export default function ProfilesPage() {
           <UserCircle size={40} className="mx-auto text-gray-300 mb-3" />
           <p className="text-sm text-gray-500">No hay perfiles creados aún</p>
           <button onClick={() => setModal('new')}
-            className="mt-3 text-sm text-blue-600 hover:underline">Crear el primero</button>
+            className="mt-3 text-sm text-brand-600 hover:underline">Crear el primero</button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -148,11 +150,11 @@ export default function ProfilesPage() {
                   </p>
                 </div>
                 <div className="flex gap-1">
-                  <button onClick={() => setModal(p)}
+                  <button onClick={() => setModal(p)} aria-label="Editar perfil"
                     className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
                     <Pencil size={13} />
                   </button>
-                  <button onClick={() => handleDelete(p)}
+                  <button onClick={() => handleDelete(p)} aria-label="Eliminar perfil"
                     className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500">
                     <Trash2 size={13} />
                   </button>
@@ -162,7 +164,7 @@ export default function ProfilesPage() {
               {/* Contact */}
               <div className="flex flex-col gap-1 mb-3">
                 <a href={`mailto:${p.email}`}
-                  className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                  className="text-xs text-brand-600 hover:underline flex items-center gap-1">
                   <Mail size={10} /> {p.email}
                 </a>
                 {p.phone && (

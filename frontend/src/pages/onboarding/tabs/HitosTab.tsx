@@ -5,6 +5,7 @@ import {
   useOnboardingProcesses, useEmailTemplates, useSheetTemplates,
 } from '@/hooks/useOnboarding'
 import { useProfiles } from '@/hooks/useProfiles'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import type { OnboardingDbTemplateTask, OnboardingTemplateSubTask, OnboardingPeriod, TaskAutomationType } from '@/types'
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
@@ -21,7 +22,7 @@ const PERIOD_LABELS: Record<OnboardingPeriod, string> = {
 
 const PERIOD_COLORS: Record<OnboardingPeriod, string> = {
   PRE_INGRESO: 'bg-violet-100 text-violet-700 border-violet-200',
-  DIA_1:       'bg-blue-100 text-blue-700 border-blue-200',
+  DIA_1:       'bg-brand-100 text-brand-700 border-brand-200',
   SEMANA_1:    'bg-cyan-100 text-cyan-700 border-cyan-200',
   MES_1:       'bg-emerald-100 text-emerald-700 border-emerald-200',
   EVALUACION:  'bg-amber-100 text-amber-700 border-amber-200',
@@ -35,7 +36,7 @@ const TOOL_OPTIONS = [
 ]
 
 const TOOL_COLORS: Record<string, string> = {
-  EMAIL:        'bg-blue-50 text-blue-700',
+  EMAIL:        'bg-brand-50 text-brand-700',
   CALENDAR:     'bg-purple-50 text-purple-700',
   MANUAL:       'bg-gray-100 text-gray-500',
   SHEET_VERIFY: 'bg-green-50 text-green-700',
@@ -80,7 +81,7 @@ function SubTaskRow({
   onChange: (i: number, f: Partial<SubTaskForm>) => void
   onDelete: (i: number) => void
 }) {
-  const inputCls = "px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+  const inputCls = "px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
 
   if (st.tool === 'CALENDAR') {
     return (
@@ -108,7 +109,7 @@ function SubTaskRow({
             <option value="">Herramienta…</option>
             {TOOL_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
-          <button onClick={() => onDelete(index)} className="p-1 text-gray-300 hover:text-red-400 transition-colors">
+          <button onClick={() => onDelete(index)} aria-label="Eliminar subtarea" className="p-1 text-gray-300 hover:text-red-400 transition-colors">
             <X size={13} />
           </button>
         </div>
@@ -210,7 +211,7 @@ function SubTaskRow({
         onChange={e => onChange(index, { plantilla: e.target.value })}
         placeholder="Plantilla…"
         disabled={!st.tool}
-        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-300"
+        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-gray-50 disabled:text-gray-300"
       />
     )
   }
@@ -221,12 +222,12 @@ function SubTaskRow({
         value={st.name}
         onChange={e => onChange(index, { name: e.target.value })}
         placeholder="Acción..."
-        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
       />
       <select
         value={st.responsableProfileId}
         onChange={e => onChange(index, { responsableProfileId: e.target.value })}
-        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
       >
         <option value="">Responsable…</option>
         {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -234,13 +235,13 @@ function SubTaskRow({
       <select
         value={st.tool}
         onChange={e => onChange(index, { tool: e.target.value, plantilla: '' })}
-        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
       >
         <option value="">Herramienta…</option>
         {TOOL_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
       </select>
       {plantillaField()}
-      <button onClick={() => onDelete(index)} className="p-1 text-gray-300 hover:text-red-400 transition-colors">
+      <button onClick={() => onDelete(index)} aria-label="Eliminar subtarea" className="p-1 text-gray-300 hover:text-red-400 transition-colors">
         <X size={13} />
       </button>
     </div>
@@ -360,7 +361,7 @@ function HitoFormFields({
           value={form.name}
           onChange={e => f('name', e.target.value)}
           placeholder="Nombre del hito..."
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 
@@ -371,7 +372,7 @@ function HitoFormFields({
           <select
             value={form.period}
             onChange={e => f('period', e.target.value)}
-            className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
           >
             {PERIOD_ORDER.map(p => (
               <option key={p} value={p}>{PERIOD_LABELS[p]}</option>
@@ -383,7 +384,7 @@ function HitoFormFields({
           <select
             value={form.taskType}
             onChange={e => f('taskType', e.target.value)}
-            className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
           >
             <option value="PLAZO">Plazo</option>
             <option value="FECHA_ESPECIFICA">Fecha específica</option>
@@ -404,7 +405,7 @@ function HitoFormFields({
             placeholder="ej. 0"
             min={-90}
             max={365}
-            className="w-24 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-24 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
           <span className="text-xs text-gray-400">{daysLabel}</span>
         </div>
@@ -416,7 +417,7 @@ function HitoFormFields({
         <select
           value={form.responsableProfileId}
           onChange={e => f('responsableProfileId', e.target.value)}
-          className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
         >
           <option value="">Sin responsable</option>
           {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -434,7 +435,7 @@ function HitoFormFields({
           onChange={e => f('appliesTo', e.target.value)}
           placeholder="Diseñador Gráfico, Desarrollador... (separar por coma)"
           list="hito-jobtitles"
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
         <datalist id="hito-jobtitles">
           {jobTitles.map(jt => <option key={jt} value={jt} />)}
@@ -449,7 +450,7 @@ function HitoFormFields({
             <select
               value={form.tool}
               onChange={e => setForm(prev => ({ ...prev, tool: e.target.value, plantilla: '' }))}
-              className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
             >
               <option value="">Sin herramienta</option>
               {TOOL_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -462,7 +463,7 @@ function HitoFormFields({
               <select
                 value={form.plantilla}
                 onChange={e => f('plantilla', e.target.value)}
-                className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
               >
                 <option value="">Sin plantilla</option>
                 {emailTemplates.map(tpl => (
@@ -478,7 +479,7 @@ function HitoFormFields({
               <select
                 value={form.plantilla}
                 onChange={e => f('plantilla', e.target.value)}
-                className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
               >
                 <option value="">Sin sheet</option>
                 {sheetTemplates.map(s => (
@@ -559,7 +560,7 @@ function HitoFormFields({
             <button
               type="button"
               onClick={addSubTask}
-              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+              className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 transition-colors"
             >
               <Plus size={11} /> Agregar tarea
             </button>
@@ -609,6 +610,7 @@ function HitoModal({
   onClose: () => void
   saving: boolean
 }) {
+  useEscapeKey(onClose)
   const [form, setForm]     = useState<HitoForm>(initial)
   const { data: profiles = [] } = useProfiles()
 
@@ -618,7 +620,7 @@ function HitoModal({
       <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col max-h-[80vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="text-sm font-semibold text-gray-900">{initial.name ? 'Editar hito' : 'Nuevo hito'}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={15} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={15} /></button>
         </div>
 
         <div className="overflow-y-auto px-5 py-4">
@@ -632,7 +634,7 @@ function HitoModal({
           <button
             onClick={() => onSave(form)}
             disabled={!form.name.trim() || saving}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50"
           >
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
             Guardar
@@ -700,8 +702,9 @@ function HitoCard({
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <button
             onClick={() => onEdit(task)}
-            className="p-1.5 text-gray-300 hover:text-blue-500 transition-colors"
+            className="p-1.5 text-gray-300 hover:text-brand-500 transition-colors"
             title="Editar hito"
+            aria-label="Editar hito"
           >
             <Edit2 size={12} />
           </button>
@@ -709,6 +712,7 @@ function HitoCard({
             onClick={toggleActive}
             className="p-1.5 text-gray-300 hover:text-gray-600 transition-colors"
             title={task.isActive ? 'Desactivar' : 'Activar'}
+            aria-label={task.isActive ? 'Desactivar' : 'Activar'}
           >
             {task.isActive
               ? <Check size={12} className="text-green-500" />
@@ -719,6 +723,7 @@ function HitoCard({
             onClick={() => onDelete(task)}
             className="p-1.5 text-gray-300 hover:text-red-400 transition-colors"
             title="Eliminar hito"
+            aria-label="Eliminar hito"
           >
             <Trash2 size={12} />
           </button>
@@ -752,7 +757,7 @@ function HitoCard({
           {(task.automationConfig as any)?.templateKey && (
             <div className="flex items-start gap-2 text-xs">
               <span className="text-gray-400 flex-shrink-0">Plantilla:</span>
-              <code className="text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded text-[10px]">
+              <code className="text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded text-[10px]">
                 {(task.automationConfig as any).templateKey}
               </code>
             </div>
@@ -889,7 +894,7 @@ function PlantillaTab() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -903,7 +908,7 @@ function PlantillaTab() {
         </p>
         <button
           onClick={() => openCreate()}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
         >
           <Plus size={14} /> Nuevo hito
         </button>
@@ -925,7 +930,7 @@ function PlantillaTab() {
               </div>
               <button
                 onClick={() => openCreate(period)}
-                className="flex items-center gap-1 text-xs text-gray-300 hover:text-blue-500 transition-colors"
+                className="flex items-center gap-1 text-xs text-gray-300 hover:text-brand-500 transition-colors"
               >
                 <Plus size={11} /> Agregar
               </button>
@@ -988,7 +993,7 @@ function VistaCruzadaTab() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }

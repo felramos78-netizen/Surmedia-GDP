@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify'
 
 export default async function budgetRoutes(app: FastifyInstance) {
+  app.addHook('preHandler', app.authenticate)
+
   app.get('/', async (_req, reply) => {
     const categories = await app.prisma.budgetCategory.findMany({
       orderBy: [{ section: 'asc' }, { sortOrder: 'asc' }],

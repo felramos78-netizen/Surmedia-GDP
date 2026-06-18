@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import * as XLSX from 'xlsx'
 import * as fs from 'fs'
 import * as path from 'path'
+import { requireRole } from '../middleware/requireRole'
 
 function resolveReportesDir(): string {
   const candidates = [
@@ -587,7 +588,7 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       vacaciones?:  { nuevasKeys?: string[] }
       vacLicencia?: { keys?: string[] }
     }
-  }>('/apply', { config: { bodyLimit: 1_000_000 } }, async (req, reply) => {
+  }>('/apply', { bodyLimit: 1_000_000, preHandler: requireRole('ADMIN', 'RRHH_MANAGER') }, async (req, reply) => {
     const { sueldos, dotacion, vacaciones, vacLicencia, year: yearOverride } = req.body
     const sueldosAllKeys = new Set([
       ...(sueldos?.nuevosKeys       ?? []),
@@ -610,8 +611,9 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
         const empId = rutToId.get(row.rut)
         if (!empId) return []
         const ov = sueldos?.overrides?.[row.key]
-        const gross  = ov?.grossSalary  ?? row.grossSalary
-        const liquid = ov?.liquidSalary ?? row.liquidSalary
+        const validOverride = (v: number | undefined) => Number.isFinite(v) && (v as number) >= 0
+        const gross  = validOverride(ov?.grossSalary)  ? (ov!.grossSalary as number)  : row.grossSalary
+        const liquid = validOverride(ov?.liquidSalary) ? (ov!.liquidSalary as number) : row.liquidSalary
         return [fastify.prisma.payrollEntry.upsert({
           where: { employeeId_legalEntity_year_month: { employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month } },
           create: { employeeId: empId, legalEntity: row.legalEntity, year: row.year, month: row.month, grossSalary: gross, liquidSalary: liquid, items: row.items as any },
@@ -682,7 +684,10 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       for (const eu of emailUpdates) {
         try {
           await fastify.prisma.employee.update({ where: { id: eu.id }, data: { email: eu.email } })
-        } catch { /* email ya en uso por otro colaborador, se ignora */ }
+        } catch (err: any) {
+          if (err?.code !== 'P2002') fastify.log.error({ err, employeeId: eu.id }, 'Error al actualizar email desde BUK')
+          // P2002 = email ya en uso por otro colaborador, se ignora intencionalmente
+        }
       }
     }
 

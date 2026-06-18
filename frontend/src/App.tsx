@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from '@/lib/queryClient'
 import AppLayout from '@/layouts/AppLayout'
 import ProtectedRoute from '@/components/ui/ProtectedRoute'
 import LoginPage from '@/pages/auth/LoginPage'
@@ -14,18 +15,6 @@ import ColaboradorDetallePage from '@/pages/colaboradores/ColaboradorDetallePage
 import CalendarioPage from '@/pages/calendario/CalendarioPage'
 import ProveedoresPage from '@/pages/proveedores/ProveedoresPage'
 import PresupuestoPage from '@/pages/budget/PresupuestoPage'
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5,
-      retry: (failureCount, error: any) => {
-        if (error?.response?.status === 401 || error?.response?.status === 403) return false
-        return failureCount < 1
-      },
-    },
-  },
-})
 
 export default function App() {
   return (

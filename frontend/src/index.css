@@ -1,5 +1,29 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand-50: #EAF5F8;
+  --color-brand-100: #C5E4EE;
+  --color-brand-200: #8FCADE;
+  --color-brand-300: #59AFCE;
+  --color-brand-400: #2495BE;
+  --color-brand-500: #017BA1;
+  --color-brand-600: #016D8C;
+  --color-brand-700: #015A74;
+  --color-brand-800: #01475C;
+  --color-brand-900: #013344;
+
+  --color-surmedia-purple-50: #F2ECF8;
+  --color-surmedia-purple-100: #E0D0EE;
+  --color-surmedia-purple-700: #4C2866;
+  --color-surmedia-purple-900: #2E1640;
+
+  --color-surmedia-navy: #20272E;
+  --color-surmedia-navy-light: #2D3741;
+  --color-surmedia-gold: #EBB644;
+
+  --font-sans: 'Roboto', system-ui, -apple-system, sans-serif;
+}
+
 .spell-error {
   text-decoration: underline wavy red;
   text-decoration-skip-ink: none;
@@ -24,7 +48,7 @@
   :root {
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
+    --primary: 193 98% 28%;
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
@@ -35,7 +59,7 @@
     --destructive: 0 84.2% 60.2%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    --ring: 193 98% 28%;
     --radius: 0.5rem;
   }
 
@@ -48,7 +72,7 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: 'Roboto', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
 }

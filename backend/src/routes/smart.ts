@@ -185,7 +185,7 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
       honorariosKeys?: string[]
       comprasKeys?:    string[]
     }
-  }>('/apply', { config: { bodyLimit: 10_000_000 } }, async (req, reply) => {
+  }>('/apply', { bodyLimit: 10_000_000 }, async (req, reply) => {
     const { honorariosKeys = [], comprasKeys = [] } = req.body
     const selectedIds = new Set([...honorariosKeys, ...comprasKeys])
     if (selectedIds.size === 0) return reply.send({ applied: 0 })
@@ -389,7 +389,7 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /api/smart/bulk-classify — asignación masiva de área/categoría por RUT+folio
   fastify.post<{
     Body: { items: { rut: string; folio: string; area: string; categoria: string }[] }
-  }>('/bulk-classify', { config: { bodyLimit: 2_000_000 } }, async (req, reply) => {
+  }>('/bulk-classify', { bodyLimit: 2_000_000 }, async (req, reply) => {
     const { items } = req.body
     if (!items?.length) return reply.send({ updated: 0, notFound: 0, total: 0 })
 

@@ -73,7 +73,7 @@ const payrollRoutes: FastifyPluginAsync = async (fastify) => {
 
   // POST /api/payroll/import — importa liquidaciones desde Excel parseado en el frontend
   fastify.post<{ Body: { legalEntity: string; rows: ImportPayrollRow[] } }>('/import', {
-    config: { bodyLimit: 10_000_000 },
+    bodyLimit: 10_000_000,
   }, async (req, reply) => {
     try {
       const { legalEntity, rows } = req.body
@@ -102,7 +102,7 @@ const payrollRoutes: FastifyPluginAsync = async (fastify) => {
         const month        = Number(row.month)
         const grossSalary  = Math.round(Number(row.grossSalary)  || 0)
         const liquidSalary = Math.round(Number(row.liquidSalary) || 0)
-        const items        = row.items ?? []
+        const items        = (row.items ?? []) as unknown as Prisma.InputJsonValue
 
         try {
           await fastify.prisma.payrollEntry.upsert({

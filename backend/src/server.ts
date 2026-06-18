@@ -21,6 +21,10 @@ import smartRoutes from './routes/smart'
 import budgetRoutes from './routes/budget'
 import documentsRoutes from './routes/documents'
 
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET no está definido. Revisa backend/.env')
+}
+
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
 
 async function bootstrap() {
@@ -33,7 +37,7 @@ async function bootstrap() {
   await app.register(cookie)
 
   await app.register(jwt, {
-    secret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+    secret: process.env.JWT_SECRET as string,
   })
 
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024 } })
@@ -56,15 +60,6 @@ async function bootstrap() {
   await app.register(documentsRoutes, { prefix: '/api/onboarding' })
 
   app.get('/api/health', async () => ({ status: 'ok', env: process.env.NODE_ENV }))
-
-  app.get('/api/debug/employees', async (_req, reply) => {
-    try {
-      const count = await app.prisma.employee.count()
-      return reply.send({ ok: true, count })
-    } catch (e: any) {
-      return reply.status(500).send({ ok: false, error: e.message, code: e.code })
-    }
-  })
 
   startCalendarEmailScheduler(app.prisma)
 

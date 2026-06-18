@@ -2,10 +2,12 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Search, Filter, X, ChevronsUpDown, ChevronUp, ChevronDown,
-  Users, RefreshCw, AlertTriangle, Plus,
+  Users, RefreshCw, AlertTriangle, Plus, Download,
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { useEmployees, useEmployeeStats, useUpdateEmployee } from '@/hooks/useDotacion'
 import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { formatDate } from '@/lib/utils'
 import type { Employee, Contract, LegalEntity } from '@/types'
 import EmployeeDrawer from '../employees/EmployeeDrawer'
@@ -17,7 +19,7 @@ const LEGAL_ENTITY_LABEL: Record<LegalEntity, string> = {
   SURMEDIA_CONSULTORIA:    'Consultoría',
 }
 const LEGAL_ENTITY_COLOR: Record<LegalEntity, string> = {
-  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+  COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
 const STATUS_LABEL: Record<string, string> = {
@@ -59,7 +61,7 @@ function dash(v: string | null | undefined) {
 
 // ─── Sort & ColFilter ─────────────────────────────────────────────────────────
 
-type SortKey = 'firstName' | 'rut' | 'jobTitle' | 'legalEntity' | 'city' | 'costCenter' | 'exclusive' | 'vinculo' | 'status' | 'workSchedule' | 'contractType' | 'startDate' | 'endDate' | 'gender' | 'supervisorName'
+type SortKey = 'firstName' | 'rut' | 'email' | 'jobTitle' | 'legalEntity' | 'city' | 'costCenter' | 'exclusive' | 'vinculo' | 'status' | 'workSchedule' | 'contractType' | 'startDate' | 'endDate' | 'gender' | 'supervisorName'
 type SortDir  = 'asc' | 'desc'
 type ColFilters = Record<string, Set<string>>
 
@@ -67,6 +69,7 @@ function getEmpVal(e: Employee, col: string): string {
   const pc = primaryContract(e.contracts)
   switch (col) {
     case 'firstName':      return `${e.firstName} ${e.lastName}`.trim()
+    case 'email':          return e.email ?? ''
     case 'vinculo':        return e.vinculo ?? ''
     case 'legalEntity':    return pc?.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones' : pc?.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Consultoría' : ''
     case 'status':         return e.status ?? ''
@@ -88,8 +91,8 @@ function getEmpVal(e: Employee, col: string): string {
 function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
   if (col !== sortKey) return <ChevronsUpDown size={12} className="text-gray-300 ml-1 inline" />
   return sortDir === 'asc'
-    ? <ChevronUp   size={12} className="text-blue-500 ml-1 inline" />
-    : <ChevronDown size={12} className="text-blue-500 ml-1 inline" />
+    ? <ChevronUp   size={12} className="text-brand-500 ml-1 inline" />
+    : <ChevronDown size={12} className="text-brand-500 ml-1 inline" />
 }
 
 function SortTh({ label, col, sortKey, sortDir, onSort }: {
@@ -169,7 +172,7 @@ function FilterEmpTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters
         <button
           ref={btnRef}
           onClick={handleOpen}
-          className={`rounded p-0.5 hover:bg-gray-200 transition-colors ${isFiltered ? 'text-blue-600 bg-blue-50' : 'text-gray-300 hover:text-gray-500'}`}
+          className={`rounded p-0.5 hover:bg-gray-200 transition-colors ${isFiltered ? 'text-brand-600 bg-brand-50' : 'text-gray-300 hover:text-gray-500'}`}
         >
           <Filter size={10} />
         </button>
@@ -183,24 +186,24 @@ function FilterEmpTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters
         >
           <div className="flex gap-1 p-1.5 border-b border-gray-100">
             <button onClick={() => { onSort(col); setOpen(false) }}
-              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'asc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'asc' ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-700'}`}>
               ↑ A→Z
             </button>
             <button onClick={() => { if (col !== sortKey || sortDir !== 'desc') onSort(col); setOpen(false) }}
-              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'desc' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'}`}>
+              className={`flex-1 px-2 py-1.5 rounded hover:bg-gray-100 transition-colors ${col === sortKey && sortDir === 'desc' ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-700'}`}>
               ↓ Z→A
             </button>
           </div>
           <div className="p-1.5 border-b border-gray-100">
             <input autoFocus value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
               placeholder="Buscar…"
-              className="w-full px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              className="w-full px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400" />
           </div>
           <div className="px-2 py-1 border-b border-gray-100">
             <label className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
               <input type="checkbox" checked={allSelected} onChange={toggleAll}
                 ref={el => { if (el) el.indeterminate = someSelected }}
-                className="rounded border-gray-300 text-blue-600" />
+                className="rounded border-gray-300 text-brand-600" />
               <span className="font-medium">(Seleccionar todo)</span>
             </label>
           </div>
@@ -208,7 +211,7 @@ function FilterEmpTh({ label, col, sortKey, sortDir, onSort, allRows, colFilters
             {visibleVals.map(v => (
               <label key={v} className="flex items-center gap-2 cursor-pointer py-0.5 hover:text-gray-900">
                 <input type="checkbox" checked={selected.has(v)} onChange={() => toggleVal(v)}
-                  className="rounded border-gray-300 text-blue-600 shrink-0" />
+                  className="rounded border-gray-300 text-brand-600 shrink-0" />
                 <span className="truncate">{v}</span>
               </label>
             ))}
@@ -254,14 +257,14 @@ function VinculoCell({ emp }: { emp: Employee }) {
         <div className="flex gap-1">
           {['Planta', 'Reemplazo'].map(v => (
             <button key={v} onClick={() => setVinculo(v)}
-              className="px-2 py-0.5 rounded text-xs border border-blue-300 text-blue-700 hover:bg-blue-50">{v}</button>
+              className="px-2 py-0.5 rounded text-xs border border-brand-300 text-brand-700 hover:bg-brand-50">{v}</button>
           ))}
           <button onClick={() => setVinculo(null)} className="px-2 py-0.5 rounded text-xs border border-gray-200 text-gray-400 hover:bg-gray-50">Quitar</button>
           <button onClick={() => setEditing(false)} className="text-gray-300 hover:text-gray-500 text-xs ml-1">✕</button>
         </div>
       ) : emp.vinculo ? (
         <div className="flex flex-col gap-0.5">
-          <button onClick={() => setEditing(true)} className="text-left text-gray-700 hover:text-blue-600 transition-colors">
+          <button onClick={() => setEditing(true)} className="text-left text-gray-700 hover:text-brand-600 transition-colors">
             {emp.vinculo}
           </button>
           {emp.vinculo === 'Reemplazo' && (
@@ -270,20 +273,20 @@ function VinculoCell({ emp }: { emp: Employee }) {
                 <input autoFocus value={reemplazoText} onChange={e => setReemplazoText(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') saveReemplazo(); if (e.key === 'Escape') setEditingReemplazo(false) }}
                   placeholder="Nombre a quien reemplaza"
-                  className="text-xs border border-blue-300 rounded px-1.5 py-0.5 w-44 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                <button onClick={saveReemplazo} className="text-xs text-blue-600 hover:text-blue-800">✓</button>
+                  className="text-xs border border-brand-300 rounded px-1.5 py-0.5 w-44 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                <button onClick={saveReemplazo} className="text-xs text-brand-600 hover:text-brand-800">✓</button>
                 <button onClick={() => setEditingReemplazo(false)} className="text-xs text-gray-300 hover:text-gray-500">✕</button>
               </div>
             ) : (
               <button onClick={() => { setReemplazoText(emp.reemplazaA ?? ''); setEditingReemplazo(true) }}
-                className="text-xs text-left text-gray-400 hover:text-blue-500 transition-colors">
+                className="text-xs text-left text-gray-400 hover:text-brand-500 transition-colors">
                 {emp.reemplazaA ? `↳ ${emp.reemplazaA}` : '+ reemplaza a'}
               </button>
             )
           )}
         </div>
       ) : (
-        <button onClick={() => setEditing(true)} className="text-xs text-gray-300 hover:text-blue-400 transition-colors">+ asignar</button>
+        <button onClick={() => setEditing(true)} className="text-xs text-gray-300 hover:text-brand-400 transition-colors">+ asignar</button>
       )}
     </td>
   )
@@ -292,6 +295,7 @@ function VinculoCell({ emp }: { emp: Employee }) {
 // ─── WorkCenterAssigner ───────────────────────────────────────────────────────
 
 function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => void }) {
+  useEscapeKey(onClose)
   const { data: allCenters = [] } = useWorkCenters()
   const assign   = useAssignWorkCenter()
   const unassign = useUnassignWorkCenter()
@@ -324,7 +328,7 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
             <h2 className="font-semibold text-gray-900">{emp.firstName} {emp.lastName}</h2>
             <p className="text-xs text-gray-400 mt-0.5">Asignar centros de trabajo</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} className="text-gray-400" /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 rounded-lg hover:bg-gray-100"><X size={16} className="text-gray-400" /></button>
         </div>
         <div className="px-6 py-4 space-y-4">
           {legalEntities.length > 1 && (
@@ -332,7 +336,7 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
               {legalEntities.map(le => (
                 <button key={le} onClick={() => setSelectedEntity(le)}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                    selectedEntity === le ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                    selectedEntity === le ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                   }`}>
                   {LEGAL_ENTITY_LABEL[le]}
                 </button>
@@ -346,9 +350,9 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {assignedForEntity.map(a => (
-                  <span key={a.id} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">
+                  <span key={a.id} className="inline-flex items-center gap-1 px-2 py-1 bg-brand-50 text-brand-700 rounded-lg text-xs font-medium">
                     {a.workCenter.name}
-                    <button onClick={() => handleUnassign(a.workCenterId)} className="hover:text-red-500 transition-colors ml-0.5">
+                    <button onClick={() => handleUnassign(a.workCenterId)} aria-label="Quitar centro" className="hover:text-red-500 transition-colors ml-0.5">
                       <X size={11} />
                     </button>
                   </span>
@@ -360,12 +364,12 @@ function WorkCenterAssigner({ emp, onClose }: { emp: Employee; onClose: () => vo
             <p className="text-xs font-medium text-gray-500 mb-2">Agregar centro</p>
             <div className="flex gap-2">
               <select value={selectedCenter} onChange={e => setSelectedCenter(e.target.value)}
-                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
                 <option value="">Seleccionar centro…</option>
                 {available.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
               <button onClick={handleAssign} disabled={!selectedCenter || assign.isPending}
-                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                className="px-3 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50 transition-colors">
                 <Plus size={15} />
               </button>
             </div>
@@ -389,7 +393,7 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
       <tr onClick={onClick} className="hover:bg-gray-50 cursor-pointer transition-colors">
         <td className="px-4 py-3 sticky left-0 bg-white">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{initials(emp)}</div>
+            <div className="w-8 h-8 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{initials(emp)}</div>
             <div>
               <div className="flex items-center gap-1.5">
                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${emp.status === 'ACTIVE' ? 'bg-green-500' : emp.status === 'ON_LEAVE' ? 'bg-amber-400' : emp.status === 'DUPLICATE' ? 'bg-orange-400' : 'bg-gray-300'}`} />
@@ -418,7 +422,7 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
                 {centerNames.length > 2 && <span className="text-xs text-gray-400">+{centerNames.length - 2}</span>}
               </>
             ) : (
-              <span className="text-xs text-gray-300 group-hover/center:text-blue-400 transition-colors">+ asignar</span>
+              <span className="text-xs text-gray-300 group-hover/center:text-brand-400 transition-colors">+ asignar</span>
             )}
           </div>
         </td>
@@ -427,6 +431,7 @@ function EmployeeRow({ emp, onClick }: { emp: Employee; onClick: () => void }) {
             {STATUS_LABEL[emp.status]}
           </span>
         </td>
+        <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{dash(emp.email)}</td>
         <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap">{dash(emp.jobTitle)}</td>
         <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.city)}</td>
         <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{dash(emp.workSchedule)}</td>
@@ -485,6 +490,7 @@ export function DotacionTab({ year, month }: { year: string; month: string }) {
       }
       let va = '', vb = ''
       if      (sortKey === 'firstName')     { va = a.firstName ?? '';                              vb = b.firstName ?? '' }
+      else if (sortKey === 'email')         { va = a.email ?? '';                                  vb = b.email ?? '' }
       else if (sortKey === 'jobTitle')      { va = a.jobTitle ?? '';                               vb = b.jobTitle ?? '' }
       else if (sortKey === 'legalEntity')   { va = pc(a)?.legalEntity ?? '';                       vb = pc(b)?.legalEntity ?? '' }
       else if (sortKey === 'city')          { va = a.city ?? '';                                    vb = b.city ?? '' }
@@ -516,6 +522,40 @@ export function DotacionTab({ year, month }: { year: string; month: string }) {
     })
   }
 
+  function downloadExcel() {
+    const wsData = [
+      ['Colaborador', 'RUT', 'Correo', 'Vínculo', 'Razón Social', 'Centros de Trabajo', 'Estado', 'Cargo', 'Ciudad', 'Jornada', 'Tipo Contrato', 'Ingreso', 'Término', 'Exclusividad', 'Género', 'Supervisor'],
+      ...tableRows.map(emp => {
+        const contract = primaryContract(emp.contracts)
+        const centerNames = Array.from(new Set((emp.workCenters ?? []).map(wc => wc.workCenter.name))).join(', ')
+        const le = contract?.legalEntity ?? emp.workCenters?.[0]?.legalEntity
+        return [
+          `${emp.firstName} ${emp.lastName}`,
+          emp.rut ?? '',
+          emp.email ?? '',
+          emp.vinculo ?? '',
+          le ? LEGAL_ENTITY_LABEL[le as keyof typeof LEGAL_ENTITY_LABEL] ?? le : '',
+          centerNames,
+          STATUS_LABEL[emp.status] ?? emp.status,
+          emp.jobTitle ?? '',
+          emp.city ?? '',
+          emp.workSchedule ?? '',
+          contract ? (CONTRACT_LABEL[contract.type] ?? contract.type) : '',
+          emp.startDate ? emp.startDate.split('T')[0] : '',
+          emp.endDate ? emp.endDate.split('T')[0] : '',
+          emp.exclusive == null ? '' : emp.exclusive ? 'Sí' : 'No',
+          GENDER_LABEL[emp.gender ?? ''] ?? emp.gender ?? '',
+          emp.supervisorName ?? '',
+        ]
+      }),
+    ]
+    const ws = XLSX.utils.aoa_to_sheet(wsData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Dotación')
+    const fecha = new Date().toISOString().split('T')[0]
+    XLSX.writeFile(wb, `Dotacion_${fecha}.xlsx`)
+  }
+
   const sharedTh = { sortKey, sortDir, onSort: handleSort, allRows: allEmployees, colFilters, onFilterChange: handleColFilter }
 
   return (
@@ -531,7 +571,7 @@ export function DotacionTab({ year, month }: { year: string; month: string }) {
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0"><Users size={18} /></div>
+          <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0"><Users size={18} /></div>
           <div>
             <p className="text-xl font-bold text-gray-900">{stats?.activeComunicaciones ?? '—'}</p>
             <p className="text-xs text-gray-500">Comunicaciones</p>
@@ -560,7 +600,7 @@ export function DotacionTab({ year, month }: { year: string; month: string }) {
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input type="text" placeholder="Nombre, RUT, cargo o correo…"
               value={search} onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <span className="text-xs text-gray-400 whitespace-nowrap">
@@ -568,11 +608,20 @@ export function DotacionTab({ year, month }: { year: string; month: string }) {
               ? `${tableRows.length} de ${allEmployees.length} colaboradores`
               : `${allEmployees.length} colaboradores`}
           </span>
+          <button
+            onClick={downloadExcel}
+            disabled={tableRows.length === 0}
+            className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200 disabled:opacity-40 transition-colors"
+            title="Descargar tabla como Excel"
+          >
+            <Download size={13} />
+            Descargar Excel
+          </button>
         </div>
 
         {isLoading ? (
           <div className="p-16 text-center">
-            <RefreshCw size={24} className="animate-spin text-blue-400 mx-auto mb-3" />
+            <RefreshCw size={24} className="animate-spin text-brand-400 mx-auto mb-3" />
             <p className="text-sm text-gray-400">Cargando colaboradores…</p>
           </div>
         ) : isError ? (
@@ -595,6 +644,7 @@ export function DotacionTab({ year, month }: { year: string; month: string }) {
                   <FilterEmpTh     label="Razón Social"  col="legalEntity"   {...sharedTh} />
                   <FilterEmpTh     label="Centros"       col="costCenter"    {...sharedTh} />
                   <FilterEmpTh     label="Estado"        col="status"        {...sharedTh} />
+                  <FilterEmpTh     label="Correo"        col="email"         {...sharedTh} />
                   <FilterEmpTh     label="Cargo"         col="jobTitle"      {...sharedTh} />
                   <FilterEmpTh     label="Ciudad"        col="city"          {...sharedTh} />
                   <FilterEmpTh     label="Jornada"       col="workSchedule"  {...sharedTh} />

@@ -199,6 +199,28 @@ export function useJobTitles() {
   })
 }
 
+export function useJobFamilies() {
+  return useQuery({
+    queryKey: ['jobFamilies'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<string[]>>('/employees/job-families')
+      return data.data
+    },
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
+export function useWorkSchedules() {
+  return useQuery({
+    queryKey: ['workSchedules'],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<string[]>>('/employees/work-schedules')
+      return data.data
+    },
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
 export function useDeleteEmployee() {
   const qc = useQueryClient()
   return useMutation({

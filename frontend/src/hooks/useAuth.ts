@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth'
+import { queryClient } from '@/lib/queryClient'
 import type { UserRole } from '@/types'
 
 export function useAuth() {
@@ -13,6 +14,7 @@ export function useAuth() {
 
   function handleLogout() {
     logout()
+    queryClient.clear()
     navigate('/login')
   }
 

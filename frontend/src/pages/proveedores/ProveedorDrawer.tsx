@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Save, Check, FileText, ShoppingCart, Pencil } from 'lucide-react'
 import { useSmartProveedor, usePatchProveedor } from '@/hooks/useSmart'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import type { SmartDocument } from '@/types'
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ function initials(s: string) {
 }
 
 const ENTITY_COLOR: Record<string, string> = {
-  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+  COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
 const ENTITY_LABEL: Record<string, string> = {
@@ -79,6 +80,7 @@ function DocRow({ d }: { d: SmartDocument }) {
 interface Props { proveedorId: string; onClose: () => void }
 
 export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
+  useEscapeKey(onClose)
   const { data: prov, isLoading } = useSmartProveedor(proveedorId)
   const { data: centers = [] }    = useWorkCenters()
   const patch = usePatchProveedor()
@@ -155,12 +157,12 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                   Cancelar
                 </button>
                 <button onClick={save} disabled={patch.isPending}
-                  className="flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg disabled:opacity-50">
+                  className="flex items-center gap-1.5 text-sm text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg disabled:opacity-50">
                   <Save size={13} /> Guardar
                 </button>
               </>
             )}
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 ml-1">
+            <button onClick={onClose} aria-label="Cerrar" className="text-gray-400 hover:text-gray-600 ml-1">
               <X size={18} />
             </button>
           </div>
@@ -182,18 +184,18 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                     <label className="block text-xs text-gray-500 mb-1">Área</label>
                     <input value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))}
                       placeholder="Ej: Tecnología, Marketing…"
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Categoría</label>
                     <input value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}
                       placeholder="Ej: Freelance, Proveedor…"
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Centro de Trabajo</label>
                     <select value={form.workCenterId} onChange={e => setForm(f => ({ ...f, workCenterId: e.target.value }))}
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400">
                       <option value="">Sin asignar</option>
                       {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
@@ -202,7 +204,7 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                     <label className="block text-xs text-gray-500 mb-1">Notas</label>
                     <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                       placeholder="Observaciones…"
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
                   </div>
                 </div>
               ) : (
@@ -228,13 +230,13 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                 <p className="text-[11px] text-gray-400 mb-0.5">Compras</p>
                 <p className="text-sm font-semibold text-gray-800 tabular-nums">{CLP.format(totalCmp)}</p>
                 <p className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
-                  <ShoppingCart size={10} className="text-blue-500" /> {cmpDocs.length} documentos
+                  <ShoppingCart size={10} className="text-brand-500" /> {cmpDocs.length} documentos
                 </p>
               </div>
-              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
-                <p className="text-[11px] text-blue-500 mb-0.5">Total</p>
-                <p className="text-sm font-semibold text-blue-700 tabular-nums">{CLP.format(totalAll)}</p>
-                <p className="text-[10px] text-blue-400 mt-0.5">{docs.length} documentos</p>
+              <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-3">
+                <p className="text-[11px] text-brand-500 mb-0.5">Total</p>
+                <p className="text-sm font-semibold text-brand-700 tabular-nums">{CLP.format(totalAll)}</p>
+                <p className="text-[10px] text-brand-400 mt-0.5">{docs.length} documentos</p>
               </div>
             </div>
 
@@ -247,7 +249,7 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                   ['compras',     `Compras (${cmpDocs.length})`],
                 ] as const).map(([key, label]) => (
                   <button key={key} onClick={() => setDocTab(key)}
-                    className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${docTab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+                    className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${docTab === key ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                     {label}
                   </button>
                 ))}

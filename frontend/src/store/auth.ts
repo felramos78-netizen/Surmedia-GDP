@@ -23,6 +23,6 @@ export const useAuthStore = create<AuthStore>()(
         set({ user: null, token: null, isAuthenticated: false })
       },
     }),
-    { name: 'gdp-auth', partialize: (state) => ({ user: state.user, token: state.token }) },
+    { name: 'gdp-auth', partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated }) },
   ),
 )

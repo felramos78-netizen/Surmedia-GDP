@@ -5,6 +5,7 @@ import {
   Clock, AlertCircle, Check, Info, Send, Zap,
 } from 'lucide-react'
 import api from '@/lib/api'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -196,7 +197,7 @@ function RuleForm({
         <input
           value={form.name} onChange={e => set('name', e.target.value)}
           placeholder="Ej: Felicitación de cumpleaños"
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 
@@ -206,7 +207,7 @@ function RuleForm({
         <select
           value={form.eventType}
           onChange={e => handleEventTypeChange(e.target.value as EventType)}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
         >
           {(Object.keys(EVENT_TYPE_LABELS) as EventType[]).map(et => (
             <option key={et} value={et}>{EVENT_TYPE_LABELS[et]}</option>
@@ -224,7 +225,7 @@ function RuleForm({
           <input type="number" min={0} max={30}
             value={form.daysBeforeEvent}
             onChange={e => set('daysBeforeEvent', parseInt(e.target.value) || 0)}
-            className="w-24 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-24 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
       )}
@@ -235,7 +236,7 @@ function RuleForm({
         <select
           value={form.fromProfileId ?? ''}
           onChange={e => set('fromProfileId', e.target.value || null)}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
         >
           <option value="">— Seleccionar perfil —</option>
           {profiles.map(p => (
@@ -249,7 +250,7 @@ function RuleForm({
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">Asunto *</label>
         <input value={form.subject} onChange={e => set('subject', e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 
@@ -259,7 +260,7 @@ function RuleForm({
         <div className="flex flex-wrap gap-1">
           {VARIABLES.map(v => (
             <button key={v.key} type="button" onClick={() => insertVariable(v.key)} title={v.desc}
-              className="px-2 py-0.5 text-[11px] font-mono bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-600 rounded border border-gray-200 hover:border-blue-300 transition-colors"
+              className="px-2 py-0.5 text-[11px] font-mono bg-gray-100 hover:bg-brand-50 hover:text-brand-700 text-gray-600 rounded border border-gray-200 hover:border-brand-300 transition-colors"
             >
               {v.label}
             </button>
@@ -275,7 +276,7 @@ function RuleForm({
           value={form.bodyHtml}
           onChange={e => set('bodyHtml', e.target.value)}
           rows={7}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono resize-none"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono resize-none"
         />
         <p className="text-[10px] text-gray-400 mt-0.5">Texto plano. Usa las variables de arriba.</p>
       </div>
@@ -287,7 +288,7 @@ function RuleForm({
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={form.toColaborador}
             onChange={e => set('toColaborador', e.target.checked)}
-            className="w-4 h-4 rounded accent-blue-600"
+            className="w-4 h-4 rounded accent-brand-600"
           />
           <span className="text-sm text-gray-700">Al colaborador (email corporativo)</span>
         </label>
@@ -300,7 +301,7 @@ function RuleForm({
               onChange={e => setDirectEmailInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addDirectEmail() } }}
               placeholder="correo@ejemplo.com"
-              className="flex-1 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
             <button type="button" onClick={addDirectEmail}
               className="px-2.5 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 transition-colors"
@@ -311,9 +312,9 @@ function RuleForm({
           {form.toDirectEmails.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {form.toDirectEmails.map(email => (
-                <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-[11px] rounded-full">
+                <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 bg-brand-50 text-brand-700 text-[11px] rounded-full">
                   {email}
-                  <button onClick={() => set('toDirectEmails', form.toDirectEmails.filter(e => e !== email))} className="hover:text-blue-900">
+                  <button onClick={() => set('toDirectEmails', form.toDirectEmails.filter(e => e !== email))} aria-label={`Quitar ${email}`} className="hover:text-brand-900">
                     <X size={10} />
                   </button>
                 </span>
@@ -332,7 +333,7 @@ function RuleForm({
           </label>
           <input type="time" value={form.sendTime}
             onChange={e => set('sendTime', e.target.value)}
-            className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
       )}
@@ -350,7 +351,7 @@ function RuleForm({
                   <input type="checkbox"
                     checked={(form.ccProfileIds ?? []).includes(p.id)}
                     onChange={() => toggleCcProfile(p.id)}
-                    className="w-3.5 h-3.5 rounded accent-blue-600"
+                    className="w-3.5 h-3.5 rounded accent-brand-600"
                   />
                   <span className="text-xs text-gray-700">{p.name} <span className="text-gray-400">— {p.email}</span></span>
                 </label>
@@ -367,7 +368,7 @@ function RuleForm({
               onChange={e => setCcCustomInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCcCustom() } }}
               placeholder="correo@ejemplo.com"
-              className="flex-1 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
             <button type="button" onClick={addCcCustom}
               className="px-2.5 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-600 transition-colors"
@@ -380,7 +381,7 @@ function RuleForm({
               {form.ccCustomEmails.map(email => (
                 <span key={email} className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded-full">
                   {email}
-                  <button onClick={() => set('ccCustomEmails', form.ccCustomEmails.filter(e => e !== email))} className="hover:text-gray-900">
+                  <button onClick={() => set('ccCustomEmails', form.ccCustomEmails.filter(e => e !== email))} aria-label={`Quitar ${email}`} className="hover:text-gray-900">
                     <X size={10} />
                   </button>
                 </span>
@@ -421,7 +422,7 @@ function RuleForm({
           Cancelar
         </button>
         <button type="button" onClick={() => valid && onSave(form)} disabled={!valid}
-          className="flex-1 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="flex-1 py-2 text-sm font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           Guardar plantilla
         </button>
@@ -594,7 +595,7 @@ function UpcomingTab() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-16 gap-2 text-gray-400 text-sm">
-        <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
         Calculando próximos envíos…
       </div>
     )
@@ -620,6 +621,7 @@ function UpcomingTab() {
 // ── Main drawer ───────────────────────────────────────────────────────────────
 
 export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
+  useEscapeKey(onClose)
   const [tab, setTab]               = useState<'plantillas' | 'proximos'>('plantillas')
   const [editing, setEditing]       = useState<EmailRule | null>(null)
   const [creating, setCreating]     = useState(false)
@@ -694,15 +696,15 @@ export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
         {/* Header */}
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-              <Mail size={16} className="text-blue-600" />
+            <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center">
+              <Mail size={16} className="text-brand-600" />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-gray-800">Correos automáticos</h2>
               <p className="text-xs text-gray-400">Plantillas para cumpleaños, aniversarios y reconocimientos</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+          <button onClick={onClose} aria-label="Cerrar" className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={16} />
           </button>
         </div>
@@ -714,7 +716,7 @@ export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
               key={t}
               onClick={() => { setTab(t); setCreating(false); setEditing(null) }}
               className={`flex-1 py-2.5 text-xs font-medium transition-colors ${
-                tab === t ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'
+                tab === t ? 'text-brand-600 border-b-2 border-brand-600' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               {t === 'plantillas' ? 'Plantillas' : 'Próximos envíos'}
@@ -729,7 +731,7 @@ export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
             <>
               {!showForm && (
                 <button onClick={() => setCreating(true)}
-                  className="w-full flex items-center gap-2 justify-center py-2.5 mb-4 text-sm font-medium text-blue-600 border border-dashed border-blue-300 rounded-xl hover:bg-blue-50 transition-colors"
+                  className="w-full flex items-center gap-2 justify-center py-2.5 mb-4 text-sm font-medium text-brand-600 border border-dashed border-brand-300 rounded-xl hover:bg-brand-50 transition-colors"
                 >
                   <Plus size={14} />
                   Nueva plantilla
@@ -780,7 +782,7 @@ export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
                 <>
                   {isLoading ? (
                     <div className="flex items-center justify-center py-12 gap-2 text-gray-400 text-sm">
-                      <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      <div className="w-4 h-4 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
                       Cargando plantillas…
                     </div>
                   ) : rules.length === 0 ? (
@@ -830,22 +832,22 @@ export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
                                   {deletingId === rule.id ? (
                                     <div className="flex items-center gap-1">
                                       <button onClick={() => deleteMutation.mutate(rule.id)}
-                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Confirmar">
+                                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Confirmar" aria-label="Confirmar eliminación">
                                         <Check size={13} />
                                       </button>
                                       <button onClick={() => setDeletingId(null)}
-                                        className="p-1.5 text-gray-400 hover:bg-gray-50 rounded-lg transition-colors">
+                                        className="p-1.5 text-gray-400 hover:bg-gray-50 rounded-lg transition-colors" aria-label="Cancelar">
                                         <X size={13} />
                                       </button>
                                     </div>
                                   ) : (
                                     <>
                                       <button onClick={() => { setEditing(rule); setCreating(false) }}
-                                        className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Editar">
+                                        className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors" title="Editar" aria-label="Editar">
                                         <Pencil size={13} />
                                       </button>
                                       <button onClick={() => setDeletingId(rule.id)}
-                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar">
+                                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Eliminar" aria-label="Eliminar">
                                         <Trash2 size={13} />
                                       </button>
                                     </>

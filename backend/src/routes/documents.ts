@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify'
 import fs from 'fs'
 import path from 'path'
+import { examenesVar, beneficiosVar, tipoContratoVar, plazoContratoVar, stripRemovedParagraphs, stripSentinel } from '../services/docxTemplate'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads', 'documents')
 
@@ -8,30 +9,102 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true })
 }
 
+const lcFirst = (s: string) => s ? s[0].toLowerCase() + s.slice(1) : s
+
 function buildProcessVars(proc: any): Record<string, string> {
-  const start = proc.startDate
+  const start      = proc.startDate
     ? new Date(proc.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
     : ''
+  const startCorta = proc.startDate ? new Date(proc.startDate).toLocaleDateString('es-CL') : ''
+  const cd         = (proc.collaboratorData as Record<string, any>) ?? {}
+  const now        = new Date()
+  const hour       = now.getHours()
+  const empresa    = proc.legalEntity === 'COMUNICACIONES_SURMEDIA'
+    ? 'Comunicaciones Surmedia Spa'
+    : proc.legalEntity === 'SURMEDIA_CONSULTORIA'
+    ? 'Surmedia Consultoría Spa'
+    : ''
+  const fechaActualLarga = now.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+
+  const nameParts          = (proc.collaboratorName ?? '').trim().split(/\s+/)
+  const supervisorParts    = (cd.supervisorName ?? '').trim().split(/\s+/)
+  const nombreSupervisor   = cd.supervisorFirstName ?? supervisorParts[0] ?? ''
+  const apellidoSupervisor = cd.supervisorLastName  ?? supervisorParts[1] ?? ''
+
+  const tipoJornadaTipo  = cd.tipoJornadaTipo ?? ''
+  const tipoJornadaHoras = cd.tipoJornadaHoras ?? ''
+  const tipoJornada = tipoJornadaTipo && tipoJornadaHoras
+    ? `jornada ${tipoJornadaTipo} de ${tipoJornadaHoras} horas semanales`
+    : tipoJornadaTipo
+
+  const sueldoNum = parseInt(cd.sueldoLiquido ?? '0', 10)
+  const sueldoLiquidolargo = sueldoNum > 0
+    ? `$${sueldoNum.toLocaleString('es-CL')} líquidos mensuales`
+    : ''
+
+  const beneficiosArr = Array.isArray(cd.beneficios) ? cd.beneficios as string[] : []
+
+  const fechaTerminoContrato = cd.contractEndDate
+    ? new Date(cd.contractEndDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+    : ''
+
   return {
     nombre:            proc.collaboratorName ?? '',
-    primerNombre:      (proc.collaboratorName ?? '').split(' ')[0] ?? '',
-    apellido:          (proc.collaboratorName ?? '').split(' ').slice(1).join(' ') ?? '',
-    rut:               '',
+    primerNombre:      cd.primerNombre ?? nameParts[0] ?? '',
+    segundoNombre:     cd.segundoNombre ?? '',
+    primerApellido:    cd.primerApellido ?? nameParts[1] ?? '',
+    segundoApellido:   cd.segundoApellido ?? nameParts[2] ?? '',
+    apellido:          [cd.primerApellido, cd.segundoApellido].filter(Boolean).join(' ') || nameParts.slice(1).join(' '),
+    rut:               proc.collaboratorRut ?? '',
     cargo:             proc.collaboratorPosition ?? '',
-    empresa:           proc.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : 'Surmedia Consultoría Spa',
+    empresa,
+    'razónsocial':     empresa,
+    razonSocial:       empresa,
     email:             proc.collaboratorEmail ?? '',
     emailPersonal:     proc.collaboratorPersonalEmail ?? '',
     telefono:          proc.collaboratorPhone ?? '',
+    jornada:           (cd.distribucionJornada ?? cd.workSchedule ?? '').toLowerCase(),
+    supervisor:        cd.supervisorName ?? '',
+    nombreSupervisor,
+    apellidoSupervisor,
+    emailJefatura:     cd.supervisorEmail ?? '',
+    estimado:          cd.gender === 'F' || cd.gender === 'female' ? 'Estimada' : 'Estimado',
+    mentorAsignado:    cd.mentorAsignado ?? '',
+    vinculo:           cd.vinculo ?? '',
+    afp:               cd.afp ?? '',
+    isapre:            cd.isapre ?? '',
+    ciudad:            cd.city ?? '',
+    comuna:            cd.commune ?? '',
+    direccion:         cd.address ?? '',
     centroTrabajo:     proc.costCenter ?? '',
     fechaIngreso:      start,
-    fechaIngresoCorta: proc.startDate ? new Date(proc.startDate).toLocaleDateString('es-CL') : '',
-    fechaActual:       new Date().toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
-    año:               new Date().getFullYear().toString(),
+    fechaIngresoCorta: startCorta,
+    fechaTerminoContrato,
+    fechaActual:       fechaActualLarga,
+    fechaActuallarga:  fechaActualLarga,
+    año:               now.getFullYear().toString(),
+    saludoHorario:     hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
+    tipocontrato:      tipoContratoVar(cd.contractType),
+    plazocontrato:     plazoContratoVar(proc.startDate, cd.contractEndDate),
+    tipoJornada,
+    horario:              lcFirst((cd.horario ?? '').replace(/\.+\s*$/, '')),
+    modalidad:            (cd.modalidad ?? '').replace(/\.+\s*$/, ''),
+    sueldoLiquidolargo,
+    'sueldoLíquidolargo': sueldoLiquidolargo,
+    beneficios:           beneficiosVar(beneficiosArr),
+    'exámenes':           examenesVar(cd),
+    examenes:             examenesVar(cd),
+    fechaNacimiento:     cd.birthDate ? new Date(cd.birthDate).toLocaleDateString('es-CL') : '',
+    oficina: (cd.city ?? '').toLowerCase().includes('antofagasta')
+      ? 'Av. José Toribio Medina 94, piso 6'
+      : 'Av. Las Condes 7700, oficina 403B',
   }
 }
 
 const documentsRoutes: FastifyPluginAsync = async (fastify) => {
   const prisma = fastify.prisma
+
+  fastify.addHook('preHandler', fastify.authenticate)
 
   // GET /documents — listar documentos
   fastify.get('/documents', async (_req, reply) => {
@@ -205,6 +278,11 @@ const documentsRoutes: FastifyPluginAsync = async (fastify) => {
     // Extra vars override process vars
     Object.assign(templateVars, extraVars)
 
+    // Render document name: replace {{var}} in doc.name with actual values
+    const renderedName = stripSentinel(doc.name
+      .replace(/\{\{([^{}]+)\}\}/g, (_, key) => templateVars[key.trim()] ?? ''))
+      .trim() || doc.name
+
     // Apply variables using docxtemplater with {{}} delimiters
     let rendered: Buffer
     try {
@@ -217,12 +295,16 @@ const documentsRoutes: FastifyPluginAsync = async (fastify) => {
         paragraphLoop: true,
         linebreaks: true,
         errorLogging: false,
+        delimiters: { start: '{{', end: '}}' },
       })
       docxTemplate.setData(templateVars)
       docxTemplate.render()
-      rendered = docxTemplate.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' })
-    } catch (err: any) {
-      return reply.status(422).send({ message: `Error al procesar el documento: ${err.message ?? err}` })
+      const outZip = docxTemplate.getZip()
+      stripRemovedParagraphs(outZip)
+      rendered = outZip.generate({ type: 'nodebuffer', compression: 'DEFLATE' })
+    } catch (err) {
+      fastify.log.error({ err }, 'Error al renderizar documento')
+      return reply.status(422).send({ message: 'Error al procesar el documento. Revisa que la plantilla sea válida.' })
     }
 
     if (format === 'PDF') {
@@ -235,7 +317,7 @@ const documentsRoutes: FastifyPluginAsync = async (fastify) => {
           })
         })
         reply.header('Content-Type', 'application/pdf')
-        reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(doc.fileName.replace('.docx', '.pdf'))}"`)
+        reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(`${renderedName}.pdf`)}"`)
         return reply.send(pdfBuffer)
       } catch {
         // LibreOffice no disponible — devolver Word con header de aviso
@@ -244,7 +326,7 @@ const documentsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-    reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(doc.fileName)}"`)
+    reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(`${renderedName}.docx`)}"`)
     return reply.send(rendered)
   })
 }

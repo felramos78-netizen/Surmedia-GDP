@@ -236,10 +236,11 @@ export function templateNotificacionInterna(vars: TemplateVars & { taskName: str
 //   "varName"   — nueva sintaxis legible en español
 
 function interpolate(str: string, vars: Record<string, string>): string {
-  // {{varName}} — sintaxis unificada (correos + documentos)
-  let out = str.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`)
+  // {{varName}} — sintaxis unificada (correos + documentos). \w no cubre tildes/ñ,
+  // así que se amplía el set de caracteres para soportar variables como {{razónsocial}}.
+  let out = str.replace(/\{\{([\wáéíóúÁÉÍÓÚñÑ]+)\}\}/g, (_, k) => vars[k] ?? `{{${k}}}`)
   // {varName} — legacy fallback para plantillas anteriores
-  out = out.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? `{${k}}`)
+  out = out.replace(/\{([\wáéíóúÁÉÍÓÚñÑ]+)\}/g, (_, k) => vars[k] ?? `{${k}}`)
   return out
 }
 

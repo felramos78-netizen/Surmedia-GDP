@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search } from 'lucide-react'
+import { Search, AlertTriangle } from 'lucide-react'
 import { useEmployees } from '@/hooks/useDotacion'
 import type { Employee, LegalEntity } from '@/types'
 
@@ -9,7 +9,7 @@ const ENTITY_LABEL: Record<LegalEntity, string> = {
   SURMEDIA_CONSULTORIA:    'Consultoría',
 }
 const ENTITY_COLOR: Record<LegalEntity, string> = {
-  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+  COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
 const STATUS_LABEL: Record<string, string> = {
@@ -34,13 +34,13 @@ function ColaboradorCard({ emp }: { emp: Employee }) {
   return (
     <button
       onClick={() => navigate(`/colaboradores/${emp.id}`)}
-      className="w-full text-left bg-white border border-gray-100 rounded-xl p-4 hover:border-blue-200 hover:shadow-sm transition-all flex items-center gap-4 group"
+      className="w-full text-left bg-white border border-gray-100 rounded-xl p-4 hover:border-brand-200 hover:shadow-sm transition-all flex items-center gap-4 group"
     >
-      <div className="w-10 h-10 rounded-full bg-blue-600 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
+      <div className="w-10 h-10 rounded-full bg-brand-600 text-white text-sm font-bold flex items-center justify-center flex-shrink-0">
         {initials(emp)}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="font-medium text-gray-900 truncate group-hover:text-blue-700 transition-colors">
+        <p className="font-medium text-gray-900 truncate group-hover:text-brand-700 transition-colors">
           {emp.firstName} {emp.lastName}
         </p>
         <p className="text-xs text-gray-500 truncate mt-0.5">{emp.jobTitle ?? emp.jobFamily ?? '—'}</p>
@@ -72,7 +72,7 @@ export default function ColaboradoresPage() {
   const [entity,   setEntity]   = useState('')
   const [status,   setStatus]   = useState('')
 
-  const { data, isLoading } = useEmployees({
+  const { data, isLoading, isError } = useEmployees({
     search: search || undefined,
     legalEntity: entity ? [entity] : undefined,
     status:      status ? [status] : undefined,
@@ -98,7 +98,7 @@ export default function ColaboradoresPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Buscar nombre o RUT…"
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
 
@@ -138,7 +138,12 @@ export default function ColaboradoresPage() {
       {/* Grilla */}
       {isLoading ? (
         <div className="flex justify-center py-16">
-          <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : isError ? (
+        <div className="py-16 text-center">
+          <AlertTriangle size={24} className="text-red-300 mx-auto mb-3" />
+          <p className="text-sm text-gray-500">Error cargando colaboradores. Intenta nuevamente.</p>
         </div>
       ) : (
         <>

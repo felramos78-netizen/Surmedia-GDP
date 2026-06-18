@@ -10,7 +10,8 @@ export default fp(async (fastify) => {
   fastify.decorate('authenticate', async (req: import('fastify').FastifyRequest, reply: import('fastify').FastifyReply) => {
     try {
       await req.jwtVerify()
-    } catch {
+    } catch (err) {
+      req.log.warn({ err }, 'jwtVerify falló')
       reply.status(401).send({ message: 'No autorizado' })
     }
   })

@@ -2,24 +2,33 @@ import type { FastifyPluginAsync } from 'fastify'
 import fs from 'fs'
 import path from 'path'
 import { runTaskAutomation } from '../services/automation.service'
-import { getFormResponses, getSheetRowsByUrl, findRowByRut, mapRowToEmployee } from '../services/sheets.service'
+import { getFormResponses, getSheetRowsByUrl, findRowByRut, mapRowToEmployee, getSheetHeadersByUrl, suggestColumnMappings, SHEET_TARGET_FIELDS } from '../services/sheets.service'
 import { sendEmail, sendTestEmail, buildFromDbTemplate } from '../services/email.service'
-import { sendEmailViaGmail, createGmailDraft, fetchGmailSignature } from '../services/gmail.service'
+import { sendEmailViaGmail, createGmailDraft, fetchGmailSignature, docxToPdfViaGoogleDrive } from '../services/gmail.service'
+import { examenesVar, beneficiosVar, tipoContratoVar, plazoContratoVar, stripRemovedParagraphs, stripSentinel, htmlToDocxBuffer } from '../services/docxTemplate'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads', 'documents')
 
 function renderDocx(filePath: string, vars: Record<string, string>): Buffer {
-  const PizZip      = require('pizzip')
+  const PizZip        = require('pizzip')
   const Docxtemplater = require('docxtemplater')
-  const fileBuffer  = fs.readFileSync(filePath)
-  const zip         = new PizZip(fileBuffer)
-  const tpl         = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, errorLogging: false })
+  const fileBuffer    = fs.readFileSync(filePath)
+  const zip           = new PizZip(fileBuffer)
+  const tpl           = new Docxtemplater(zip, {
+    paragraphLoop: true,
+    linebreaks:   true,
+    errorLogging: false,
+    delimiters:   { start: '{{', end: '}}' },
+  })
   tpl.setData(vars)
   tpl.render()
-  return tpl.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' })
+  const outZip = tpl.getZip()
+  stripRemovedParagraphs(outZip)
+  return outZip.generate({ type: 'nodebuffer', compression: 'DEFLATE' })
 }
 
-async function docxToPdf(docxBuffer: Buffer): Promise<Buffer> {
+async function docxToPdf(docxBuffer: Buffer, refreshToken?: string | null): Promise<Buffer> {
+  if (refreshToken) return docxToPdfViaGoogleDrive(docxBuffer, refreshToken)
   const libre = require('libreoffice-convert')
   return new Promise<Buffer>((resolve, reject) => {
     libre.convert(docxBuffer, '.pdf', undefined, (err: any, done: Buffer) => {
@@ -27,6 +36,47 @@ async function docxToPdf(docxBuffer: Buffer): Promise<Buffer> {
     })
   })
 }
+
+const DOCX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+// Construye los adjuntos para enviar/borrador. Si un documento tiene un override
+// con HTML editado, genera el .docx desde ese HTML; si no, renderiza la plantilla
+// con las variables del proceso. El formato (WORD/PDF) puede venir en el override
+// o, en su defecto, del `sendAs` configurado en el vínculo del documento.
+async function buildEmailAttachments(
+  linkedDocs: any[],
+  vars: Record<string, string>,
+  documents: Record<string, { html?: string; sendAs?: string }> | undefined,
+  refreshToken?: string | null,
+): Promise<Array<{ filename: string; content: Buffer; contentType: string }>> {
+  const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
+  for (const doc of linkedDocs) {
+    const override = documents?.[doc.id]
+    const renderedName = stripSentinel(doc.name.replace(/\{\{([^{}]+)\}\}/g, (_: string, k: string) => vars[k.trim()] ?? '')).trim() || doc.name
+
+    let docxBuf: Buffer
+    if (override?.html) {
+      try { docxBuf = await htmlToDocxBuffer(override.html) } catch { continue }
+    } else {
+      const fullPath = path.join(UPLOADS_DIR, doc.filePath)
+      if (!fs.existsSync(fullPath)) continue
+      try { docxBuf = renderDocx(fullPath, vars) } catch { continue }
+    }
+
+    const sendAs = override?.sendAs ?? doc.templateLinks?.[0]?.sendAs ?? 'WORD'
+    if (sendAs === 'PDF') {
+      try {
+        const pdfBuffer = await docxToPdf(docxBuf, refreshToken ?? undefined)
+        attachments.push({ filename: `${renderedName}.pdf`, content: pdfBuffer, contentType: 'application/pdf' })
+        continue
+      } catch { /* fallback a .docx abajo */ }
+    }
+    attachments.push({ filename: `${renderedName}.docx`, content: docxBuf, contentType: DOCX_CONTENT_TYPE })
+  }
+  return attachments
+}
+
+const lcFirst = (s: string) => s ? s[0].toLowerCase() + s.slice(1) : s
 
 function buildSendVars(proc: any): Record<string, string> {
   const start = proc.startDate
@@ -38,6 +88,30 @@ function buildSendVars(proc: any): Record<string, string> {
   const now        = new Date()
   const hour       = now.getHours()
   const empresa    = proc.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : proc.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Surmedia Consultoría Spa' : ''
+  const fechaActualLarga = now.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+
+  const supervisorParts  = (cd.supervisorName ?? '').trim().split(/\s+/)
+  const nombreSupervisor = cd.supervisorFirstName ?? supervisorParts[0] ?? ''
+  const apellidoSupervisor = cd.supervisorLastName ?? supervisorParts[1] ?? ''
+
+  const tipoJornadaTipo  = cd.tipoJornadaTipo ?? ''
+  const tipoJornadaHoras = cd.tipoJornadaHoras ?? ''
+  const tipoJornada = tipoJornadaTipo && tipoJornadaHoras
+    ? `jornada ${tipoJornadaTipo} de ${tipoJornadaHoras} horas semanales`
+    : tipoJornadaTipo
+
+  const sueldoNum = parseInt(cd.sueldoLiquido ?? '0', 10)
+  const sueldoLiquidolargo = sueldoNum > 0
+    ? `$${sueldoNum.toLocaleString('es-CL')} líquidos mensuales`
+    : ''
+
+  const beneficiosArr = Array.isArray(cd.beneficios) ? cd.beneficios as string[] : []
+  const beneficios = beneficiosVar(beneficiosArr)
+
+  const fechaTerminoContrato = cd.contractEndDate
+    ? new Date(cd.contractEndDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' })
+    : ''
+
   return {
     nombre:            proc.collaboratorName ?? '',
     primerNombre:      cd.primerNombre ?? nameParts[0] ?? '',
@@ -48,22 +122,51 @@ function buildSendVars(proc: any): Record<string, string> {
     rut:               proc.collaboratorRut ?? '',
     cargo:             proc.collaboratorPosition ?? '',
     empresa,
+    'razónsocial':     empresa,
+    razonSocial:       empresa,
     email:             proc.collaboratorEmail ?? '',
     emailPersonal:     proc.collaboratorPersonalEmail ?? '',
     telefono:          proc.collaboratorPhone ?? '',
-    jornada:           cd.workSchedule ?? '',
+    jornada:           (cd.distribucionJornada ?? cd.workSchedule ?? '').toLowerCase(),
     supervisor:        cd.supervisorName ?? '',
+    nombreSupervisor,
+    apellidoSupervisor,
+    emailJefatura:     cd.supervisorEmail ?? '',
+    estimado:          cd.gender === 'F' || cd.gender === 'female' ? 'Estimada' : 'Estimado',
+    mentorAsignado:    cd.mentorAsignado ?? '',
+    vinculo:           cd.vinculo ?? '',
     afp:               cd.afp ?? '',
     isapre:            cd.isapre ?? '',
     ciudad:            cd.city ?? '',
     comuna:            cd.commune ?? '',
     direccion:         cd.address ?? '',
+    direccionCalle:    cd.direccionCalle ?? '',
+    direccionNumero:   cd.direccionNumero ?? '',
+    direccionDepto:    cd.direccionDepto ?? '',
     centroTrabajo:     proc.costCenter ?? '',
+    tipoCentro:        '',
     fechaIngreso:      start,
     fechaIngresoCorta: startCorta,
-    fechaActual:       now.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
+    fechaTerminoContrato,
+    fechaActual:       fechaActualLarga,
+    fechaActuallarga:  fechaActualLarga,
     año:               now.getFullYear().toString(),
     saludoHorario:     hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
+    fechaNacimiento:   cd.birthDate ? new Date(cd.birthDate).toLocaleDateString('es-CL') : '',
+    // Condiciones de la oferta
+    tipocontrato:      tipoContratoVar(cd.contractType),
+    plazocontrato:     plazoContratoVar(proc.startDate, cd.contractEndDate),
+    tipoJornada,
+    horario:              lcFirst((cd.horario ?? '').replace(/\.+\s*$/, '')),
+    modalidad:            (cd.modalidad ?? '').replace(/\.+\s*$/, ''),
+    sueldoLiquidolargo,
+    'sueldoLíquidolargo': sueldoLiquidolargo,
+    beneficios,
+    'exámenes':           examenesVar(cd),
+    examenes:             examenesVar(cd),
+    oficina: (cd.city ?? '').toLowerCase().includes('antofagasta')
+      ? 'Av. José Toribio Medina 94, piso 6'
+      : 'Av. Las Condes 7700, oficina 403B',
     // Legacy compatibility
     collaboratorName:     proc.collaboratorName ?? '',
     collaboratorPosition: proc.collaboratorPosition ?? '',
@@ -653,10 +756,12 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       rut:                  '12.345.678-9',
       cargo:                'Diseñador Gráfico',
       empresa:              'Comunicaciones Surmedia Spa',
+      'razónsocial':        'Comunicaciones Surmedia Spa',
+      razonSocial:          'Comunicaciones Surmedia Spa',
       email:                'juan.perez@surmedia.cl',
       emailPersonal:        'juanperez@gmail.com',
       telefono:             '+56 9 8765 4321',
-      jornada:              'Mensual 40.0 hrs. (L, M, M, J, V)',
+      jornada:              'lunes a viernes',
       supervisor:           'María López González',
       nombreSupervisor:     'María',
       apellidoSupervisor:   'López',
@@ -678,12 +783,22 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       fechaIngresoCorta:    '15/05/2026',
       fechaTerminoContrato: '15 de agosto de 2026',
       fechaActual:          fmt(now),
+      fechaActuallarga:     fmt(now),
       año:                  now.getFullYear().toString(),
       saludoHorario:        hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
       estimado:             'Estimado',
       diaNumero:            '30',
       nombreHito:           'Foto individual corporativa',
       instruccion:          'Por favor realiza esta acción antes del viernes.',
+      tipocontrato:         'a plazo fijo',
+      plazocontrato:        'de 3 meses',
+      tipoJornada:          'jornada ordinaria de 40 horas semanales',
+      horario:              'lunes a jueves de 9:00 a 18:15 horas con 45 minutos de colación, y los viernes de 9:00 a 15:00 horas',
+      modalidad:            'Modalidad de trabajo híbrida con días presenciales en nuestra oficina de Santiago y teletrabajo',
+      sueldoLiquidolargo:   '$1.200.000 líquidos mensuales',
+      'sueldoLíquidolargo': '$1.200.000 líquidos mensuales',
+      beneficios:           'Seguro de salud complementario, día libre de cumpleaños, 5 días adicionales de vacaciones (al cumplir 1 año)',
+      oficina:              'Av. Las Condes 7700, oficina 403B',
       ...overrides,
     }
   }
@@ -810,21 +925,43 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
   // PATCH /sheet-templates/:key
   fastify.patch<{
     Params: { key: string }
-    Body: { name?: string; url?: string; rutColumn?: string; description?: string; sheetName?: string; isActive?: boolean }
+    Body: { name?: string; url?: string; rutColumn?: string; description?: string; sheetName?: string; isActive?: boolean; columnMappings?: Record<string, string> }
   }>('/sheet-templates/:key', async (req, reply) => {
     const data: Record<string, any> = {}
-    if (req.body.name        !== undefined) data.name        = req.body.name.trim()
-    if (req.body.url         !== undefined) data.url         = req.body.url.trim()
-    if (req.body.rutColumn   !== undefined) data.rutColumn   = req.body.rutColumn
-    if (req.body.description !== undefined) data.description = req.body.description?.trim() || null
-    if (req.body.sheetName   !== undefined) data.sheetName   = req.body.sheetName?.trim() || null
-    if (req.body.isActive    !== undefined) data.isActive    = req.body.isActive
+    if (req.body.name           !== undefined) data.name           = req.body.name.trim()
+    if (req.body.url            !== undefined) data.url            = req.body.url.trim()
+    if (req.body.rutColumn      !== undefined) data.rutColumn      = req.body.rutColumn
+    if (req.body.description    !== undefined) data.description    = req.body.description?.trim() || null
+    if (req.body.sheetName      !== undefined) data.sheetName      = req.body.sheetName?.trim() || null
+    if (req.body.isActive       !== undefined) data.isActive       = req.body.isActive
+    if (req.body.columnMappings !== undefined) data.columnMappings = req.body.columnMappings
     try {
       const sheet = await prisma.onboardingSheetTemplate.update({ where: { key: req.params.key }, data })
       return reply.send({ data: sheet })
     } catch {
       return reply.status(404).send({ message: 'Sheet no encontrado' })
     }
+  })
+
+  // GET /sheet-target-fields — catálogo de campos del sistema disponibles para mapear
+  fastify.get('/sheet-target-fields', async (_req, reply) => {
+    return reply.send({ data: SHEET_TARGET_FIELDS.map(f => ({ key: f.key, label: f.label })) })
+  })
+
+  // GET /sheet-templates/:key/columns — lee los encabezados reales del sheet y sugiere un mapeo
+  fastify.get<{ Params: { key: string } }>('/sheet-templates/:key/columns', async (req, reply) => {
+    const sheet = await prisma.onboardingSheetTemplate.findUnique({ where: { key: req.params.key } }).catch(() => null)
+    if (!sheet) return reply.status(404).send({ message: 'Sheet no encontrado' })
+
+    let headers: string[]
+    try {
+      headers = await getSheetHeadersByUrl(sheet.url, sheet.sheetName ?? undefined)
+    } catch (err: any) {
+      return reply.status(500).send({ message: `Error al leer el sheet: ${err.message}` })
+    }
+
+    const suggested = suggestColumnMappings(headers, sheet.rutColumn)
+    return reply.send({ data: { headers, suggested, current: sheet.columnMappings ?? {} } })
   })
 
   // DELETE /sheet-templates/:key
@@ -861,17 +998,9 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     const mappings = (sheet.columnMappings ?? {}) as Record<string, string>
     const updates  = mapRowToEmployee(row, mappings)
 
-    // Buscar empleado por RUT en la DB con todos los campos mapeables
+    // Buscar empleado por RUT (todos los campos escalares para comparar valores actuales)
     const employee  = await prisma.employee.findFirst({
       where: { rut: { equals: normalizeRut(rut), mode: 'insensitive' } },
-      select: {
-        id: true, firstName: true, lastName: true,
-        gender: true, birthDate: true, nationality: true,
-        personalEmail: true, phone: true,
-        address: true, commune: true, city: true,
-        afp: true, isapre: true,
-        email: true, jobTitle: true, workSchedule: true, supervisorName: true,
-      },
     }).catch(() => null)
 
     // Valores actuales del empleado para los campos que se actualizarían
@@ -900,8 +1029,8 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     }).catch(() => null)
     if (!employee) return reply.status(404).send({ message: 'Colaborador no encontrado en la base de datos' })
 
-    // Whitelist of updatable fields from sheets
-    const ALLOWED = new Set(['firstName', 'lastName', 'gender', 'birthDate', 'nationality', 'personalEmail', 'phone', 'address', 'commune', 'city', 'afp', 'isapre', 'email', 'jobTitle', 'workSchedule', 'supervisorName'])
+    // Whitelist derivada del catálogo: campos reales (sin los virtuales "_") + lastName/address compuestos
+    const ALLOWED = new Set(SHEET_TARGET_FIELDS.map(f => f.key).filter(k => !k.startsWith('_')))
     const safe: Record<string, any> = {}
     for (const [k, v] of Object.entries(updates)) {
       if (ALLOWED.has(k) && v !== undefined && v !== '') safe[k] = v
@@ -1240,28 +1369,74 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: task })
   })
 
-  // POST /:id/tasks — agregar hito personalizado
+  // POST /:id/tasks — agregar hito (desde el repositorio de plantillas, o uno personalizado)
   fastify.post<{
     Params: { id: string }
-    Body: { period: string; name: string; tool?: string; automationType?: string }
+    Body: { period: string; name?: string; tool?: string; automationType?: string; templateKey?: string }
   }>('/:id/tasks', async (req, reply) => {
-    const { period, name, tool, automationType } = req.body
+    const { period, name, tool, automationType, templateKey } = req.body
+
+    let data: Record<string, any> = {
+      processId:      req.params.id,
+      period,
+      name:           name ?? '',
+      tool:           tool ?? null,
+      automationType: automationType ?? 'MANUAL',
+    }
+
+    if (templateKey) {
+      const dbTemplate = await prisma.onboardingTemplateTask.findUnique({
+        where:   { key: templateKey },
+        include: { subTasks: { orderBy: { sortOrder: 'asc' } } },
+      }).catch(() => null)
+
+      const hardcoded = !dbTemplate ? TASK_TEMPLATE.find(t => t.id === templateKey) : null
+
+      if (dbTemplate) {
+        data = {
+          processId:        req.params.id,
+          templateId:       dbTemplate.key,
+          period:           dbTemplate.period,
+          name:             dbTemplate.name,
+          tool:             dbTemplate.tool ?? null,
+          appliesWhen:      dbTemplate.appliesWhen ?? null,
+          automationType:   dbTemplate.automationType,
+          automationConfig: dbTemplate.automationConfig ?? null,
+          subTasks: (dbTemplate.subTasks ?? []).map((st: any) => ({
+            id:                   st.id,
+            name:                 st.name,
+            responsableProfileId: st.responsableProfileId,
+            tool:                 st.tool,
+            plantilla:            st.plantilla,
+            sortOrder:            st.sortOrder,
+            completedAt:          null,
+          })),
+        }
+      } else if (hardcoded) {
+        data = {
+          processId:        req.params.id,
+          templateId:       hardcoded.id,
+          period:           hardcoded.period,
+          name:             hardcoded.name,
+          tool:             hardcoded.tool ?? null,
+          appliesWhen:      hardcoded.appliesWhen ?? null,
+          automationType:   hardcoded.automationType,
+          automationConfig: hardcoded.automationConfig ?? null,
+        }
+      } else {
+        return reply.status(404).send({ message: 'Hito de plantilla no encontrado' })
+      }
+    } else if (!name?.trim()) {
+      return reply.status(400).send({ message: 'El nombre del hito es requerido' })
+    }
 
     const lastTask = await prisma.onboardingTask.findFirst({
-      where:   { processId: req.params.id, period },
+      where:   { processId: req.params.id, period: data.period },
       orderBy: { sortOrder: 'desc' },
     })
+    data.sortOrder = (lastTask?.sortOrder ?? 0) + 1
 
-    const task = await prisma.onboardingTask.create({
-      data: {
-        processId:     req.params.id,
-        period,
-        name,
-        tool:          tool ?? null,
-        automationType: automationType ?? 'MANUAL',
-        sortOrder:     (lastTask?.sortOrder ?? 0) + 1,
-      },
-    })
+    const task = await prisma.onboardingTask.create({ data })
 
     return reply.status(201).send({ data: task })
   })
@@ -1365,10 +1540,12 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
           rut:                  process.collaboratorRut ?? '',
           cargo:                process.collaboratorPosition ?? '',
           empresa:              process.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : process.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Surmedia Consultoría Spa' : '',
+          'razónsocial':        process.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : process.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Surmedia Consultoría Spa' : '',
+          razonSocial:          process.legalEntity === 'COMUNICACIONES_SURMEDIA' ? 'Comunicaciones Surmedia Spa' : process.legalEntity === 'SURMEDIA_CONSULTORIA' ? 'Surmedia Consultoría Spa' : '',
           email:                process.collaboratorEmail ?? '',
           emailPersonal:        process.collaboratorPersonalEmail ?? '',
           telefono:             process.collaboratorPhone ?? '',
-          jornada:              cd.workSchedule ?? '',
+          jornada:              (cd.distribucionJornada ?? cd.workSchedule ?? '').toLowerCase(),
           supervisor:           cd.supervisorName ?? '',
           nombreSupervisor:     cd.supervisorFirstName as string || (cd.supervisorName as string ?? '').split(' ')[0] || '',
           apellidoSupervisor:   cd.supervisorLastName as string || (cd.supervisorName as string ?? '').split(' ')[1] || '',
@@ -1385,16 +1562,28 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
           vinculo:              cd.vinculo ?? '',
           fechaNacimiento:      cd.birthDate ? new Date(cd.birthDate).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '',
           centroTrabajo:        process.costCenter ?? '',
+          tipoCentro:           '',
           fechaIngreso:         new Date(process.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
           fechaIngresoCorta:    new Date(process.startDate).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }),
           fechaTerminoContrato: cd.contractEndDate ? new Date((cd.contractEndDate as string) + 'T12:00:00.000Z').toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }) : '',
           fechaActual:          now.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
+          fechaActuallarga:     now.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' }),
           año:                  now.getFullYear().toString(),
           saludoHorario:        hour < 13 ? 'buenos días' : hour < 20 ? 'buenas tardes' : 'buenas noches',
           estimado:             (['F', 'female'].includes(cd.gender ?? '')) ? 'Estimada' : 'Estimado',
           diaNumero:            String(Math.max(0, Math.floor((Date.now() - new Date(process.startDate).getTime()) / 86_400_000))),
           nombreHito:           task.name,
           instruccion:          (task.automationConfig as any)?.instruction ?? '',
+          // Condiciones de la oferta
+          tipocontrato:         tipoContratoVar(cd.contractType),
+          plazocontrato:        plazoContratoVar(process.startDate, cd.contractEndDate),
+          tipoJornada:          (cd.tipoJornadaTipo && cd.tipoJornadaHoras) ? `jornada ${cd.tipoJornadaTipo} de ${cd.tipoJornadaHoras} horas semanales` : (cd.tipoJornadaTipo ?? ''),
+          horario:              lcFirst((cd.horario ?? '').replace(/\.+\s*$/, '')),
+          modalidad:            (cd.modalidad ?? '').replace(/\.+\s*$/, ''),
+          sueldoLiquidolargo:   parseInt(cd.sueldoLiquido ?? '0', 10) > 0 ? `$${parseInt(cd.sueldoLiquido, 10).toLocaleString('es-CL')} líquidos mensuales` : '',
+          'sueldoLíquidolargo': parseInt(cd.sueldoLiquido ?? '0', 10) > 0 ? `$${parseInt(cd.sueldoLiquido, 10).toLocaleString('es-CL')} líquidos mensuales` : '',
+          beneficios:           Array.isArray(cd.beneficios) ? (cd.beneficios as string[]).join(', ') : '',
+          oficina:              (cd.city ?? '').toLowerCase().includes('antofagasta') ? 'Av. José Toribio Medina 94, piso 6' : 'Av. Las Condes 7700, oficina 403B',
         }
         const emailTo = (task.automationConfig as any)?.emailTo as string
         const rrhhFallback = globalThis.process?.env?.SMTP_USER ?? 'rrhh@surmedia.cl'
@@ -1505,18 +1694,60 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ data: process })
   })
 
+  // GET /:id/documents/:docId/html — documento renderizado (variables aplicadas) como HTML editable
+  fastify.get<{ Params: { id: string; docId: string } }>('/:id/documents/:docId/html', async (req, reply) => {
+    const process = await prisma.onboardingProcess.findUnique({ where: { id: req.params.id } })
+    if (!process) return reply.status(404).send({ message: 'Proceso no encontrado' })
+
+    const doc = await prisma.onboardingDocument.findUnique({ where: { id: req.params.docId } })
+    if (!doc) return reply.status(404).send({ message: 'Documento no encontrado' })
+
+    const fullPath = path.join(UPLOADS_DIR, doc.filePath)
+    if (!fs.existsSync(fullPath)) return reply.status(404).send({ message: 'Archivo no encontrado en disco' })
+
+    const vars = buildSendVars(process)
+    let rendered: Buffer
+    try { rendered = renderDocx(fullPath, vars) } catch { return reply.status(422).send({ message: 'Error al renderizar el documento' }) }
+
+    const renderedName = stripSentinel(doc.name.replace(/\{\{([^{}]+)\}\}/g, (_: string, k: string) => vars[k.trim()] ?? '')).trim() || doc.name
+    try {
+      const mammoth = require('mammoth')
+      const result = await mammoth.convertToHtml({ buffer: rendered })
+      return reply.send({ data: { html: result.value as string, name: renderedName } })
+    } catch {
+      return reply.status(422).send({ message: 'Error al convertir el documento a HTML' })
+    }
+  })
+
+  // PUT /:id/tasks/:taskId/email-versions — guardar las versiones editadas del correo del hito
+  fastify.put<{
+    Params: { id: string; taskId: string }
+    Body: { emailVersions: any[] }
+  }>('/:id/tasks/:taskId/email-versions', async (req, reply) => {
+    const task = await prisma.onboardingTask.update({
+      where: { id: req.params.taskId },
+      data:  { emailVersions: req.body.emailVersions ?? [] },
+    })
+    return reply.send({ data: task })
+  })
+
   // POST /:id/send-email — enviar correo con documentos adjuntos vía Nodemailer
   fastify.post<{
     Params: { id: string }
-    Body: { to: string; from?: string; cc?: string; subject: string; body: string; templateKey?: string }
+    Body: { to: string; from?: string; cc?: string; subject: string; body: string; templateKey?: string; documents?: Record<string, { html?: string; sendAs?: string }> }
   }>('/:id/send-email', async (req, reply) => {
-    const { to, from, cc, subject, body, templateKey } = req.body
+    const { to, from, cc, subject, body, templateKey, documents } = req.body
     if (!to?.trim()) return reply.status(400).send({ message: 'to es requerido' })
 
     const process = await prisma.onboardingProcess.findUnique({ where: { id: req.params.id } })
     if (!process) return reply.status(404).send({ message: 'Proceso no encontrado' })
 
-    const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
+    // Fetch user early to use refresh token for PDF conversion via Google Drive
+    const dbUser = req.user?.email
+      ? await prisma.user.findUnique({ where: { email: req.user.email }, select: { email: true, googleRefreshToken: true } }).catch(() => null)
+      : null
+
+    let attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
 
     if (templateKey) {
       const linkedDocs = await prisma.onboardingDocument.findMany({
@@ -1525,35 +1756,12 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       }).catch(() => [])
 
       const vars = buildSendVars(process)
-
-      for (const doc of linkedDocs) {
-        const fullPath = path.join(UPLOADS_DIR, doc.filePath)
-        if (!fs.existsSync(fullPath)) continue
-        let rendered: Buffer
-        try { rendered = renderDocx(fullPath, vars) } catch { continue }
-
-        const sendAsPdf = (doc.templateLinks[0]?.sendAs ?? 'PDF') === 'PDF'
-        if (sendAsPdf) {
-          try {
-            const pdfBuffer = await docxToPdf(rendered)
-            attachments.push({ filename: doc.fileName.replace('.docx', '.pdf'), content: pdfBuffer, contentType: 'application/pdf' })
-          } catch {
-            attachments.push({ filename: doc.fileName, content: rendered, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-          }
-        } else {
-          attachments.push({ filename: doc.fileName, content: rendered, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-        }
-      }
+      attachments = await buildEmailAttachments(linkedDocs, vars, documents, dbUser?.googleRefreshToken)
     }
 
     const html = body.trimStart().startsWith('<')
       ? body
       : `<div style="font-family:sans-serif;font-size:15px;line-height:1.7;color:#374151;">${body.replace(/\n/g, '<br>')}</div>`
-
-    // Usar Gmail API si el usuario tiene refresh token; si no, caer a SMTP
-    const dbUser = req.user?.email
-      ? await prisma.user.findUnique({ where: { email: req.user.email }, select: { email: true, googleRefreshToken: true } }).catch(() => null)
-      : null
     const senderEmail = from || dbUser?.email || process.env.SMTP_USER || 'rrhh@surmedia.cl'
 
     try {
@@ -1586,9 +1794,9 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
   // POST /:id/create-draft — crear borrador en Gmail del usuario (no envía)
   fastify.post<{
     Params: { id: string }
-    Body: { to: string; from?: string; cc?: string; subject: string; body: string; templateKey?: string }
+    Body: { to: string; from?: string; cc?: string; subject: string; body: string; templateKey?: string; documents?: Record<string, { html?: string; sendAs?: string }> }
   }>('/:id/create-draft', async (req, reply) => {
-    const { to, from, cc, subject, body, templateKey } = req.body
+    const { to, from, cc, subject, body, templateKey, documents } = req.body
     if (!to?.trim()) return reply.status(400).send({ message: 'to es requerido' })
 
     const process = await prisma.onboardingProcess.findUnique({ where: { id: req.params.id } })
@@ -1606,31 +1814,14 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       ? body
       : `<div style="font-family:sans-serif;font-size:15px;line-height:1.7;color:#374151;">${body.replace(/\n/g, '<br>')}</div>`
 
-    const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
+    let attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
     if (templateKey) {
       const linkedDocs = await prisma.onboardingDocument.findMany({
         where: { templateLinks: { some: { templateKey } }, isActive: true },
         include: { templateLinks: { where: { templateKey } } },
       }).catch(() => [])
       const vars = buildSendVars(process)
-      for (const doc of linkedDocs) {
-        const fullPath = path.join(UPLOADS_DIR, doc.filePath)
-        if (!fs.existsSync(fullPath)) continue
-        try {
-          const rendered = renderDocx(fullPath, vars)
-          const sendAsPdf = (doc.templateLinks[0]?.sendAs ?? 'PDF') === 'PDF'
-          if (sendAsPdf) {
-            try {
-              const pdfBuffer = await docxToPdf(rendered)
-              attachments.push({ filename: doc.fileName.replace('.docx', '.pdf'), content: pdfBuffer, contentType: 'application/pdf' })
-            } catch {
-              attachments.push({ filename: doc.fileName, content: rendered, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-            }
-          } else {
-            attachments.push({ filename: doc.fileName, content: rendered, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-          }
-        } catch {}
-      }
+      attachments = await buildEmailAttachments(linkedDocs, vars, documents, dbUser.googleRefreshToken)
     }
 
     try {

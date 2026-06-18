@@ -61,7 +61,7 @@ function FieldEditor({
           value={field.label}
           onChange={e => upd({ label: e.target.value })}
           placeholder="Etiqueta del campo *"
-          className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
         <select
           value={field.type}
@@ -77,9 +77,9 @@ function FieldEditor({
           Requerido
         </label>
         <div className="flex gap-1">
-          <button onClick={onMoveUp}   disabled={idx === 0}           className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ChevronUp size={13} /></button>
-          <button onClick={onMoveDown} disabled={idx === total - 1}   className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ChevronDown size={13} /></button>
-          <button onClick={onRemove} className="p-1 text-red-400 hover:text-red-600"><X size={13} /></button>
+          <button onClick={onMoveUp}   disabled={idx === 0}           aria-label="Mover arriba" className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ChevronUp size={13} /></button>
+          <button onClick={onMoveDown} disabled={idx === total - 1}   aria-label="Mover abajo" className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30"><ChevronDown size={13} /></button>
+          <button onClick={onRemove} aria-label="Eliminar campo" className="p-1 text-red-400 hover:text-red-600"><X size={13} /></button>
         </div>
       </div>
 
@@ -97,10 +97,11 @@ function FieldEditor({
                   opts[oi] = e.target.value
                   upd({ options: opts })
                 }}
-                className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400"
+                className="flex-1 px-2 py-1 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-400"
               />
               <button
                 onClick={() => upd({ options: (field.options ?? []).filter((_, i) => i !== oi) })}
+                aria-label="Eliminar opción"
                 className="p-0.5 text-gray-300 hover:text-red-500"
               >
                 <X size={11} />
@@ -109,7 +110,7 @@ function FieldEditor({
           ))}
           <button
             onClick={() => upd({ options: [...(field.options ?? []), `Opción ${(field.options?.length ?? 0) + 1}`] })}
-            className="text-[11px] text-blue-600 hover:text-blue-800 flex items-center gap-1"
+            className="text-[11px] text-brand-600 hover:text-brand-800 flex items-center gap-1"
           >
             <Plus size={10} /> Agregar opción
           </button>
@@ -173,7 +174,7 @@ function FormBuilder({
           value={title}
           onChange={e => setTitle(e.target.value)}
           placeholder="Ej: Datos de ingreso — Formulario de bienvenida"
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 
@@ -220,7 +221,7 @@ function FormBuilder({
         <button
           onClick={handleSave}
           disabled={!valid || !dirty || isPending}
-          className="px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {isPending ? 'Guardando…' : form ? 'Actualizar formulario' : 'Crear formulario'}
         </button>
@@ -237,7 +238,7 @@ function ResponsesViewer({ form }: { form: OnboardingForm }) {
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-10">
-      <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      <div className="w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
     </div>
   )
 
@@ -349,7 +350,7 @@ export default function FormulariosPanel({ processes }: Props) {
         <select
           value={processId ?? ''}
           onChange={e => { setProcessId(e.target.value || null); setSelectedFormId(null) }}
-          className="text-sm px-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          className="text-sm px-3 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
         >
           <option value="">— Seleccionar proceso —</option>
           {activeProcs.map(p => (
@@ -362,7 +363,7 @@ export default function FormulariosPanel({ processes }: Props) {
         {processId && (
           <button
             onClick={() => setEditing('new')}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700"
           >
             <Plus size={12} /> Nuevo formulario
           </button>
@@ -376,7 +377,7 @@ export default function FormulariosPanel({ processes }: Props) {
         </div>
       ) : isLoading ? (
         <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : forms.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 gap-3">
@@ -384,7 +385,7 @@ export default function FormulariosPanel({ processes }: Props) {
           <p className="text-sm">No hay formularios para este proceso.</p>
           <button
             onClick={() => setEditing('new')}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700"
           >
             <Plus size={14} /> Crear formulario
           </button>
@@ -402,11 +403,11 @@ export default function FormulariosPanel({ processes }: Props) {
                   key={form.id}
                   onClick={() => setSelectedFormId(form.id)}
                   className={`w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 transition-colors ${
-                    selectedForm?.id === form.id ? 'bg-blue-50' : ''
+                    selectedForm?.id === form.id ? 'bg-brand-50' : ''
                   }`}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium truncate ${selectedForm?.id === form.id ? 'text-blue-700' : 'text-gray-800'}`}>
+                    <p className={`text-sm font-medium truncate ${selectedForm?.id === form.id ? 'text-brand-700' : 'text-gray-800'}`}>
                       {form.title}
                     </p>
                     <p className="text-[10px] text-gray-400 mt-0.5">
@@ -431,20 +432,20 @@ export default function FormulariosPanel({ processes }: Props) {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setEditing(selectedForm)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700">
+                  <button onClick={() => setEditing(selectedForm)} aria-label="Editar formulario" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700">
                     <Edit2 size={14} />
                   </button>
-                  <button onClick={() => handleDeleteForm(selectedForm)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600">
+                  <button onClick={() => handleDeleteForm(selectedForm)} aria-label="Eliminar formulario" className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-600">
                     <Trash2 size={14} />
                   </button>
                 </div>
               </div>
 
               {/* Link para colaborador */}
-              <div className="px-4 py-3 bg-blue-50/50 border-b border-gray-100">
+              <div className="px-4 py-3 bg-brand-50/50 border-b border-gray-100">
                 <p className="text-xs font-medium text-gray-600 mb-1.5">Enlace para colaborador</p>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 text-xs bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-blue-700 truncate">
+                  <code className="flex-1 text-xs bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-brand-700 truncate">
                     {window.location.origin}/forms/{selectedForm.token}
                   </code>
                   <button
@@ -469,7 +470,7 @@ export default function FormulariosPanel({ processes }: Props) {
                 {([['editor', 'Campos'], ['responses', `Respuestas (${selectedForm._count?.responses ?? 0})`]] as const).map(([k, l]) => (
                   <button key={k} onClick={() => setPanelTab(k)}
                     className={`px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors ${
-                      panelTab === k ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+                      panelTab === k ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'
                     }`}>{l}</button>
                 ))}
               </div>

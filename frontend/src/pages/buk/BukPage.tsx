@@ -19,7 +19,7 @@ const ENTITY_LABEL: Record<string, string> = {
   COMUNICACIONES_SURMEDIA: 'Com.', SURMEDIA_CONSULTORIA: 'Cons.',
 }
 const ENTITY_COLOR: Record<string, string> = {
-  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+  COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
 
@@ -30,7 +30,7 @@ function Badge({ e }: { e: string }) {
 function RowCheck({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
     <button onClick={onChange}
-      className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-blue-600 border-blue-600' : 'border-gray-300 hover:border-blue-400'}`}>
+      className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-brand-600 border-brand-600' : 'border-gray-300 hover:border-brand-400'}`}>
       {checked && <Check size={10} className="text-white" />}
     </button>
   )
@@ -51,7 +51,7 @@ function Section({ title, count, variant, children, allKeys, selected, onToggleA
   allKeys?: string[]; selected?: Set<string>; onToggleAll?: (on: boolean) => void
 }) {
   const [open, setOpen] = useState(true)
-  const colors = { new: 'text-emerald-600', change: 'text-amber-600', info: 'text-blue-500' }
+  const colors = { new: 'text-emerald-600', change: 'text-amber-600', info: 'text-brand-500' }
   const icons  = { new: CheckCircle2, change: AlertTriangle, info: Info }
   const Icon   = icons[variant]
   const allSel = allKeys && selected ? allKeys.every(k => selected.has(k)) : false
@@ -65,9 +65,9 @@ function Section({ title, count, variant, children, allKeys, selected, onToggleA
         {allKeys && selected && onToggleAll && (
           <button
             onClick={e => { e.stopPropagation(); onToggleAll(!allSel) }}
-            className={`w-4 h-4 rounded border flex items-center justify-center transition-colors mr-1 ${allSel ? 'bg-blue-600 border-blue-600' : someSel ? 'bg-blue-100 border-blue-400' : 'border-gray-300 hover:border-blue-400'}`}
+            className={`w-4 h-4 rounded border flex items-center justify-center transition-colors mr-1 ${allSel ? 'bg-brand-600 border-brand-600' : someSel ? 'bg-brand-100 border-brand-400' : 'border-gray-300 hover:border-brand-400'}`}
           >
-            {allSel ? <Check size={10} className="text-white" /> : someSel ? <Minus size={10} className="text-blue-600" /> : null}
+            {allSel ? <Check size={10} className="text-white" /> : someSel ? <Minus size={10} className="text-brand-600" /> : null}
           </button>
         )}
         {open ? <ChevronDown size={13} className="text-gray-400" /> : <ChevronRight size={13} className="text-gray-400" />}
@@ -82,7 +82,7 @@ function Section({ title, count, variant, children, allKeys, selected, onToggleA
 function EditableNum({ value, onChange, className }: { value: number; onChange: (v: number) => void; className?: string }) {
   return (
     <input type="number" value={value} onChange={e => onChange(Number(e.target.value))}
-      className={`w-24 text-right tabular-nums bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-blue-400 text-xs ${className ?? ''}`} />
+      className={`w-24 text-right tabular-nums bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-brand-400 text-xs ${className ?? ''}`} />
   )
 }
 
@@ -397,7 +397,7 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
         {sN.length > 0 && <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">{sN.length} sueldos nuevos</span>}
         {sC.length > 0 && <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full">{sC.length} sueldos con cambio</span>}
         {dC.length > 0 && <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full">{dC.length} dotación con cambio</span>}
-        {dN.length > 0 && <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded-full">{dN.length} nuevos en BUK (no en GDP)</span>}
+        {dN.length > 0 && <span className="px-2 py-1 bg-brand-50 text-brand-700 rounded-full">{dN.length} nuevos en BUK (no en GDP)</span>}
         {vN.length > 0 && <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">{vN.length} vacaciones nuevas</span>}
         {vLSync.length > 0 && <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full">{vLSync.length} saldos ya en GDP</span>}
         {vLNew.length > 0 && <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full">{vLNew.length} saldos nuevos</span>}
@@ -407,10 +407,10 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
           <button
             onClick={() => toggleAll(!allSelected)}
             className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition-colors
-              ${allSelected ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : someSelected ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
+              ${allSelected ? 'border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100' : someSelected ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100'}`}
           >
-            <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${allSelected ? 'bg-blue-600 border-blue-600' : someSelected ? 'bg-blue-100 border-blue-400' : 'border-gray-300'}`}>
-              {allSelected ? <Check size={8} className="text-white" /> : someSelected ? <Minus size={8} className="text-blue-600" /> : null}
+            <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${allSelected ? 'bg-brand-600 border-brand-600' : someSelected ? 'bg-brand-100 border-brand-400' : 'border-gray-300'}`}>
+              {allSelected ? <Check size={8} className="text-white" /> : someSelected ? <Minus size={8} className="text-brand-600" /> : null}
             </span>
             {allSelected ? 'Deseleccionar todo' : 'Seleccionar todo'}
           </button>
@@ -522,7 +522,7 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
             <button
               onClick={apply}
               disabled={isPending || total === 0}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-40"
+              className="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg disabled:opacity-40"
             >
               Importar{total > 0 ? ` (${total})` : ''}
             </button>
@@ -565,12 +565,12 @@ function BukTab() {
             <input
               type="number" value={year} onChange={e => setYear(e.target.value)}
               min={2020} max={2099} step={1}
-              className="w-20 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 text-center"
+              className="w-20 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400 text-center"
             />
           </div>
           <button
             onClick={load} disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             {loading ? 'Leyendo archivos…' : preview ? 'Recargar' : 'Cargar y previsualizar'}
@@ -607,7 +607,7 @@ export default function ImportablesPage() {
       <div className="flex border-b border-gray-200 mb-6">
         {([['buk', 'BUK'], ['smart', 'Smart CTO']] as [PageTab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === id ? 'border-brand-600 text-brand-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {label}
           </button>
         ))}

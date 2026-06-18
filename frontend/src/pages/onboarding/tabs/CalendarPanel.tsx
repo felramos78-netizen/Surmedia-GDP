@@ -111,34 +111,34 @@ function AdHocEventCreator() {
             value={form.title}
             onChange={e => f('title', e.target.value)}
             placeholder="Ej: Reunión de bienvenida"
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
         <div>
           <label className="text-xs font-medium text-gray-500 block mb-1">Fecha</label>
           <input type="date" value={form.date} onChange={e => f('date', e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
           <label className="text-xs font-medium text-gray-500 block mb-1">Hora de inicio</label>
           <input type="time" value={form.time} onChange={e => f('time', e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
           <label className="text-xs font-medium text-gray-500 block mb-1">Duración (min)</label>
           <input type="number" value={form.durationMin} onChange={e => f('durationMin', Number(e.target.value))} min={15} step={15}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div>
           <label className="text-xs font-medium text-gray-500 block mb-1">Asistentes (emails, separados por coma)</label>
           <input value={form.attendees} onChange={e => f('attendees', e.target.value)}
             placeholder="juan@surmedia.cl, rrhh@surmedia.cl"
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500" />
         </div>
         <div className="col-span-2">
           <label className="text-xs font-medium text-gray-500 block mb-1">Descripción</label>
           <textarea value={form.description} onChange={e => f('description', e.target.value)} rows={2}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none" />
         </div>
       </div>
       <div className="mt-4">
@@ -148,7 +148,7 @@ function AdHocEventCreator() {
           rel="noopener noreferrer"
           className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             gcalUrl
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
+              ? 'bg-brand-600 text-white hover:bg-brand-700'
               : 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none'
           }`}
         >
@@ -183,7 +183,7 @@ export default function CalendarPanel({ processes }: Props) {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Próximos eventos', value: upcoming.length,  color: 'text-blue-600',  bg: 'bg-blue-50' },
+          { label: 'Próximos eventos', value: upcoming.length,  color: 'text-brand-600',  bg: 'bg-brand-50' },
           { label: 'Completados',      value: events.filter(e => e.completed).length, color: 'text-green-600', bg: 'bg-green-50' },
           { label: 'Procesos activos', value: processes.filter(p => p.status === 'IN_PROGRESS').length, color: 'text-violet-600', bg: 'bg-violet-50' },
         ].map(s => (
@@ -243,7 +243,7 @@ export default function CalendarPanel({ processes }: Props) {
                   </td>
                   <td className="px-4 py-2.5">
                     <p className="text-sm text-gray-700">{fmtDate(ev.eventDate)}</p>
-                    <p className={`text-xs ${ev.eventDate < now ? 'text-gray-400' : 'text-blue-600'}`}>
+                    <p className={`text-xs ${ev.eventDate < now ? 'text-gray-400' : 'text-brand-600'}`}>
                       {ev.eventDate < now ? 'Pasado' : `En ${Math.ceil((ev.eventDate.getTime() - now.getTime()) / 86_400_000)} días`}
                     </p>
                   </td>

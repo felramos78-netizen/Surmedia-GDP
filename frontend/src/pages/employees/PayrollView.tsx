@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { RefreshCw, AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown, Users, DollarSign, TrendingUp, BarChart2, Search, Upload, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { usePayrollTable, usePayrollYears, useImportPayroll } from '@/hooks/useDotacion'
+import { useEscapeKey } from '@/hooks/useEscapeKey'
 import type { PayrollItem, PayrollRawEntry, LegalEntity, EmployeeStatus } from '@/types'
 
 // ─── Formateo ─────────────────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ const LEGAL_ENTITY_LABEL: Record<LegalEntity, string> = {
   SURMEDIA_CONSULTORIA:    'Consultoría',
 }
 const LEGAL_ENTITY_COLOR: Record<LegalEntity, string> = {
-  COMUNICACIONES_SURMEDIA: 'bg-blue-100 text-blue-700',
+  COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
 
@@ -73,7 +74,7 @@ function FilterSelect({ value, onChange, options, placeholder }: {
   return (
     <div className="relative">
       <select value={value} onChange={e => onChange(e.target.value)}
-        className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer">
+        className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer">
         <option value="">{placeholder}</option>
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -116,7 +117,7 @@ function MultiFilterSelect({ values, onChange, options, placeholder }: {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className={`relative flex items-center pl-3 pr-8 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer whitespace-nowrap ${values.length > 0 ? 'border-blue-300 text-blue-700' : 'border-gray-200 text-gray-700'}`}
+        className={`relative flex items-center pl-3 pr-8 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer whitespace-nowrap ${values.length > 0 ? 'border-brand-300 text-brand-700' : 'border-gray-200 text-gray-700'}`}
       >
         {label}
         <ChevronDown size={14} className={`absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -129,7 +130,7 @@ function MultiFilterSelect({ values, onChange, options, placeholder }: {
                 type="checkbox"
                 checked={values.includes(o.value)}
                 onChange={() => toggle(o.value)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
               />
               {o.label}
             </label>
@@ -248,8 +249,8 @@ type SortDir = 'asc' | 'desc'
 function SortIcon({ col, sortKey, sortDir }: { col: PayrollSortKey; sortKey: PayrollSortKey; sortDir: SortDir }) {
   if (col !== sortKey) return <ChevronsUpDown size={12} className="text-gray-300 ml-1 inline" />
   return sortDir === 'asc'
-    ? <ChevronUp size={12} className="text-blue-500 ml-1 inline" />
-    : <ChevronDown size={12} className="text-blue-500 ml-1 inline" />
+    ? <ChevronUp size={12} className="text-brand-500 ml-1 inline" />
+    : <ChevronDown size={12} className="text-brand-500 ml-1 inline" />
 }
 
 function SortTh({ label, col, sortKey, sortDir, onSort, right }: {
@@ -473,6 +474,7 @@ function parseBukExcel(buffer: ArrayBuffer, startYear: number): BukExcelRow[] {
 // ─── Modal de importación Excel ───────────────────────────────────────────────
 
 function ImportModal({ onClose }: { onClose: () => void }) {
+  useEscapeKey(onClose)
   const [file,        setFile]        = useState<File | null>(null)
   const [legalEntity, setLegalEntity] = useState('')
   const [startYear,   setStartYear]   = useState('2025')
@@ -511,7 +513,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-900">Importar liquidaciones desde Excel</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          <button onClick={onClose} aria-label="Cerrar" className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
 
         <div className="p-5 space-y-4">
@@ -520,7 +522,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
             <label className="block text-sm font-medium text-gray-700 mb-1">Archivo Excel de BUK (Sueldos)</label>
             <input type="file" accept=".xlsx,.xls"
               onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
-              className="block w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              className="block w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100"
             />
             {file && <p className="text-xs text-gray-400 mt-1">{file.name}</p>}
           </div>
@@ -529,7 +531,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Razón Social</label>
             <select value={legalEntity} onChange={e => setLegalEntity(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500">
               <option value="">Seleccionar...</option>
               {LEGAL_ENTITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -539,7 +541,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Año de inicio del período</label>
             <input type="number" value={startYear} onChange={e => setStartYear(e.target.value)} min={2020} max={2030}
-              className="w-40 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-40 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
             <p className="text-xs text-gray-400 mt-1">El año del primer mes del archivo (si cubre varios años, se detectan automáticamente).</p>
           </div>
@@ -586,7 +588,7 @@ function ImportModal({ onClose }: { onClose: () => void }) {
           )}
           {preview && !preview.error && !done && (
             <button onClick={handleImport} disabled={isPending || !legalEntity || preview.rows.length === 0}
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+              className="px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2">
               {isPending && <RefreshCw size={13} className="animate-spin" />}
               {isPending ? 'Importando…' : `Importar ${preview.rows.length} filas`}
             </button>
@@ -682,9 +684,9 @@ export default function PayrollView() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Colaboradores" value={stats.uniqueEmps || '—'} icon={Users}
-          color="text-blue-600 bg-blue-50" sub={periodoLabel}
+          color="text-brand-600 bg-brand-50" sub={periodoLabel}
           detail={[
-            { label: 'Comunicaciones', value: stats.uniqueEmpsCom || '—', color: 'text-blue-600' },
+            { label: 'Comunicaciones', value: stats.uniqueEmpsCom || '—', color: 'text-brand-600' },
             { label: 'Consultoría',    value: stats.uniqueEmpsCon || '—', color: 'text-violet-600' },
           ]}
         />
@@ -692,7 +694,7 @@ export default function PayrollView() {
           label="Masa salarial líquida" value={fmtShort(stats.totalLiquido)}
           icon={DollarSign} color="text-green-600 bg-green-50" sub={periodoLabel}
           detail={[
-            { label: 'Comunicaciones', value: fmtShort(stats.liquidoCom), color: 'text-blue-600' },
+            { label: 'Comunicaciones', value: fmtShort(stats.liquidoCom), color: 'text-brand-600' },
             { label: 'Consultoría',    value: fmtShort(stats.liquidoCon), color: 'text-violet-600' },
           ]}
         />
@@ -715,7 +717,7 @@ export default function PayrollView() {
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input type="text" placeholder="Nombre o RUT…"
               value={search} onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
           <FilterSelect value={year} onChange={setYear} placeholder="Año"
@@ -765,7 +767,7 @@ export default function PayrollView() {
         {/* Contenido */}
         {isLoading ? (
           <div className="p-16 text-center">
-            <RefreshCw size={24} className="animate-spin text-blue-400 mx-auto mb-3" />
+            <RefreshCw size={24} className="animate-spin text-brand-400 mx-auto mb-3" />
             <p className="text-sm text-gray-400">Cargando remuneraciones…</p>
           </div>
         ) : isError ? (

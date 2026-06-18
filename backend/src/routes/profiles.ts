@@ -1,7 +1,10 @@
 import { FastifyInstance } from 'fastify'
+import { requireRole } from '../middleware/requireRole'
 
 export default async function profileRoutes(fastify: FastifyInstance) {
   const prisma = fastify.prisma
+
+  fastify.addHook('preHandler', fastify.authenticate)
 
   // GET /profiles
   fastify.get('/', async () => {
@@ -77,7 +80,7 @@ export default async function profileRoutes(fastify: FastifyInstance) {
   })
 
   // DELETE /profiles/:id
-  fastify.delete<{ Params: { id: string } }>('/:id', async (req, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/:id', { preHandler: requireRole('ADMIN', 'RRHH_MANAGER') }, async (req, reply) => {
     await prisma.profile.delete({ where: { id: req.params.id } })
     return reply.status(204).send()
   })

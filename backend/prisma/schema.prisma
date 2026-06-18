@@ -198,6 +198,31 @@ model Employee {
   tipoCuenta          String?
   numeroCuenta        String?
 
+  // Datos extendidos desde la Ficha de Ingreso (formulario Google)
+  profesion           String?
+  estadoCivil         String?
+  nivelEducacional    String?
+  contactoEmergencia  String?
+  montoIsapre         String?
+  esPensionado        String?
+  apv                 String?
+  apvMonto            String?
+  apvMoneda           String?
+  apvInstitucion      String?
+  apvTipo             String?
+  usoLentes           String?
+  tallaPolera         String?
+  tallaPantalon       String?
+  tallaCalzado        String?
+  // Documentos de acreditación: solo indican si el dato está cargado o no
+  tieneFun            Boolean?
+  docCedula           Boolean?
+  docCertAfp          Boolean?
+  docCertIsapre       Boolean?
+  docCertTitulo       Boolean?
+  docLicenciaConducir Boolean?
+  docCartaRenuncia    Boolean?
+
   user           User?
   contracts      Contract[]
   leaves         Leave[]
@@ -211,6 +236,7 @@ model Employee {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
+  @@index([status])
   @@map("employees")
 }
 
@@ -238,6 +264,8 @@ model Contract {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
+  @@index([legalEntity])
+  @@index([isActive])
   @@map("contracts")
 }
 
@@ -276,6 +304,8 @@ model Leave {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
+  @@index([type])
+  @@index([status])
   @@map("leaves")
 }
 
@@ -459,6 +489,8 @@ model OnboardingTask {
   completedNote    String?
   // Sub-tareas (sólo para hitos de plazo; copiadas de la plantilla al crear el proceso)
   subTasks         Json               @default("[]")
+  // Versiones editadas del correo de este hito (cuerpo + adjuntos editados + formato)
+  emailVersions    Json?
   assignments      OnboardingTaskAssignment[]
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt

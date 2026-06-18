@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client'
 import * as XLSX from 'xlsx'
 import * as fs from 'fs'
 import * as path from 'path'
+import { requireRole } from '../middleware/requireRole'
 
 function resolveReportesDir(): string {
   const candidates = [
@@ -120,6 +121,28 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: { jobTitle: 'asc' },
     })
     return reply.send({ data: rows.map(r => r.jobTitle as string) })
+  })
+
+  // GET /api/employees/job-families — lista única de familias de cargo existentes
+  fastify.get('/job-families', async (_req, reply) => {
+    const rows = await fastify.prisma.employee.findMany({
+      where: { deletedAt: null, jobFamily: { not: null } },
+      select: { jobFamily: true },
+      distinct: ['jobFamily'],
+      orderBy: { jobFamily: 'asc' },
+    })
+    return reply.send({ data: rows.map(r => r.jobFamily as string).filter(v => v.trim()) })
+  })
+
+  // GET /api/employees/work-schedules — lista única de horarios de trabajo existentes
+  fastify.get('/work-schedules', async (_req, reply) => {
+    const rows = await fastify.prisma.employee.findMany({
+      where: { deletedAt: null, workSchedule: { not: null } },
+      select: { workSchedule: true },
+      distinct: ['workSchedule'],
+      orderBy: { workSchedule: 'asc' },
+    })
+    return reply.send({ data: rows.map(r => r.workSchedule as string).filter(v => v.trim()) })
   })
 
   // GET /api/employees/expiring-contracts — PLAZO_FIJO contracts expiring in next 3 months
@@ -492,7 +515,7 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  fastify.delete<{ Params: { id: string } }>('/:id', async (req, reply) => {
+  fastify.delete<{ Params: { id: string } }>('/:id', { preHandler: requireRole('ADMIN', 'RRHH_MANAGER') }, async (req, reply) => {
     const { id } = req.params
     await fastify.prisma.employee.update({
       where: { id },

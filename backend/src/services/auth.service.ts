@@ -11,7 +11,7 @@ export function getGoogleAuthUrl(): string {
   return googleClient.generateAuthUrl({
     access_type: 'offline',
     prompt:       'consent',   // siempre devuelve refresh_token
-    scope: ['openid', 'email', 'profile', 'https://mail.google.com/'],
+    scope: ['openid', 'email', 'profile', 'https://mail.google.com/', 'https://www.googleapis.com/auth/drive.file'],
     hd: process.env.GOOGLE_DOMAIN ?? 'surmedia.cl',
   })
 }
