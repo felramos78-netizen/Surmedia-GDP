@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { CheckCircle2, Circle, Plus, Trash2, Edit2, Check, X, ChevronDown, ChevronUp, Loader2, Save } from 'lucide-react'
+import { CheckCircle2, Circle, Plus, Trash2, Edit2, Check, X, ChevronDown, ChevronUp, Loader2, Save, GripVertical, FileDown } from 'lucide-react'
 import {
   useTemplateTasks, useUpdateTemplateTask, useCreateTemplateTask, useDeleteTemplateTask,
   useOnboardingProcesses, useEmailTemplates, useSheetTemplates,
@@ -11,6 +11,12 @@ import type { OnboardingDbTemplateTask, OnboardingTemplateSubTask, OnboardingPer
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
 const PERIOD_ORDER: OnboardingPeriod[] = ['PRE_INGRESO', 'DIA_1', 'SEMANA_1', 'MES_1', 'EVALUACION']
+
+// Día del proceso por defecto de cada segmento (PRE_INGRESO positivo = días antes).
+// Se usa al mover un hito de categoría para reubicarlo en el tramo correcto.
+const PERIOD_DEFAULT_DAY: Record<OnboardingPeriod, number> = {
+  PRE_INGRESO: 7, DIA_1: 0, SEMANA_1: 1, MES_1: 30, EVALUACION: 60,
+}
 
 const PERIOD_LABELS: Record<OnboardingPeriod, string> = {
   PRE_INGRESO: 'Pre Ingreso',
@@ -648,12 +654,15 @@ function HitoModal({
 // ─── Tarjeta de hito en vista plantilla ──────────────────────────────────────
 
 function HitoCard({
-  task, jobTitles, onEdit, onDelete,
+  task, jobTitles, onEdit, onDelete, onDragStart, onDragEnd, isDragging,
 }: {
   task: OnboardingDbTemplateTask
   jobTitles: string[]
   onEdit: (t: OnboardingDbTemplateTask) => void
   onDelete: (t: OnboardingDbTemplateTask) => void
+  onDragStart: () => void
+  onDragEnd: () => void
+  isDragging: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
   const { data: profiles = [] }  = useProfiles()
@@ -669,9 +678,19 @@ function HitoCard({
   const appliesTo: string[] = task.appliesTo ?? []
 
   return (
-    <div className={`rounded-lg border bg-white overflow-hidden transition-all ${task.isActive ? 'border-gray-100' : 'border-gray-100 opacity-40'}`}>
+    <div
+      draggable
+      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart() }}
+      onDragEnd={onDragEnd}
+      className={`rounded-lg border bg-white overflow-hidden transition-all ${
+        isDragging ? 'opacity-40 ring-2 ring-brand-300' : task.isActive ? 'border-gray-100' : 'border-gray-100 opacity-40'
+      }`}
+    >
       {/* Fila principal */}
       <div className="flex items-center gap-2 px-3 py-2.5">
+        <span className="text-gray-200 hover:text-gray-400 cursor-grab active:cursor-grabbing flex-shrink-0" title="Arrastrar para mover de segmento">
+          <GripVertical size={13} />
+        </span>
         <button onClick={() => setExpanded(v => !v)} className="text-gray-300 flex-shrink-0">
           {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         </button>
@@ -801,6 +820,22 @@ function PlantillaTab() {
   const [modal, setModal]   = useState<{ mode: 'create' | 'edit'; task?: OnboardingDbTemplateTask } | null>(null)
   const [newPeriod, setNewPeriod] = useState<OnboardingPeriod | null>(null)
 
+  // Drag & drop: mover hitos entre segmentos
+  const [dragKey, setDragKey]       = useState<string | null>(null)
+  const [overPeriod, setOverPeriod] = useState<OnboardingPeriod | null>(null)
+
+  const handleDropOnPeriod = (period: OnboardingPeriod) => {
+    const task = tasks.find(t => t.key === dragKey)
+    if (task && task.period !== period) {
+      // Al mover de categoría, reubicamos el "día del proceso" al valor por defecto
+      // del nuevo segmento, para que el calendario reposicione el hito a ese tramo.
+      const cfg = { ...((task.automationConfig as any) ?? {}), daysFromStart: PERIOD_DEFAULT_DAY[period] }
+      updateTask.mutate({ key: task.key, period, automationConfig: cfg })
+    }
+    setDragKey(null)
+    setOverPeriod(null)
+  }
+
   // For new hito, pre-fill the period
   const openCreate = (period?: OnboardingPeriod) => {
     setNewPeriod(period ?? 'PRE_INGRESO')
@@ -917,8 +952,15 @@ function PlantillaTab() {
       {/* Grupos por segmento */}
       {PERIOD_ORDER.map(period => {
         const periodTasks = byPeriod.get(period) ?? []
+        const isOver = overPeriod === period && dragKey !== null
         return (
-          <div key={period}>
+          <div
+            key={period}
+            onDragOver={e => { if (dragKey) { e.preventDefault(); setOverPeriod(period) } }}
+            onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOverPeriod(p => p === period ? null : p) }}
+            onDrop={e => { e.preventDefault(); handleDropOnPeriod(period) }}
+            className={`rounded-xl p-1 transition-colors ${isOver ? 'bg-brand-50 ring-2 ring-brand-200 ring-inset' : ''}`}
+          >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold ${PERIOD_COLORS[period]}`}>
@@ -944,10 +986,15 @@ function PlantillaTab() {
                   jobTitles={jobTitles}
                   onEdit={openEdit}
                   onDelete={handleDelete}
+                  onDragStart={() => setDragKey(task.key)}
+                  onDragEnd={() => { setDragKey(null); setOverPeriod(null) }}
+                  isDragging={dragKey === task.key}
                 />
               ))}
               {periodTasks.length === 0 && (
-                <p className="text-xs text-gray-300 italic px-2">Sin hitos en este segmento</p>
+                <p className="text-xs text-gray-300 italic px-2 py-3">
+                  {isOver ? 'Soltar aquí para mover a este segmento' : 'Sin hitos en este segmento'}
+                </p>
               )}
             </div>
           </div>
@@ -966,6 +1013,96 @@ function PlantillaTab() {
       )}
     </div>
   )
+}
+
+// ─── Export PDF de la vista cruzada ────────────────────────────────────────────
+
+const PERIOD_PRINT_BG: Record<OnboardingPeriod, string> = {
+  PRE_INGRESO: '#ede9fe', DIA_1: '#cffafe', SEMANA_1: '#cffafe',
+  MES_1: '#d1fae5', EVALUACION: '#fef3c7',
+}
+
+function exportCrossViewPdf(
+  activeTasks: OnboardingDbTemplateTask[],
+  activeProcs: any[],
+  completionMap: Map<string, Map<string, boolean>>,
+) {
+  const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+
+  let rows = ''
+  PERIOD_ORDER.forEach(period => {
+    const pts = activeTasks.filter(t => t.period === period)
+    if (pts.length === 0) return
+    rows += `<tr><td class="period" colspan="${activeProcs.length + 1}" style="background:${PERIOD_PRINT_BG[period]}">${esc(PERIOD_LABELS[period])}</td></tr>`
+    pts.forEach(task => {
+      const day = (task.automationConfig as any)?.daysFromStart
+      let cells = `<td class="hito">${esc(task.name)}${day !== undefined ? ` <span class="day">· día ${esc(day)}</span>` : ''}</td>`
+      activeProcs.forEach(proc => {
+        const done = completionMap.get(proc.id)?.get(task.key)
+        const mark = done === undefined ? '<span class="dash">—</span>'
+          : done ? '<span class="done">✓</span>' : '<span class="pend">○</span>'
+        cells += `<td class="cell">${mark}</td>`
+      })
+      rows += `<tr>${cells}</tr>`
+    })
+  })
+
+  const headCells = activeProcs.map(p =>
+    `<th>${esc(p.collaboratorName.split(' ')[0])}<br><span class="pos">${esc(p.collaboratorPosition ?? '')}</span></th>`
+  ).join('')
+
+  const today = new Date().toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })
+
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Onboarding · Vista cruzada</title>
+  <style>
+    @page { size: landscape; margin: 12mm; }
+    * { font-family: Arial, Helvetica, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { color:#111827; margin:0; }
+    h1 { font-size:16px; margin:0 0 2px; }
+    .sub { font-size:11px; color:#6b7280; margin:0 0 12px; }
+    table { border-collapse:collapse; width:100%; font-size:9px; }
+    th,td { border:1px solid #d1d5db; padding:4px 6px; }
+    th { background:#f9fafb; text-align:center; vertical-align:bottom; }
+    th:first-child, td.hito { text-align:left; min-width:170px; }
+    .pos { font-weight:normal; color:#9ca3af; font-size:8px; }
+    .period { font-weight:bold; text-transform:uppercase; font-size:9px; letter-spacing:.04em; }
+    .day { color:#6366f1; font-size:8px; }
+    .cell { text-align:center; }
+    .done { color:#16a34a; font-weight:bold; }
+    .pend { color:#9ca3af; }
+    .dash { color:#d1d5db; }
+  </style></head>
+  <body>
+    <h1>Onboarding — Vista cruzada</h1>
+    <p class="sub">${activeTasks.length} hitos × ${activeProcs.length} procesos activos · ${esc(today)}</p>
+    <table>
+      <thead><tr><th>Hito</th>${headCells}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </body></html>`
+
+  // Imprimir vía iframe oculto (más fiable que window.open: no abre pestaña en
+  // blanco y dispara el diálogo "Guardar como PDF" del navegador).
+  const iframe = document.createElement('iframe')
+  iframe.setAttribute('aria-hidden', 'true')
+  Object.assign(iframe.style, { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' })
+  document.body.appendChild(iframe)
+
+  const cw = iframe.contentWindow
+  if (!cw) { iframe.remove(); return }
+  cw.document.open()
+  cw.document.write(html)
+  cw.document.close()
+
+  let cleaned = false
+  const cleanup = () => { if (!cleaned) { cleaned = true; setTimeout(() => iframe.remove(), 200) } }
+  cw.onafterprint = cleanup
+
+  const triggerPrint = () => { try { cw.focus(); cw.print() } catch { /* noop */ } }
+  // Esperar a que el contenido esté listo antes de imprimir
+  setTimeout(triggerPrint, 300)
+  // Red de seguridad: quitar el iframe aunque no se dispare onafterprint
+  setTimeout(cleanup, 60000)
 }
 
 // ─── Sub-tab: Vista Cruzada ───────────────────────────────────────────────────
@@ -1008,7 +1145,16 @@ function VistaCruzadaTab() {
 
   return (
     <div className="overflow-x-auto">
-      <div className="text-xs text-gray-400 mb-3">{activeTasks.length} hitos × {activeProcs.length} procesos activos</div>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs text-gray-400">{activeTasks.length} hitos × {activeProcs.length} procesos activos</span>
+        <button
+          onClick={() => exportCrossViewPdf(activeTasks, activeProcs, completionMap)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
+          title="Descargar la vista cruzada en PDF"
+        >
+          <FileDown size={14} /> Descargar PDF
+        </button>
+      </div>
       <table className="border-collapse text-xs min-w-full">
         <thead>
           <tr>

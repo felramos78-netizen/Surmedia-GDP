@@ -62,6 +62,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
         status: { in: ['APPROVED', 'PENDING'] },
         startDate: { lte: e },
         endDate:   { gte: s },
+        employee:  { deletedAt: null },
       },
       include: { employee: { select: { id: true, firstName: true, lastName: true } } },
     })
@@ -79,7 +80,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
 
     // ── 2. Ingresos ───────────────────────────────────────────────────────────
     const ingresos = await app.prisma.employee.findMany({
-      where: { status: { in: ['ACTIVE', 'ON_LEAVE'] }, startDate: { gte: s, lte: e } },
+      where: { deletedAt: null, status: { in: ['ACTIVE', 'ON_LEAVE'] }, startDate: { gte: s, lte: e } },
       select: { id: true, firstName: true, lastName: true, startDate: true, jobTitle: true },
     })
     for (const emp of ingresos) {
@@ -93,7 +94,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
 
     // ── 3. Salidas ────────────────────────────────────────────────────────────
     const salidas = await app.prisma.employee.findMany({
-      where: { endDate: { gte: s, lte: e } },
+      where: { deletedAt: null, endDate: { gte: s, lte: e } },
       select: { id: true, firstName: true, lastName: true, endDate: true, jobTitle: true },
     })
     for (const emp of salidas) {
@@ -108,7 +109,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
 
     // ── 4. Vencimientos de contrato ───────────────────────────────────────────
     const vctos = await app.prisma.contract.findMany({
-      where: { endDate: { gte: s, lte: e }, isActive: true },
+      where: { endDate: { gte: s, lte: e }, isActive: true, deletedAt: null, employee: { deletedAt: null } },
       include: { employee: { select: { id: true, firstName: true, lastName: true } } },
     })
     for (const c of vctos) {
@@ -134,17 +135,25 @@ export default async function calendarRoutes(app: FastifyInstance) {
         },
       },
     })
+    // Los hitos del período SEMANA_1 abarcan toda la primera semana (días 1 a 7
+    // tras el ingreso), no un solo día. Devuelve el rango [inicio, fin] del evento.
+    const eventRange = (base: Date, period: string, offset: number): { sd: Date; ed: Date } => {
+      if (period === 'SEMANA_1') return { sd: addDays(base, 1), ed: addDays(base, 7) }
+      const d = addDays(base, offset)
+      return { sd: d, ed: d }
+    }
+
     for (const p of procs) {
       const base = new Date(p.startDate)
 
       // Milestone por período (Hito que marca el inicio del tramo)
       for (const [period, offset] of Object.entries(PERIOD_OFFSETS)) {
-        const d = addDays(base, offset)
-        if (d >= s && d <= e) {
+        const { sd, ed } = eventRange(base, period, offset)
+        if (ed >= s && sd <= e) {
           ev.push({
             id: `ob-${p.id}-${period}`, type: 'ONBOARDING',
             title: `${PERIOD_LABELS[period]}: ${p.collaboratorName}`,
-            start: toDS(d), end: toDS(d),
+            start: toDS(sd), end: toDS(ed),
             color: ONBOARDING_COLOR,
             meta: { processId: p.id, period, name: p.collaboratorName },
           })
@@ -157,16 +166,16 @@ export default async function calendarRoutes(app: FastifyInstance) {
         const rawOffset = typeof cfg.daysFromStart === 'number'
           ? cfg.daysFromStart
           : (PERIOD_OFFSETS[t.period] ?? 0)
-        
+
         // Corrección PRE_INGRESO: si el offset es positivo, se toma como días ANTES del ingreso (-N)
         const offset = (t.period === 'PRE_INGRESO' && rawOffset > 0) ? -rawOffset : rawOffset
-        
-        const d = addDays(base, offset)
-        if (d >= s && d <= e) {
+
+        const { sd, ed } = eventRange(base, t.period, offset)
+        if (ed >= s && sd <= e) {
           const title = (cfg.title as string ?? t.name).replace('{collaboratorName}', p.collaboratorName)
           ev.push({
             id: `ob-task-${t.id}`, type: 'ONBOARDING_TASK',
-            title, start: toDS(d), end: toDS(d),
+            title, start: toDS(sd), end: toDS(ed),
             color: ONBOARDING_COLOR,
             meta: { processId: p.id, taskId: t.id, completed: !!t.completedAt, period: t.period, name: p.collaboratorName },
           })
@@ -198,7 +207,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
 
     // ── 7. Cumpleaños ─────────────────────────────────────────────────────────
     const birthEmps = await app.prisma.employee.findMany({
-      where: { status: { in: ['ACTIVE', 'ON_LEAVE'] }, birthDate: { not: null } },
+      where: { deletedAt: null, status: { in: ['ACTIVE', 'ON_LEAVE'] }, birthDate: { not: null } },
       select: { id: true, firstName: true, lastName: true, birthDate: true, email: true, jobTitle: true },
     })
     for (const emp of birthEmps) {
@@ -221,7 +230,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
 
     // ── 8. Aniversarios laborales ─────────────────────────────────────────────
     const annivEmps = await app.prisma.employee.findMany({
-      where: { status: { in: ['ACTIVE', 'ON_LEAVE'] } },
+      where: { deletedAt: null, status: { in: ['ACTIVE', 'ON_LEAVE'] } },
       select: { id: true, firstName: true, lastName: true, startDate: true, email: true, jobTitle: true },
     })
     for (const emp of annivEmps) {
@@ -237,7 +246,7 @@ export default async function calendarRoutes(app: FastifyInstance) {
             id: `anniv-${emp.id}-${y}`, type: 'ANIVERSARIO_LABORAL',
             title: `${emp.firstName} ${emp.lastName} · ${years} año${years !== 1 ? 's' : ''}`,
             start: toDS(adate), end: toDS(adate),
-            color: '#7c3aed',
+            color: '#0d9488',
             meta: { employeeId: emp.id, email: emp.email, jobTitle: emp.jobTitle, years },
           })
         }

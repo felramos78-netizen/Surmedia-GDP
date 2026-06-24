@@ -390,6 +390,50 @@ export function useEmailLogs(processId?: string) {
 
 // ─── Template Tasks (DB) ─────────────────────────────────────────────────────
 
+export interface TemplateUpdateChange { field: string; label: string; from: string; to: string }
+export interface PendingTemplateUpdate { taskId: string; templateId: string; name: string; changes: TemplateUpdateChange[] }
+
+export function useProcessTemplateUpdates(processId: string | null) {
+  return useQuery({
+    queryKey: ['template-updates', processId],
+    queryFn: async () => {
+      const { data } = await api.get<ApiResponse<PendingTemplateUpdate[]>>(`/onboarding/${processId}/template-updates`)
+      return data.data
+    },
+    enabled: !!processId,
+  })
+}
+
+export function useApplyTemplateUpdates() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ processId, taskIds }: { processId: string; taskIds?: string[] }) => {
+      const { data } = await api.post(`/onboarding/${processId}/template-updates/apply`, { taskIds })
+      return data
+    },
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['template-updates', vars.processId] })
+      queryClient.invalidateQueries({ queryKey: ['onboarding', vars.processId] })
+      queryClient.invalidateQueries({ queryKey: ['onboarding'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
+    },
+  })
+}
+
+export function useKeepTemplateUpdates() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ processId, taskIds }: { processId: string; taskIds?: string[] }) => {
+      const { data } = await api.post(`/onboarding/${processId}/template-updates/keep`, { taskIds })
+      return data
+    },
+    onSuccess: (_d, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['template-updates', vars.processId] })
+      queryClient.invalidateQueries({ queryKey: ['onboarding', vars.processId] })
+    },
+  })
+}
+
 export function useTemplateTasks() {
   return useQuery({
     queryKey: ['templateTasks'],
@@ -416,7 +460,9 @@ export function useUpdateTemplateTask() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['templateTasks'] })
-      queryClient.invalidateQueries({ queryKey: ['onboarding', 'template'] })
+      // El cambio se propaga a los procesos y al calendario: refrescamos ambos.
+      queryClient.invalidateQueries({ queryKey: ['onboarding'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
     },
   })
 }

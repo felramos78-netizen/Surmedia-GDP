@@ -31,7 +31,7 @@ export const FILTER_GROUPS: FilterGroup[] = [
   { key: 'contratos',   label: 'Venc. Contratos',   color: '#d97706', types: ['VENCIMIENTO'] },
   { key: 'relevantes',  label: 'Fechas Relevantes', color: '#0891b2', types: ['FECHA_RELEVANTE'] },
   { key: 'cumpleanos',   label: 'Cumpleaños',        color: '#db2777', types: ['CUMPLEANOS'] },
-  { key: 'aniversarios', label: 'Aniversarios',      color: '#7c3aed', types: ['ANIVERSARIO_LABORAL'] },
+  { key: 'aniversarios', label: 'Aniversarios',      color: '#0d9488', types: ['ANIVERSARIO_LABORAL'] },
 ]
 
 export const TYPE_LABELS: Record<string, string> = {

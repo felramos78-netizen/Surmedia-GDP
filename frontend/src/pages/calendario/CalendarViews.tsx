@@ -8,8 +8,9 @@ import {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DAY_NAMES = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
-const LANE_H = 22
-const HDR_H  = 30
+const LANE_H = 21   // alto de cada carril (barra + separación)
+const BAR_H  = 18   // alto visible de la barra/pill dentro del carril
+const HDR_H  = 28   // espacio reservado arriba para el número de día
 
 // ── WeekRow ───────────────────────────────────────────────────────────────────
 
@@ -77,37 +78,38 @@ function WeekRow({
         })}
       </div>
 
-      {/* Overflow "+X más" */}
+      {/* Overflow "+X más" — clickable, navega al día */}
       {maxLanes !== null && (
-        <div className="absolute inset-0 grid grid-cols-7 pointer-events-none">
+        <div className="absolute inset-0 grid grid-cols-7">
           {overflowByCol.map((count, col) =>
             count > 0 ? (
-              <div key={col} className="flex items-end pb-1 pl-1.5">
-                <span className="text-[10px] text-gray-400 font-medium">+{count} más</span>
+              <div key={col} className="flex items-end pb-1 px-1">
+                <button
+                  onClick={e => { e.stopPropagation(); onDayClick(weekDays[col]) }}
+                  className="text-[10px] text-gray-500 font-semibold px-1.5 py-0.5 rounded-md hover:bg-gray-100 hover:text-gray-700 transition-colors"
+                >
+                  +{count} más
+                </button>
               </div>
-            ) : <div key={col} />
+            ) : <div key={col} className="pointer-events-none" />
           )}
         </div>
       )}
 
-      {/* Event bars */}
+      {/* Event bars — barras sólidas de color estilo BUK */}
       {visible.map((ev, i) => {
-        const pct = 100 / 7
-        const br  = ev.isStart && ev.isEnd ? '3px' :
-                    ev.isStart ? '3px 0 0 3px' :
-                    ev.isEnd   ? '0 3px 3px 0' : '0'
+        const pct   = 100 / 7
+        const top   = HDR_H + ev.lane * LANE_H
+        const left  = `calc(${ev.startCol * pct}% + 3px)`
+        const width = `calc(${(ev.endCol - ev.startCol + 1) * pct}% - 6px)`
+        const br    = ev.isStart && ev.isEnd ? '5px' :
+                      ev.isStart ? '5px 0 0 5px' :
+                      ev.isEnd   ? '0 5px 5px 0' : '0'
         return (
           <div
             key={i}
-            className="absolute flex items-center px-1.5 text-white text-[11px] font-medium truncate cursor-pointer hover:brightness-110 transition-all select-none"
-            style={{
-              top: HDR_H + ev.lane * LANE_H,
-              left:  `calc(${ev.startCol * pct}% + 2px)`,
-              width: `calc(${(ev.endCol - ev.startCol + 1) * pct}% - 4px)`,
-              height: LANE_H - 2,
-              backgroundColor: ev.event.color,
-              borderRadius: br,
-            }}
+            className="absolute flex items-center px-1.5 text-white text-[11px] font-medium leading-none truncate cursor-pointer hover:brightness-105 transition-all select-none"
+            style={{ top, left, width, height: BAR_H, backgroundColor: ev.event.color, borderRadius: br }}
             onClick={e2 => { e2.stopPropagation(); onEventClick(ev.event) }}
             title={ev.event.title}
           >
@@ -141,7 +143,7 @@ export function MonthView({ events, currentDate, onEventClick, onDayClick }: {
         {weeks.map((week, i) => (
           <WeekRow
             key={i} weekDays={week} events={events}
-            currentMonth={month} maxLanes={4}
+            currentMonth={month} maxLanes={null}
             onEventClick={onEventClick} onDayClick={onDayClick}
           />
         ))}

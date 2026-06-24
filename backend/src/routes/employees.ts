@@ -252,6 +252,7 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
       const days = Math.round((v.endDate.getTime() - v.startDate.getTime()) / 86400000) + 1
       return {
         id:         v.id,
+        rut:        v.rut,
         employee:   emp
           ? { firstName: emp.firstName, lastName: emp.lastName, workCenters: emp.workCenters }
           : { firstName: v.nombre, lastName: '', workCenters: [] },

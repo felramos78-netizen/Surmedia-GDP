@@ -341,11 +341,17 @@ export default function WorkCentersPage() {
             const vacaciones  = movements?.vacaciones ?? []
             const licencias   = movements?.licencias  ?? []
             const reemplazos  = movements?.reemplazos ?? []
+            // Personas distintas que han tomado vacaciones (una persona puede tener varios períodos)
+            const vacacionesPersonas = new Set(
+              vacaciones.map((v:any) => v.rut ?? `${v.employee?.firstName} ${v.employee?.lastName}`)
+            ).size
 
             function fmtDate(d: any) {
               if (!d) return '—'
               const dt = new Date(d)
-              return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`
+              // Fechas normalizadas a medianoche UTC en el backend: usar getters UTC
+              // para no desfasar un día en Chile (UTC-3/-4).
+              return `${String(dt.getUTCDate()).padStart(2,'0')}/${String(dt.getUTCMonth()+1).padStart(2,'0')}/${dt.getUTCFullYear()}`
             }
             function getCenter(wcs: any[]) { return wcs?.[0]?.workCenter?.name ?? '—' }
 
@@ -581,7 +587,7 @@ export default function WorkCentersPage() {
                       {/* Tabs */}
                       <div className="flex border-b border-gray-100 flex-shrink-0">
                         {([
-                          {key:'vacaciones' as const, label:'Vacaciones', count:vacaciones.length,        active:'border-brand-500 text-brand-600',    num:'text-brand-600'},
+                          {key:'vacaciones' as const, label:'Vacaciones', count:vacacionesPersonas,         active:'border-brand-500 text-brand-600',    num:'text-brand-600'},
                           {key:'licencias'  as const, label:'Licencias',  count:licencias.length,         active:'border-amber-500 text-amber-600',  num:'text-amber-600'},
                           {key:'reemplazos' as const, label:'Reemplazos', count:reemplazos.length,        active:'border-purple-500 text-purple-600',num:'text-purple-600'},
                           {key:'contratos'  as const, label:'Por vencer', count:expiringContracts.length, active:'border-rose-500 text-rose-600',    num:'text-rose-600'},

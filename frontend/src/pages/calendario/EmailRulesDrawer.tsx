@@ -64,7 +64,7 @@ const EVENT_TYPE_LABELS: Record<EventType, string> = {
 
 const EVENT_TYPE_COLORS: Record<EventType, string> = {
   CUMPLEANOS:          '#db2777',
-  ANIVERSARIO_LABORAL: '#7c3aed',
+  ANIVERSARIO_LABORAL: '#0d9488',
   RECONOCIMIENTO:      '#0891b2',
 }
 

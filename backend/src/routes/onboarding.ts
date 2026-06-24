@@ -474,6 +474,110 @@ export const TASK_TEMPLATE = [
   },
 ] as const
 
+// ─── Sincronización plantilla ↔ procesos ───────────────────────────────────────
+// El "contenido" de un hito = los campos que se copian de la plantilla a cada
+// proceso. Comparamos versiones normalizadas para detectar drift (personalización
+// del proceso vs cambios en la plantilla).
+
+interface HitoContent {
+  name: string
+  period: string
+  tool: string | null
+  automationType: string
+  automationConfig: any
+  subTasks: any[]
+}
+
+const stableStr = (v: any): string => {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v ?? null)
+  if (Array.isArray(v)) return '[' + v.map(stableStr).join(',') + ']'
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStr(v[k])).join(',') + '}'
+}
+
+const normSub = (s: any) => ({
+  name:                 s?.name ?? '',
+  tool:                 s?.tool ?? null,
+  plantilla:            s?.plantilla ?? null,
+  responsableProfileId: s?.responsableProfileId ?? null,
+  sortOrder:            s?.sortOrder ?? 0,
+})
+
+// Versión normalizada (sin id ni completado) para comparar / guardar como snapshot
+const normContent = (c: Partial<HitoContent>): HitoContent => ({
+  name:             c?.name ?? '',
+  period:           c?.period as string,
+  tool:             c?.tool ?? null,
+  automationType:   c?.automationType ?? 'MANUAL',
+  automationConfig: c?.automationConfig ?? null,
+  subTasks:         (c?.subTasks ?? []).map(normSub).sort((a, b) => a.sortOrder - b.sortOrder),
+})
+
+// Contenido actual de la plantilla (con id de subtarea, para poder escribirlo)
+const tplContent = (t: any): HitoContent => ({
+  name:             t.name,
+  period:           t.period,
+  tool:             t.tool ?? null,
+  automationType:   t.automationType ?? 'MANUAL',
+  automationConfig: t.automationConfig ?? null,
+  subTasks: (t.subTasks ?? []).map((st: any) => ({
+    id: st.id, name: st.name, tool: st.tool ?? null, plantilla: st.plantilla ?? null,
+    responsableProfileId: st.responsableProfileId ?? null, sortOrder: st.sortOrder,
+  })),
+})
+
+// Contenido actual de la tarea de un proceso
+const taskContent = (task: any): HitoContent => ({
+  name:             task.name,
+  period:           task.period,
+  tool:             task.tool ?? null,
+  automationType:   task.automationType ?? 'MANUAL',
+  automationConfig: task.automationConfig ?? null,
+  subTasks:         Array.isArray(task.subTasks) ? task.subTasks : [],
+})
+
+const contentEqual = (a: Partial<HitoContent>, b: Partial<HitoContent>) =>
+  stableStr(normContent(a)) === stableStr(normContent(b))
+
+// Datos para escribir el contenido de la plantilla en una tarea, preservando el
+// estado de completado de cada subtarea (emparejado por nombre).
+const applyContentData = (incoming: HitoContent, prevSubTasks: any[]) => {
+  const doneByName = new Map((prevSubTasks ?? []).map((s: any) => [s?.name, s?.completedAt ?? null]))
+  return {
+    name:             incoming.name,
+    period:           incoming.period as any,
+    tool:             incoming.tool,
+    automationType:   incoming.automationType as any,
+    automationConfig: incoming.automationConfig,
+    subTasks:         (incoming.subTasks ?? []).map((st: any, i: number) => ({
+      ...st, sortOrder: st.sortOrder ?? i, completedAt: doneByName.get(st.name) ?? null,
+    })),
+    templateSnapshot: normContent(incoming) as any,
+  }
+}
+
+// Diferencias legibles entre el contenido actual (proceso) y el entrante (plantilla)
+const PERIOD_NAME: Record<string, string> = {
+  PRE_INGRESO: 'Pre Ingreso', DIA_1: 'Día 1', SEMANA_1: 'Primera Semana',
+  MES_1: 'Primer Mes', EVALUACION: 'Segundo Mes',
+}
+const contentChanges = (current: HitoContent, incoming: HitoContent) => {
+  const out: Array<{ field: string; label: string; from: string; to: string }> = []
+  const cur = normContent(current), inc = normContent(incoming)
+  if (cur.name !== inc.name)
+    out.push({ field: 'name', label: 'Nombre', from: cur.name, to: inc.name })
+  if (cur.period !== inc.period)
+    out.push({ field: 'period', label: 'Segmento', from: PERIOD_NAME[cur.period] ?? cur.period, to: PERIOD_NAME[inc.period] ?? inc.period })
+  if ((cur.tool ?? '') !== (inc.tool ?? ''))
+    out.push({ field: 'tool', label: 'Herramienta', from: cur.tool ?? '—', to: inc.tool ?? '—' })
+  if (cur.automationType !== inc.automationType)
+    out.push({ field: 'automationType', label: 'Automatización', from: cur.automationType, to: inc.automationType })
+  if (stableStr(cur.automationConfig) !== stableStr(inc.automationConfig))
+    out.push({ field: 'automationConfig', label: 'Configuración', from: 'actual', to: 'actualizada' })
+  if (stableStr(cur.subTasks) !== stableStr(inc.subTasks))
+    out.push({ field: 'subTasks', label: 'Subtareas', from: `${cur.subTasks.length}`, to: `${inc.subTasks.length}` })
+  return out
+}
+
 // ─── Rutas ─────────────────────────────────────────────────────────────────────
 
 const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
@@ -625,16 +729,22 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     if (automationType      !== undefined) data.automationType      = automationType
     if (automationConfig    !== undefined) data.automationConfig    = automationConfig
 
-    const task = await prisma.onboardingTemplateTask.findUnique({ where: { key: req.params.key }, select: { id: true } })
-    if (!task) return reply.status(404).send({ message: 'Hito no encontrado' })
+    // Capturamos el contenido ANTES de editar, para clasificar correctamente las
+    // tareas de proceso (personalizadas vs. sin tocar) cuando no tienen snapshot.
+    const oldTemplate = await prisma.onboardingTemplateTask.findUnique({
+      where: { key: req.params.key },
+      include: { subTasks: { orderBy: { sortOrder: 'asc' } } },
+    })
+    if (!oldTemplate) return reply.status(404).send({ message: 'Hito no encontrado' })
+    const oldContent = normContent(tplContent(oldTemplate))
 
     if (subTasks !== undefined) {
       // Replace all subtasks
-      await prisma.onboardingTemplateSubTask.deleteMany({ where: { templateTaskId: task.id } })
+      await prisma.onboardingTemplateSubTask.deleteMany({ where: { templateTaskId: oldTemplate.id } })
       if (subTasks.length > 0) {
         await prisma.onboardingTemplateSubTask.createMany({
           data: subTasks.map((st, i) => ({
-            templateTaskId:      task.id,
+            templateTaskId:      oldTemplate.id,
             name:                st.name.trim(),
             tool:                st.tool || null,
             plantilla:           st.plantilla || null,
@@ -653,7 +763,133 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
         responsable: { select: { id: true, name: true, position: true } },
       },
     })
+
+    // ── Sincronizar con los procesos activos que usan este hito ──────────────────
+    // Las tareas de cada proceso son copias del template (vinculadas por templateId).
+    //  · Si el proceso NO personalizó el hito → se actualiza automáticamente.
+    //  · Si SÍ lo personalizó → no se toca; queda pendiente (banner en la ficha del
+    //    proceso) para que decidan si actualizan o mantienen su versión.
+    const newContent = tplContent(updated)
+    const procTasks = await prisma.onboardingTask.findMany({
+      where: { templateId: req.params.key, process: { status: 'IN_PROGRESS' } },
+      select: {
+        id: true, name: true, period: true, tool: true,
+        automationType: true, automationConfig: true, subTasks: true, templateSnapshot: true,
+      },
+    })
+
+    await Promise.all(procTasks.map((pt: any) => {
+      const snapshot   = pt.templateSnapshot ?? oldContent
+      const customized = !contentEqual(taskContent(pt), snapshot)
+      if (!customized) {
+        // Sin personalizar → propagar el contenido nuevo (preservando completado)
+        return prisma.onboardingTask.update({
+          where: { id: pt.id },
+          data:  applyContentData(newContent, Array.isArray(pt.subTasks) ? pt.subTasks : []),
+        })
+      }
+      // Personalizado → conservar; persistir el snapshot base si faltaba, para que
+      // la diferencia contra la plantilla nueva se detecte como cambio pendiente.
+      if (pt.templateSnapshot == null) {
+        return prisma.onboardingTask.update({
+          where: { id: pt.id },
+          data:  { templateSnapshot: snapshot as any },
+        })
+      }
+      return Promise.resolve(null)
+    }))
+
     return reply.send({ data: updated })
+  })
+
+  // GET /:id/template-updates — cambios de plantilla pendientes para este proceso
+  // (sólo hitos personalizados cuya plantilla cambió desde la última sincronización)
+  fastify.get<{ Params: { id: string } }>('/:id/template-updates', async (req, reply) => {
+    const procTasks = await prisma.onboardingTask.findMany({
+      where: { processId: req.params.id, templateId: { not: null } },
+      select: {
+        id: true, templateId: true, name: true, period: true, tool: true,
+        automationType: true, automationConfig: true, subTasks: true, templateSnapshot: true,
+      },
+    })
+    if (procTasks.length === 0) return reply.send({ data: [] })
+
+    const keys = [...new Set(procTasks.map((t: any) => t.templateId))]
+    const templates = await prisma.onboardingTemplateTask.findMany({
+      where: { key: { in: keys }, isActive: true },
+      include: { subTasks: { orderBy: { sortOrder: 'asc' } } },
+    })
+    const tplByKey = new Map(templates.map((t: any) => [t.key, t]))
+
+    const pending = procTasks.flatMap((pt: any) => {
+      const tpl = tplByKey.get(pt.templateId)
+      if (!tpl || pt.templateSnapshot == null) return []
+      const newContent = tplContent(tpl)
+      // Pendiente sólo si la plantilla difiere del snapshot (hubo cambios nuevos)
+      if (contentEqual(newContent, pt.templateSnapshot)) return []
+      const changes = contentChanges(taskContent(pt), newContent)
+      if (changes.length === 0) return []
+      return [{ taskId: pt.id, templateId: pt.templateId, name: pt.name, changes }]
+    })
+
+    return reply.send({ data: pending })
+  })
+
+  // POST /:id/template-updates/apply — aceptar cambios de plantilla (todos o algunos)
+  fastify.post<{ Params: { id: string }; Body: { taskIds?: string[] } }>('/:id/template-updates/apply', async (req, reply) => {
+    const { taskIds } = req.body ?? {}
+    const procTasks = await prisma.onboardingTask.findMany({
+      where: {
+        processId: req.params.id, templateId: { not: null },
+        ...(taskIds && taskIds.length > 0 ? { id: { in: taskIds } } : {}),
+      },
+      select: { id: true, templateId: true, subTasks: true },
+    })
+    const keys = [...new Set(procTasks.map((t: any) => t.templateId))]
+    const templates = await prisma.onboardingTemplateTask.findMany({
+      where: { key: { in: keys } },
+      include: { subTasks: { orderBy: { sortOrder: 'asc' } } },
+    })
+    const tplByKey = new Map(templates.map((t: any) => [t.key, t]))
+
+    await Promise.all(procTasks.map((pt: any) => {
+      const tpl = tplByKey.get(pt.templateId)
+      if (!tpl) return Promise.resolve(null)
+      return prisma.onboardingTask.update({
+        where: { id: pt.id },
+        data:  applyContentData(tplContent(tpl), Array.isArray(pt.subTasks) ? pt.subTasks : []),
+      })
+    }))
+    return reply.send({ ok: true, applied: procTasks.length })
+  })
+
+  // POST /:id/template-updates/keep — mantener la versión del proceso (todos o algunos)
+  // Marca como sincronizado (avanza el snapshot a la plantilla actual) sin cambiar el contenido.
+  fastify.post<{ Params: { id: string }; Body: { taskIds?: string[] } }>('/:id/template-updates/keep', async (req, reply) => {
+    const { taskIds } = req.body ?? {}
+    const procTasks = await prisma.onboardingTask.findMany({
+      where: {
+        processId: req.params.id, templateId: { not: null },
+        ...(taskIds && taskIds.length > 0 ? { id: { in: taskIds } } : {}),
+      },
+      select: { id: true, templateId: true },
+    })
+    const keys = [...new Set(procTasks.map((t: any) => t.templateId))]
+    const templates = await prisma.onboardingTemplateTask.findMany({
+      where: { key: { in: keys } },
+      include: { subTasks: { orderBy: { sortOrder: 'asc' } } },
+    })
+    const tplByKey = new Map(templates.map((t: any) => [t.key, t]))
+
+    await Promise.all(procTasks.map((pt: any) => {
+      const tpl = tplByKey.get(pt.templateId)
+      if (!tpl) return Promise.resolve(null)
+      return prisma.onboardingTask.update({
+        where: { id: pt.id },
+        data:  { templateSnapshot: normContent(tplContent(tpl)) as any },
+      })
+    }))
+    return reply.send({ ok: true, kept: procTasks.length })
   })
 
   // DELETE /template-tasks/:key — eliminar hito de plantilla
@@ -1120,7 +1356,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: { startDate: 'desc' },
       include: {
         employee: { include: { position: true } },
-        tasks:    { select: { id: true, completedAt: true, automationStatus: true } },
+        tasks:    { select: { id: true, templateId: true, completedAt: true, automationStatus: true } },
       },
     })
     return reply.send({ data: processes })
@@ -1225,6 +1461,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
           sortOrder:            st.sortOrder,
           completedAt:          null,
         })),
+        templateSnapshot: normContent(tplContent(t)) as any,
       })),
       ...hardcodedFallback.map(t => ({
         templateId:       t.id,
@@ -1236,6 +1473,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
         automationType:   t.automationType,
         automationConfig: t.automationConfig ?? null,
         subTasks:         [],
+        templateSnapshot: normContent(tplContent(t)) as any,
       })),
     ]
 

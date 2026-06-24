@@ -18,7 +18,8 @@ export default function CalendarioPage() {
   const [view, setView]               = useState<ViewType>('month')
   const [currentDate, setCurrentDate] = useState(() => new Date())
   const [activeGroups, setActiveGroups] = useState<Set<string>>(
-    () => new Set(FILTER_GROUPS.map(g => g.key)),
+    // Onboarding y Aniversarios arrancan desactivados por defecto (mucho ruido en el mes)
+    () => new Set(FILTER_GROUPS.map(g => g.key).filter(k => k !== 'onboarding' && k !== 'aniversarios')),
   )
   const [selectedEvent, setSelectedEvent]       = useState<CalEvent | null>(null)
   const [showProfileModal, setShowProfileModal] = useState(false)

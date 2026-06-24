@@ -489,6 +489,9 @@ model OnboardingTask {
   completedNote    String?
   // Sub-tareas (sólo para hitos de plazo; copiadas de la plantilla al crear el proceso)
   subTasks         Json               @default("[]")
+  // Snapshot del contenido de la plantilla en la última sincronización; sirve para
+  // detectar si el proceso personalizó el hito y si la plantilla tiene cambios nuevos.
+  templateSnapshot Json?
   // Versiones editadas del correo de este hito (cuerpo + adjuntos editados + formato)
   emailVersions    Json?
   assignments      OnboardingTaskAssignment[]

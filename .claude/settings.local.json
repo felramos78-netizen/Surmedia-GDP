@@ -84,7 +84,10 @@
       "Bash(git merge *)",
       "Bash(git branch *)",
       "Bash(npm audit *)",
-      "Bash(echo \"TSC_EXIT=$?\")"
+      "Bash(echo \"TSC_EXIT=$?\")",
+      "Bash(find src *)",
+      "Bash(grep -rl \"calendar\" src --include=*.tsx --include=*.ts)",
+      "PowerShell(Get-CimInstance *)"
     ]
   }
 }

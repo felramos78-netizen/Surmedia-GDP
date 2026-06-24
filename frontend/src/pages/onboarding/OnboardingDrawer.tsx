@@ -2,8 +2,11 @@
 // hito viven en archivos sibling: onboardingShared, onboardingModals,
 // OnboardingTaskRow y EditProcessModal.
 import { useState } from 'react'
-import { X, Clock, Building2, CalendarDays, AlertTriangle, Mail, Plus, Trash2, Pencil, ListChecks, Download } from 'lucide-react'
-import { useOnboardingProcess, useUpdateOnboardingStatus, useDeleteOnboarding } from '@/hooks/useOnboarding'
+import { X, Clock, Building2, CalendarDays, AlertTriangle, Mail, Plus, Trash2, Pencil, ListChecks, Download, RefreshCw, ChevronDown, ChevronUp, ArrowRight, Loader2 } from 'lucide-react'
+import {
+  useOnboardingProcess, useUpdateOnboardingStatus, useDeleteOnboarding,
+  useProcessTemplateUpdates, useApplyTemplateUpdates, useKeepTemplateUpdates,
+} from '@/hooks/useOnboarding'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import type { OnboardingPeriod, OnboardingTask } from '@/types'
 import { PERIOD_ORDER, PERIOD_META, daysIn, fmt, buildProcessICS, downloadICS } from './onboardingShared'
@@ -119,6 +122,9 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
           </div>
         </div>
 
+        {/* Cambios de plantilla pendientes */}
+        {canEdit && <TemplateUpdatesBanner processId={process.id} />}
+
         {/* Tabs */}
         <div className="flex border-b border-gray-100 px-4">
           <button
@@ -219,5 +225,94 @@ export default function OnboardingDrawer({ processId, onClose }: Props) {
       <EditProcessModal process={process} onClose={() => setShowEdit(false)} />
     )}
     </>
+  )
+}
+
+// ─── Banner de cambios de plantilla pendientes ──────────────────────────────────
+// Aparece cuando la plantilla global de un hito cambió y este proceso lo había
+// personalizado. Permite aceptar los cambios (por hito o todos) o mantener la
+// versión propia del proceso.
+function TemplateUpdatesBanner({ processId }: { processId: string }) {
+  const { data: updates = [] } = useProcessTemplateUpdates(processId)
+  const apply = useApplyTemplateUpdates()
+  const keep  = useKeepTemplateUpdates()
+  const [open, setOpen] = useState(false)
+
+  if (updates.length === 0) return null
+  const busy = apply.isPending || keep.isPending
+
+  return (
+    <div className="mx-5 my-3 rounded-xl border border-amber-200 bg-amber-50/70 overflow-hidden">
+      <div className="flex items-center gap-2 px-3.5 py-2.5">
+        <RefreshCw size={15} className="text-amber-500 flex-shrink-0" />
+        <p className="text-xs text-amber-800 flex-1 min-w-0">
+          La plantilla cambió en <strong>{updates.length}</strong> hito{updates.length !== 1 ? 's' : ''} que este proceso había personalizado. ¿Actualizar?
+        </p>
+        <button
+          onClick={() => setOpen(v => !v)}
+          className="text-[11px] font-medium text-amber-700 hover:text-amber-900 flex items-center gap-0.5 flex-shrink-0"
+        >
+          {open ? 'Ocultar' : 'Revisar'} {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        </button>
+      </div>
+
+      {open && (
+        <div className="border-t border-amber-200/70 divide-y divide-amber-100">
+          {updates.map(u => (
+            <div key={u.taskId} className="px-3.5 py-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-gray-800">{u.name}</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {u.changes.map(c => (
+                      <li key={c.field} className="text-[11px] text-gray-500 flex items-center gap-1 flex-wrap">
+                        <span className="text-gray-400">{c.label}:</span>
+                        <span className="line-through text-gray-400">{c.from || '—'}</span>
+                        <ArrowRight size={10} className="text-amber-500" />
+                        <span className="text-gray-700 font-medium">{c.to || '—'}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="flex flex-col gap-1 flex-shrink-0">
+                  <button
+                    disabled={busy}
+                    onClick={() => apply.mutate({ processId, taskIds: [u.taskId] })}
+                    className="text-[11px] font-medium px-2 py-1 rounded-md bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+                  >
+                    Actualizar
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() => keep.mutate({ processId, taskIds: [u.taskId] })}
+                    className="text-[11px] font-medium px-2 py-1 rounded-md border border-amber-300 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    Mantener
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <div className="flex items-center justify-end gap-2 px-3.5 py-2.5 bg-amber-50">
+            <button
+              disabled={busy}
+              onClick={() => keep.mutate({ processId })}
+              className="text-[11px] font-medium px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+            >
+              Mantener todos
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => apply.mutate({ processId })}
+              className="flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              Actualizar todos
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
