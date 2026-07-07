@@ -1,8 +1,10 @@
 import { useState } from 'react'
-import { Search, X, Building2, FileText, ShoppingCart } from 'lucide-react'
+import { Search, X, Building2, FileText, ShoppingCart, LayoutGrid, Table2 } from 'lucide-react'
 import { useSmartProveedores } from '@/hooks/useSmart'
 import type { SmartProveedor } from '@/types'
 import ProveedorDrawer from './ProveedorDrawer'
+import ProveedoresTable, { cleanArea } from './ProveedoresTable'
+import { CATEGORIAS_SURMEDIA } from '@/pages/workCenters/SmartShared'
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
@@ -20,6 +22,9 @@ function ProveedorCard({ prov, onClick }: { prov: SmartProveedor; onClick: () =>
   const honCount = docs.filter(d => d.category === 'HONORARIO').length
   const cmpCount = docs.filter(d => d.category === 'COMPRA').length
   const total    = docs.reduce((s, d) => s + d.montoTotal, 0)
+  // Categorías y centros son criterios de cada BH: se agregan los distintos del proveedor.
+  const cats     = [...new Set(docs.map(d => d.categoria).filter(Boolean))] as string[]
+  const wcs      = [...new Set(docs.map(d => d.workCenter?.name).filter(Boolean))] as string[]
 
   return (
     <button
@@ -46,15 +51,21 @@ function ProveedorCard({ prov, onClick }: { prov: SmartProveedor; onClick: () =>
             {prov.area}
           </span>
         )}
-        {prov.categoria && (
-          <span className="text-[10px] bg-violet-50 text-violet-700 border border-violet-100 rounded-full px-2 py-0.5">
-            {prov.categoria}
+        {cats.slice(0, 2).map(c => (
+          <span key={c} className="text-[10px] bg-violet-50 text-violet-700 border border-violet-100 rounded-full px-2 py-0.5">
+            {c}
           </span>
+        ))}
+        {cats.length > 2 && (
+          <span className="text-[10px] text-gray-400 px-1 py-0.5" title={cats.join('; ')}>+{cats.length - 2}</span>
         )}
-        {prov.workCenter && (
-          <span className="text-[10px] bg-gray-50 text-gray-600 border border-gray-200 rounded-full px-2 py-0.5">
-            {prov.workCenter.name}
+        {wcs.slice(0, 1).map(w => (
+          <span key={w} className="text-[10px] bg-gray-50 text-gray-600 border border-gray-200 rounded-full px-2 py-0.5">
+            {w}
           </span>
+        ))}
+        {wcs.length > 1 && (
+          <span className="text-[10px] text-gray-400 px-1 py-0.5" title={wcs.join('; ')}>+{wcs.length - 1}</span>
         )}
       </div>
 
@@ -87,6 +98,7 @@ export default function ProveedoresPage() {
   const [area,     setArea]     = useState('')
   const [categoria, setCategoria] = useState('')
   const [selected, setSelected] = useState<SmartProveedor | null>(null)
+  const [view,     setView]     = useState<'cards' | 'table'>('cards')
 
   const { data: proveedores = [], isLoading } = useSmartProveedores({
     search:    search    || undefined,
@@ -95,8 +107,8 @@ export default function ProveedoresPage() {
   })
 
   const { data: allProvs = [] } = useSmartProveedores({})
-  const areas       = [...new Set(allProvs.map(p => p.area).filter(Boolean))]  as string[]
-  const categorias  = [...new Set(allProvs.map(p => p.categoria).filter(Boolean))] as string[]
+  const areas       = [...new Set(allProvs.map(p => cleanArea(p.area)).filter(Boolean))].sort() as string[]
+  const categorias  = CATEGORIAS_SURMEDIA   // categoría es propiedad de la BH; lista fija Surmedia
 
   const total    = proveedores.reduce((s, p) => s + (p.documents?.reduce((ss, d) => ss + d.montoTotal, 0) ?? 0), 0)
   const docCount = proveedores.reduce((s, p) => s + (p.documents?.length ?? 0), 0)
@@ -150,6 +162,26 @@ export default function ProveedoresPage() {
             {categorias.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         )}
+
+        {/* View toggle */}
+        <div className="ml-auto flex items-center gap-0.5 border border-gray-200 rounded-lg p-0.5">
+          <button
+            onClick={() => setView('cards')}
+            aria-label="Vista de tarjetas"
+            aria-pressed={view === 'cards'}
+            className={`flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md transition-colors ${view === 'cards' ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <LayoutGrid size={14} /> Tarjetas
+          </button>
+          <button
+            onClick={() => setView('table')}
+            aria-label="Vista de tabla"
+            aria-pressed={view === 'table'}
+            className={`flex items-center gap-1.5 text-sm px-2.5 py-1.5 rounded-md transition-colors ${view === 'table' ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            <Table2 size={14} /> Tabla
+          </button>
+        </div>
       </div>
 
       {/* Grid */}
@@ -164,6 +196,8 @@ export default function ProveedoresPage() {
               : 'Sin proveedores. Importa datos desde Importables Excel → Smart CTO.'}
           </p>
         </div>
+      ) : view === 'table' ? (
+        <ProveedoresTable proveedores={proveedores} onSelect={setSelected} />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {proveedores.map(p => (

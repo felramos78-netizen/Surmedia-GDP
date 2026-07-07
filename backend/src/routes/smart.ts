@@ -318,8 +318,9 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
     const { search, area, categoria } = req.query
     const provs = await fastify.prisma.smartProveedor.findMany({
       where: {
-        ...(area      ? { area:      { contains: area,      mode: 'insensitive' } } : {}),
-        ...(categoria ? { categoria: { contains: categoria, mode: 'insensitive' } } : {}),
+        ...(area      ? { area: { contains: area, mode: 'insensitive' } } : {}),
+        // La categoría vive en la BH/documento, no en el proveedor: se filtra por documentos.
+        ...(categoria ? { documents: { some: { categoria: { contains: categoria, mode: 'insensitive' } } } } : {}),
         ...(search ? {
           OR: [
             { razonSocial: { contains: search, mode: 'insensitive' } },
@@ -330,7 +331,11 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
       include: {
         workCenter: { select: { id: true, name: true } },
         documents: {
-          select: { id: true, category: true, montoTotal: true, legalEntity: true, periodoTributario: true },
+          select: {
+            id: true, category: true, montoTotal: true, legalEntity: true, periodoTributario: true,
+            categoria: true,
+            workCenter: { select: { id: true, name: true } },
+          },
         },
       },
       orderBy: { razonSocial: 'asc' },
@@ -345,7 +350,10 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
       include: {
         workCenter: { select: { id: true, name: true } },
         documents:  {
-          include: { proveedor: { select: PROV_SELECT } },
+          include: {
+            proveedor:  { select: PROV_SELECT },
+            workCenter: { select: { id: true, name: true } },
+          },
           orderBy: [{ periodoTributario: 'desc' }, { fechaEmision: 'desc' }],
         },
       },
@@ -357,12 +365,16 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
   // PATCH /api/smart/documents/:id — actualiza workCenterId por documento
   fastify.patch<{
     Params: { id: string }
-    Body:   { workCenterId?: string | null }
+    Body:   { workCenterId?: string | null; tipo?: string | null; categoria?: string | null }
   }>('/documents/:id', async (req, reply) => {
-    const { workCenterId } = req.body
+    const { workCenterId, tipo, categoria } = req.body
     const doc = await fastify.prisma.smartDocument.update({
       where:   { id: req.params.id },
-      data:    { workCenterId: workCenterId ?? null },
+      data:    {
+        ...(workCenterId !== undefined ? { workCenterId: workCenterId ?? null } : {}),
+        ...(tipo         !== undefined ? { tipo:         tipo ?? null }         : {}),
+        ...(categoria    !== undefined ? { categoria:    categoria ?? null }    : {}),
+      },
       include: DOC_WC_INCLUDE,
     })
     return reply.send(doc)

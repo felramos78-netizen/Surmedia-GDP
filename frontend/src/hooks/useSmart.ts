@@ -134,13 +134,17 @@ export function usePatchProveedor() {
 export function usePatchDocument() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, workCenterId }: { id: string; workCenterId: string | null }) => {
-      const { data } = await api.patch(`/smart/documents/${id}`, { workCenterId })
+    mutationFn: async (
+      { id, ...fields }: { id: string; workCenterId?: string | null; tipo?: string | null; categoria?: string | null },
+    ) => {
+      const { data } = await api.patch(`/smart/documents/${id}`, fields)
       return data as import('@/types').SmartDocument
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['smart-honorarios'] })
       qc.invalidateQueries({ queryKey: ['smart-compras'] })
+      qc.invalidateQueries({ queryKey: ['smart-proveedores'] })
+      qc.invalidateQueries({ queryKey: ['smart-proveedor'] })
     },
   })
 }

@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { X, Save, Check, FileText, ShoppingCart, Pencil } from 'lucide-react'
-import { useSmartProveedor, usePatchProveedor } from '@/hooks/useSmart'
-import { useWorkCenters } from '@/hooks/useWorkCenters'
+import { useSmartProveedor, usePatchProveedor, usePatchDocument } from '@/hooks/useSmart'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
+import { CATEGORIAS_SURMEDIA } from '@/pages/workCenters/SmartShared'
 import type { SmartDocument } from '@/types'
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -49,7 +49,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ── Documento row ─────────────────────────────────────────────────────────────
 
-function DocRow({ d }: { d: SmartDocument }) {
+function DocRow({ d, onSetCategoria, saving }: {
+  d: SmartDocument
+  onSetCategoria: (id: string, categoria: string | null) => void
+  saving: boolean
+}) {
   const isHon = d.category === 'HONORARIO'
   return (
     <tr className="hover:bg-gray-50 border-b border-gray-100 last:border-0">
@@ -60,6 +64,22 @@ function DocRow({ d }: { d: SmartDocument }) {
       </td>
       <td className="px-3 py-2 text-xs text-gray-600">{fmtPeriodo(d.periodoTributario)}</td>
       <td className="px-3 py-2 text-xs text-gray-500 max-w-[120px] truncate">{d.clasificacion || '—'}</td>
+      <td className="px-3 py-2">
+        <select
+          value={d.categoria ?? ''}
+          disabled={saving}
+          onChange={e => onSetCategoria(d.id, e.target.value || null)}
+          className="text-[11px] border border-gray-200 rounded-md px-1.5 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-50 max-w-[150px]"
+        >
+          <option value="">— Sin categoría</option>
+          {CATEGORIAS_SURMEDIA.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </td>
+      <td className="px-3 py-2">
+        {d.workCenter
+          ? <span className="text-[10px] bg-gray-50 text-gray-600 border border-gray-200 rounded-full px-2 py-0.5 whitespace-nowrap">{d.workCenter.name}</span>
+          : <span className="text-gray-300 text-xs">—</span>}
+      </td>
       <td className="px-3 py-2 text-xs text-gray-500 max-w-[100px] truncate">{d.documento}</td>
       <td className="px-3 py-2 text-xs text-gray-500">{fmtDate(d.fechaEmision)}</td>
       <td className="px-3 py-2 text-xs text-gray-500">{fmtDate(d.fechaPago)}</td>
@@ -82,32 +102,29 @@ interface Props { proveedorId: string; onClose: () => void }
 export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
   useEscapeKey(onClose)
   const { data: prov, isLoading } = useSmartProveedor(proveedorId)
-  const { data: centers = [] }    = useWorkCenters()
-  const patch = usePatchProveedor()
+  const patch    = usePatchProveedor()
+  const patchDoc = usePatchDocument()
+
+  function setDocCategoria(id: string, categoria: string | null) {
+    patchDoc.mutate({ id, categoria })
+  }
 
   const [editing, setEditing] = useState(false)
-  const [form,    setForm]    = useState({ area: '', categoria: '', workCenterId: '', notes: '' })
+  const [form,    setForm]    = useState({ area: '', notes: '' })
   const [docTab,  setDocTab]  = useState<'todos' | 'honorarios' | 'compras'>('todos')
 
   function startEdit() {
     if (!prov) return
-    setForm({
-      area:         prov.area         ?? '',
-      categoria:    prov.categoria    ?? '',
-      workCenterId: prov.workCenterId ?? '',
-      notes:        prov.notes        ?? '',
-    })
+    setForm({ area: prov.area ?? '', notes: prov.notes ?? '' })
     setEditing(true)
   }
 
   async function save() {
     if (!prov) return
     await patch.mutateAsync({
-      id:           prov.id,
-      area:         form.area         || null,
-      categoria:    form.categoria    || null,
-      workCenterId: form.workCenterId || null,
-      notes:        form.notes        || null,
+      id:    prov.id,
+      area:  form.area  || null,
+      notes: form.notes || null,
     })
     setEditing(false)
   }
@@ -120,6 +137,11 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
   const totalHon = honDocs.reduce((s, d) => s + d.montoTotal, 0)
   const totalCmp = cmpDocs.reduce((s, d) => s + d.montoTotal, 0)
   const totalAll = totalHon + totalCmp
+
+  // Categoría y centro de trabajo son criterios de cada BH: el proveedor puede tener
+  // múltiples y variados. Se muestran como la suma de valores distintos separados por "; ".
+  const docCategorias = [...new Set(docs.map(d => d.categoria).filter(Boolean))].sort() as string[]
+  const docCentros    = [...new Set(docs.map(d => d.workCenter?.name).filter(Boolean))].sort() as string[]
 
   return (
     <div className="fixed inset-0 z-40 flex">
@@ -183,22 +205,8 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Área</label>
                     <input value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))}
-                      placeholder="Ej: Tecnología, Marketing…"
+                      placeholder="Administración, Personas, Operaciones…"
                       className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Categoría</label>
-                    <input value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}
-                      placeholder="Ej: Freelance, Proveedor…"
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Centro de Trabajo</label>
-                    <select value={form.workCenterId} onChange={e => setForm(f => ({ ...f, workCenterId: e.target.value }))}
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400">
-                      <option value="">Sin asignar</option>
-                      {centers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Notas</label>
@@ -210,8 +218,12 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
               ) : (
                 <div className="grid grid-cols-4 gap-4">
                   <Field label="Área">{prov.area || <span className="text-gray-300">—</span>}</Field>
-                  <Field label="Categoría">{prov.categoria || <span className="text-gray-300">—</span>}</Field>
-                  <Field label="Centro de Trabajo">{prov.workCenter?.name || <span className="text-gray-300">—</span>}</Field>
+                  <Field label="Categorías (BH)">
+                    {docCategorias.length ? docCategorias.join('; ') : <span className="text-gray-300">—</span>}
+                  </Field>
+                  <Field label="Centros de Trabajo (BH)">
+                    {docCentros.length ? docCentros.join('; ') : <span className="text-gray-300">—</span>}
+                  </Field>
                   <Field label="Notas">{prov.notes || <span className="text-gray-300">—</span>}</Field>
                 </div>
               )}
@@ -262,6 +274,8 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Empresa</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Período</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Clasificación</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Categoría</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Centro de Trabajo</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Documento</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Emisión</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Pago</th>
@@ -274,12 +288,14 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                   <tbody>
                     {shownDocs.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="px-3 py-8 text-center text-sm text-gray-400">
+                        <td colSpan={12} className="px-3 py-8 text-center text-sm text-gray-400">
                           Sin documentos
                         </td>
                       </tr>
                     ) : (
-                      shownDocs.map(d => <DocRow key={d.id} d={d} />)
+                      shownDocs.map(d => (
+                        <DocRow key={d.id} d={d} onSetCategoria={setDocCategoria} saving={patchDoc.isPending} />
+                      ))
                     )}
                   </tbody>
                 </table>

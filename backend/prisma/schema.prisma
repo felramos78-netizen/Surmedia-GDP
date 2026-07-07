@@ -827,6 +827,8 @@ model SmartDocument {
   fechaVencimiento          DateTime?
   fechaPago                 DateTime?
   clasificacion             String?
+  tipo                      String?          // Reembolsable / No Reembolsable (taxonomía interna GDP)
+  categoria                 String?          // Categoría Surmedia (Aseo y Servicios, Apoyo Operacional, ...)
   montoExento               Int              @default(0)
   montoAfecto               Int              @default(0)
   montoNeto                 Int              @default(0)

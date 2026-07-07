@@ -514,6 +514,8 @@ export interface SmartDocument {
   fechaVencimiento:          string | null
   fechaPago:                 string | null
   clasificacion:             string | null
+  tipo:                      string | null
+  categoria:                 string | null
   montoExento:               number
   montoAfecto:               number
   montoNeto:                 number

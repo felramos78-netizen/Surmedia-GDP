@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { RefreshCw, Check, ChevronDown, ChevronUp, ChevronsUpDown, X, Pencil, Filter, FileText, DollarSign, Percent, TrendingUp } from 'lucide-react'
+import { RefreshCw, Check, ChevronDown, ChevronUp, ChevronsUpDown, X, Pencil, Filter, FileText, DollarSign, Scale, Search } from 'lucide-react'
 import { usePatchProveedor, usePatchDocument } from '@/hooks/useSmart'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
 import type { SmartDocument, LegalEntity } from '@/types'
 import {
   ENTITY_LABEL, ENTITY_COLOR, fmt, fmtN, fmtDate, fmtPeriodo,
-  AREAS, CATEGORIES_BY_AREA, type SmartCategory,
+  AREAS, CATEGORIES_BY_AREA, TIPOS, CATEGORIAS_SURMEDIA, type SmartCategory,
 } from './SmartShared'
 
 // ── Inline editable cell ──────────────────────────────────────────────────────
@@ -17,7 +17,7 @@ function EditableCell({
   value:         string | null
   proveedorId?:  string
   documentId?:   string
-  field:         'area' | 'categoria' | 'workCenterId'
+  field:         'area' | 'categoria' | 'workCenterId' | 'tipo'
   type?:         'text' | 'select' | 'smart-select'
   options?:      { value: string; label: string }[]
   currentArea?:  string | null
@@ -47,7 +47,7 @@ function EditableCell({
     const finalVal = (customValue ?? val).trim() || null
     if (finalVal === (value ?? null)) return
     if (documentId) {
-      patchDoc.mutate({ id: documentId, workCenterId: finalVal })
+      patchDoc.mutate({ id: documentId, [field]: finalVal })
     } else if (proveedorId) {
       patchProv.mutate({ id: proveedorId, [field]: finalVal })
     }
@@ -60,8 +60,11 @@ function EditableCell({
     let base: string[] = []
     if (field === 'area') {
       base = AREAS
+    } else if (field === 'tipo') {
+      base = TIPOS
     } else if (field === 'categoria') {
-      base = currentArea ? (CATEGORIES_BY_AREA[currentArea] || []) : []
+      // Documento (honorarios) → Categoría Surmedia; Proveedor (compras) → según área
+      base = documentId ? CATEGORIAS_SURMEDIA : (currentArea ? (CATEGORIES_BY_AREA[currentArea] || []) : [])
     }
 
     // Merge with extra unique options found in data, avoiding duplicates
@@ -69,7 +72,7 @@ function EditableCell({
       a.localeCompare(b, 'es', { sensitivity: 'base' })
     )
     return all.map(v => ({ value: v, label: v }))
-  }, [type, field, currentArea, extraOptions])
+  }, [type, field, currentArea, extraOptions, documentId])
 
   const display = value
     ? (type === 'select' || type === 'smart-select'
@@ -205,6 +208,8 @@ export function getDocVal(d: SmartDocument, col: string): string {
     case 'empresa':       return ENTITY_LABEL[d.legalEntity as LegalEntity] ?? d.legalEntity
     case 'periodo':       return fmtPeriodo(d.periodoTributario)
     case 'clasificacion': return d.clasificacion ?? ''
+    case 'tipo':          return d.tipo ?? ''
+    case 'docCategoria':  return d.categoria ?? ''
     case 'area':          return d.proveedor.area ?? ''
     case 'categoria':     return d.proveedor.categoria ?? ''
     case 'workCenter':    return d.workCenter?.name ?? ''
@@ -480,8 +485,17 @@ export function DataTable({
             <ColHeader {...ch('Empresa', 'empresa')} />
             <ColHeader {...ch('Período', 'periodo')} />
             <ColHeader {...ch('Clasificación', 'clasificacion')} />
-            <ColHeader {...ch('Área', 'area')} />
-            <ColHeader {...ch('Categoría', 'categoria')} />
+            {category === 'honorarios' ? (
+              <>
+                <ColHeader {...ch('Tipo', 'tipo')} />
+                <ColHeader {...ch('Categoría', 'docCategoria')} />
+              </>
+            ) : (
+              <>
+                <ColHeader {...ch('Área', 'area')} />
+                <ColHeader {...ch('Categoría', 'categoria')} />
+              </>
+            )}
             <ColHeader {...ch('Centro de Trabajo', 'workCenter')} />
             <ColHeader {...ch('Documento', 'documento')} />
             <ColHeader {...ch('Folio', 'folio')} />
@@ -511,25 +525,49 @@ export function DataTable({
               <td className="px-4 py-2.5 max-w-[120px]">
                 <TruncCell value={d.clasificacion || null} className="text-gray-600" />
               </td>
-              <td className="px-4 py-2.5">
-                <EditableCell
-                  value={d.proveedor.area}
-                  proveedorId={d.proveedor.id}
-                  field="area"
-                  type="smart-select"
-                  extraOptions={extraAreas}
-                />
-              </td>
-              <td className="px-4 py-2.5">
-                <EditableCell
-                  value={d.proveedor.categoria}
-                  proveedorId={d.proveedor.id}
-                  field="categoria"
-                  type="smart-select"
-                  currentArea={d.proveedor.area}
-                  extraOptions={d.proveedor.area ? extraCategoriesByArea[d.proveedor.area] : []}
-                />
-              </td>
+              {category === 'honorarios' ? (
+                <>
+                  <td className="px-4 py-2.5">
+                    <EditableCell
+                      value={d.tipo}
+                      documentId={d.id}
+                      field="tipo"
+                      type="select"
+                      options={TIPOS.map(t => ({ value: t, label: t }))}
+                    />
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <EditableCell
+                      value={d.categoria}
+                      documentId={d.id}
+                      field="categoria"
+                      type="smart-select"
+                    />
+                  </td>
+                </>
+              ) : (
+                <>
+                  <td className="px-4 py-2.5">
+                    <EditableCell
+                      value={d.proveedor.area}
+                      proveedorId={d.proveedor.id}
+                      field="area"
+                      type="smart-select"
+                      extraOptions={extraAreas}
+                    />
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <EditableCell
+                      value={d.proveedor.categoria}
+                      proveedorId={d.proveedor.id}
+                      field="categoria"
+                      type="smart-select"
+                      currentArea={d.proveedor.area}
+                      extraOptions={d.proveedor.area ? extraCategoriesByArea[d.proveedor.area] : []}
+                    />
+                  </td>
+                </>
+              )}
               <td className="px-4 py-2.5">
                 <EditableCell
                   value={d.workCenterId}
@@ -573,38 +611,149 @@ export function DataTable({
 
 // ── Summary cards ─────────────────────────────────────────────────────────────
 
-type BreakdownRow = {
-  label:       string
-  colorClass?: string
-  count:       number
-  neto:        number
-  bruto:       number
+// ── Breakdown tables (dashboard Honorarios) ──────────────────────────────────
+
+// Categorías Surmedia que se muestran como columna de conteo en "Totales por
+// Centros de Trabajo" (en el orden solicitado por RRHH).
+const CENTRO_CATEGORIAS = [
+  'Apoyo Operacional',
+  'Aseo y Servicios',
+  'Asesoría',
+  'Cobertura Operacional',
+  'Planta Operacional',
+  'Práctica',
+  'Reemplazo',
+] as const
+
+// Encabezados abreviados (la categoría completa va en el atributo title).
+const CAT_ABBR: Record<string, string> = {
+  'Apoyo Operacional':     'Apoyo Op.',
+  'Aseo y Servicios':      'Aseo/Serv.',
+  'Asesoría':              'Asesoría',
+  'Cobertura Operacional': 'Cobert. Op.',
+  'Planta Operacional':    'Planta Op.',
+  'Práctica':              'Práctica',
+  'Reemplazo':             'Reemplazo',
 }
 
-function BreakdownTable({ title, rows, emptyLabel = 'Sin datos' }: {
-  title:       string
-  rows:        BreakdownRow[]
-  emptyLabel?: string
+// Orden y filtro de columna para las tablas agregadas del dashboard
+type TableSort = { col: string; dir: 'asc' | 'desc' } | null
+
+// Encabezado clickeable: 1er clic asc, 2º desc, 3º limpia el orden
+function SortTh({ label, col, sort, setSort, align = 'right', title }: {
+  label:   string
+  col:     string
+  sort:    TableSort
+  setSort: (s: TableSort) => void
+  align?:  'left' | 'right'
+  title?:  string
 }) {
-  const totalNeto  = rows.reduce((s, r) => s + r.neto,  0)
-  const totalBruto = rows.reduce((s, r) => s + r.bruto, 0)
+  const active = sort?.col === col
+  const icon = !active
+    ? <ChevronsUpDown size={11} className="text-gray-300 ml-0.5 inline" />
+    : sort!.dir === 'asc'
+      ? <ChevronUp size={11} className="text-gray-500 ml-0.5 inline" />
+      : <ChevronDown size={11} className="text-gray-500 ml-0.5 inline" />
+  return (
+    <th
+      title={title}
+      onClick={() => setSort(
+        !active ? { col, dir: 'asc' } : sort!.dir === 'asc' ? { col, dir: 'desc' } : null,
+      )}
+      className={`pb-1.5 font-normal cursor-pointer select-none hover:text-gray-600 whitespace-nowrap ${align === 'left' ? 'text-left' : 'text-right pr-2'}`}
+    >
+      {label}{icon}
+    </th>
+  )
+}
+
+// Caja de búsqueda para filtrar por nombre de entidad
+function TableSearch({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="relative">
+      <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder="Filtrar entidad…"
+        className="pl-7 pr-2 py-1 text-xs border border-gray-200 rounded-md w-44 focus:outline-none focus:ring-1 focus:ring-brand-300"
+      />
+    </div>
+  )
+}
+
+type EntityRow = {
+  label:          string
+  colorClass?:    string
+  docs:           number
+  vigentes:       number
+  anuladas:       number
+  bruto:          number
+  reembolsable:   number
+  noReembolsable: number
+}
+
+type CenterRow = {
+  label:        string
+  vigentes:     number
+  bruto:        number
+  reembolsable: number
+  catCounts:    Record<string, number>
+}
+
+function EntityBreakdownTable({ title, rows }: { title: string; rows: EntityRow[] }) {
+  const [sort, setSort] = useState<TableSort>(null)
+  const [q, setQ]       = useState('')
+
+  const view = useMemo(() => {
+    let r = rows
+    const n = q.trim().toLowerCase()
+    if (n) r = r.filter(x => x.label.toLowerCase().includes(n))
+    if (sort) {
+      const dir = sort.dir === 'asc' ? 1 : -1
+      r = [...r].sort((a, b) =>
+        sort.col === 'label'
+          ? a.label.localeCompare(b.label, 'es') * dir
+          : ((a[sort.col as keyof EntityRow] as number) - (b[sort.col as keyof EntityRow] as number)) * dir,
+      )
+    }
+    return r
+  }, [rows, q, sort])
+
+  const t = view.reduce(
+    (a, r) => ({
+      docs:           a.docs + r.docs,
+      vigentes:       a.vigentes + r.vigentes,
+      anuladas:       a.anuladas + r.anuladas,
+      bruto:          a.bruto + r.bruto,
+      reembolsable:   a.reembolsable + r.reembolsable,
+      noReembolsable: a.noReembolsable + r.noReembolsable,
+    }),
+    { docs: 0, vigentes: 0, anuladas: 0, bruto: 0, reembolsable: 0, noReembolsable: 0 },
+  )
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <p className="text-xs font-semibold text-gray-700 mb-3">{title}</p>
-      {rows.length === 0 ? (
-        <p className="text-xs text-gray-400 py-1">{emptyLabel}</p>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        <TableSearch value={q} onChange={setQ} />
+      </div>
+      {view.length === 0 ? (
+        <p className="text-xs text-gray-400 py-1">Sin datos</p>
       ) : (
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-gray-100">
-              <th className="pb-1.5 text-left font-normal text-gray-400">Entidad</th>
-              <th className="pb-1.5 text-right font-normal text-gray-400 pr-2">Docs</th>
-              <th className="pb-1.5 text-right font-normal text-gray-400">Neto</th>
-              <th className="pb-1.5 text-right font-normal text-gray-400">Bruto</th>
+            <tr className="border-b border-gray-100 text-gray-400">
+              <SortTh label="Entidad"        col="label"          sort={sort} setSort={setSort} align="left" />
+              <SortTh label="Docs"           col="docs"           sort={sort} setSort={setSort} />
+              <SortTh label="Vigentes"       col="vigentes"       sort={sort} setSort={setSort} />
+              <SortTh label="Anuladas"       col="anuladas"       sort={sort} setSort={setSort} />
+              <SortTh label="Bruto"          col="bruto"          sort={sort} setSort={setSort} />
+              <SortTh label="Reembolsable"   col="reembolsable"   sort={sort} setSort={setSort} />
+              <SortTh label="No Reembolsable" col="noReembolsable" sort={sort} setSort={setSort} />
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+            {view.map(r => (
               <tr key={r.label} className="border-b border-gray-50 last:border-0">
                 <td className="py-1.5 pr-2">
                   {r.colorClass
@@ -612,17 +761,24 @@ function BreakdownTable({ title, rows, emptyLabel = 'Sin datos' }: {
                     : <span className="text-gray-700">{r.label}</span>
                   }
                 </td>
-                <td className="py-1.5 text-right tabular-nums text-gray-500 pr-2">{r.count}</td>
-                <td className="py-1.5 text-right tabular-nums text-gray-700">{fmtN(r.neto)}</td>
-                <td className="py-1.5 text-right tabular-nums text-gray-700">{fmtN(r.bruto)}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-500 pr-2">{r.docs}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-700 pr-2">{r.vigentes}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-400 pr-2">{r.anuladas || ''}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-700 pr-2">{fmtN(r.bruto)}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-700 pr-2">{fmtN(r.reembolsable)}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-700">{fmtN(r.noReembolsable)}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t border-gray-200">
-              <td colSpan={2} className="pt-1.5 font-medium text-gray-500">Total</td>
-              <td className="pt-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtN(totalNeto)}</td>
-              <td className="pt-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtN(totalBruto)}</td>
+            <tr className="border-t border-gray-200 font-semibold text-gray-900">
+              <td className="pt-1.5 font-medium text-gray-500">Total</td>
+              <td className="pt-1.5 text-right tabular-nums pr-2">{t.docs}</td>
+              <td className="pt-1.5 text-right tabular-nums pr-2">{t.vigentes}</td>
+              <td className="pt-1.5 text-right tabular-nums pr-2">{t.anuladas || ''}</td>
+              <td className="pt-1.5 text-right tabular-nums pr-2">{fmtN(t.bruto)}</td>
+              <td className="pt-1.5 text-right tabular-nums pr-2">{fmtN(t.reembolsable)}</td>
+              <td className="pt-1.5 text-right tabular-nums">{fmtN(t.noReembolsable)}</td>
             </tr>
           </tfoot>
         </table>
@@ -631,125 +787,180 @@ function BreakdownTable({ title, rows, emptyLabel = 'Sin datos' }: {
   )
 }
 
-export function SummaryCards({ docs, category }: { docs: SmartDocument[]; category: SmartCategory }) {
+function CenterBreakdownTable({ title, rows }: { title: string; rows: CenterRow[] }) {
+  const [sort, setSort] = useState<TableSort>(null)
+  const [q, setQ]       = useState('')
+
+  const val = (r: CenterRow, col: string): number | string =>
+    col === 'label'           ? r.label
+    : col.startsWith('cat:')  ? (r.catCounts[col.slice(4)] ?? 0)
+    : ((r[col as keyof CenterRow] as number) ?? 0)
+
+  const view = useMemo(() => {
+    let r = rows
+    const n = q.trim().toLowerCase()
+    if (n) r = r.filter(x => x.label.toLowerCase().includes(n))
+    if (sort) {
+      const dir = sort.dir === 'asc' ? 1 : -1
+      r = [...r].sort((a, b) => {
+        const va = val(a, sort.col), vb = val(b, sort.col)
+        return typeof va === 'string' || typeof vb === 'string'
+          ? String(va).localeCompare(String(vb), 'es') * dir
+          : (va - vb) * dir
+      })
+    }
+    return r
+  }, [rows, q, sort])
+
+  const t = {
+    vigentes:     view.reduce((s, r) => s + r.vigentes, 0),
+    bruto:        view.reduce((s, r) => s + r.bruto, 0),
+    reembolsable: view.reduce((s, r) => s + r.reembolsable, 0),
+    catCounts:    Object.fromEntries(
+      CENTRO_CATEGORIAS.map(c => [c, view.reduce((s, r) => s + (r.catCounts[c] ?? 0), 0)]),
+    ) as Record<string, number>,
+  }
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 overflow-x-auto">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-gray-700">{title}</p>
+        <TableSearch value={q} onChange={setQ} />
+      </div>
+      {view.length === 0 ? (
+        <p className="text-xs text-gray-400 py-1">Sin datos</p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-100 text-gray-400">
+              <SortTh label="Entidad"      col="label"        sort={sort} setSort={setSort} align="left" />
+              <SortTh label="Vigentes"     col="vigentes"     sort={sort} setSort={setSort} />
+              <SortTh label="Bruto"        col="bruto"        sort={sort} setSort={setSort} />
+              <SortTh label="Reembolsable" col="reembolsable" sort={sort} setSort={setSort} />
+              {CENTRO_CATEGORIAS.map(c => (
+                <SortTh key={c} label={CAT_ABBR[c]} col={`cat:${c}`} sort={sort} setSort={setSort} title={c} />
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {view.map(r => (
+              <tr key={r.label} className="border-b border-gray-50 last:border-0">
+                <td className="py-1.5 pr-2 text-gray-700 whitespace-nowrap">{r.label}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-700 pr-2">{r.vigentes}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-700 pr-2">{fmtN(r.bruto)}</td>
+                <td className="py-1.5 text-right tabular-nums text-gray-700 pr-2">{fmtN(r.reembolsable)}</td>
+                {CENTRO_CATEGORIAS.map(c => (
+                  <td key={c} className="py-1.5 text-right tabular-nums text-gray-500 pr-2">{r.catCounts[c] || ''}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-gray-200 font-semibold text-gray-900">
+              <td className="pt-1.5 font-medium text-gray-500">Total</td>
+              <td className="pt-1.5 text-right tabular-nums pr-2">{t.vigentes}</td>
+              <td className="pt-1.5 text-right tabular-nums pr-2">{fmtN(t.bruto)}</td>
+              <td className="pt-1.5 text-right tabular-nums pr-2">{fmtN(t.reembolsable)}</td>
+              {CENTRO_CATEGORIAS.map(c => (
+                <td key={c} className="pt-1.5 text-right tabular-nums pr-2">{t.catCounts[c] || ''}</td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
+      )}
+    </div>
+  )
+}
+
+export function SummaryCards({ docs }: { docs: SmartDocument[]; category: SmartCategory }) {
   const activeDocs = docs.filter(d => d.vigente)
   const anuladas   = docs.length - activeDocs.length
+  const neto       = activeDocs.reduce((s, d) => s + d.montoNeto, 0)
+  const bruto      = activeDocs.reduce((s, d) => s + d.montoBruto, 0)
+  const pagados    = activeDocs.filter(d => d.pagado).length
+  const reembolsable = activeDocs.reduce((s, d) => s + (d.tipo === 'Reembolsable' ? d.montoBruto : 0), 0)
+  const brutoSinReemb = bruto - reembolsable
 
-  const total    = activeDocs.reduce((s, d) => s + d.montoTotal, 0)
-  const neto     = activeDocs.reduce((s, d) => s + d.montoNeto, 0)
-  const tax      = activeDocs.reduce((s, d) => s + (category === 'honorarios' ? (d.retencion ?? 0) : (d.iva ?? 0)), 0)
-  const pagados  = activeDocs.filter(d => d.pagado).length
-  const taxLabel = category === 'honorarios' ? 'Retención Total' : 'IVA Total'
-
-  function groupByEntity(subset: SmartDocument[]): BreakdownRow[] {
-    const map = new Map<LegalEntity, { neto: number; bruto: number; count: number }>()
-    for (const d of subset) {
-      const e   = d.legalEntity as LegalEntity
-      const cur = map.get(e) ?? { neto: 0, bruto: 0, count: 0 }
-      map.set(e, { neto: cur.neto + d.montoNeto, bruto: cur.bruto + d.montoBruto, count: cur.count + 1 })
+  // Totales por Razón Social — sobre TODOS los documentos (para contar anuladas)
+  const entityMap = new Map<LegalEntity, EntityRow>()
+  for (const d of docs) {
+    const e   = d.legalEntity as LegalEntity
+    const cur = entityMap.get(e) ?? {
+      label: ENTITY_LABEL[e], colorClass: ENTITY_COLOR[e],
+      docs: 0, vigentes: 0, anuladas: 0, bruto: 0, reembolsable: 0, noReembolsable: 0,
     }
-    return (Object.keys(ENTITY_LABEL) as LegalEntity[])
-      .filter(e => map.has(e))
-      .map(e => ({
-        label:      ENTITY_LABEL[e],
-        colorClass: ENTITY_COLOR[e],
-        count:      map.get(e)!.count,
-        neto:       map.get(e)!.neto,
-        bruto:      map.get(e)!.bruto,
-      }))
-  }
-
-  function groupByCenter(subset: SmartDocument[]): BreakdownRow[] {
-    const map = new Map<string, { neto: number; bruto: number; count: number; name: string }>()
-    for (const d of subset) {
-      const key  = d.workCenter?.id ?? '__sin__'
-      const name = d.workCenter?.name ?? '(Sin centro)'
-      const cur  = map.get(key) ?? { neto: 0, bruto: 0, count: 0, name }
-      map.set(key, { neto: cur.neto + d.montoNeto, bruto: cur.bruto + d.montoBruto, count: cur.count + 1, name })
+    cur.docs += 1
+    if (d.vigente) {
+      cur.vigentes += 1
+      cur.bruto    += d.montoBruto
+      if (d.tipo === 'Reembolsable')    cur.reembolsable   += d.montoBruto
+      if (d.tipo === 'No Reembolsable') cur.noReembolsable += d.montoBruto
+    } else {
+      cur.anuladas += 1
     }
-    return [...map.values()]
-      .sort((a, b) => b.neto - a.neto)
-      .map(r => ({ label: r.name, count: r.count, neto: r.neto, bruto: r.bruto }))
+    entityMap.set(e, cur)
   }
+  const entityRows = (Object.keys(ENTITY_LABEL) as LegalEntity[]).filter(e => entityMap.has(e)).map(e => entityMap.get(e)!)
 
-  const plantaDocs = useMemo(
-    () => activeDocs.filter(d => {
-      const c = (d.clasificacion ?? '').toLowerCase()
-      return c.includes('planta') || c.includes('proyecto')
-    }),
-    [activeDocs],
-  )
-
-  const reemplDocs = useMemo(
-    () => activeDocs.filter(d => {
-      const c = (d.clasificacion ?? '').toLowerCase()
-      return c.includes('reemplazo') || c === 'nr' || c.endsWith(' nr')
-    }),
-    [activeDocs],
-  )
+  // Totales por Centro de Trabajo — sobre documentos vigentes
+  const centerMap = new Map<string, CenterRow>()
+  for (const d of activeDocs) {
+    const key  = d.workCenter?.id ?? '__sin__'
+    const name = d.workCenter?.name ?? '(Sin centro)'
+    const cur  = centerMap.get(key) ?? { label: name, vigentes: 0, bruto: 0, reembolsable: 0, catCounts: {} }
+    cur.vigentes += 1
+    cur.bruto    += d.montoBruto
+    if (d.tipo === 'Reembolsable') cur.reembolsable += d.montoBruto
+    if (d.categoria) cur.catCounts[d.categoria] = (cur.catCounts[d.categoria] ?? 0) + 1
+    centerMap.set(key, cur)
+  }
+  const centerRows = [...centerMap.values()].sort((a, b) => b.bruto - a.bruto)
 
   return (
     <div className="space-y-4">
-      {/* Top 4 summary cards */}
-      <div className="grid grid-cols-4 gap-4">
-        {[
-          { label: 'Documentos', value: activeDocs.length.toString(), sub: `${pagados} pagados${anuladas > 0 ? ` · ${anuladas} anuladas` : ''}`, icon: FileText, color: 'bg-brand-50 text-brand-600' },
-          { label: 'Monto Neto', value: fmtN(neto),             sub: '',                  icon: DollarSign,  color: 'bg-green-50 text-green-600' },
-          { label: taxLabel,     value: fmtN(tax),              sub: '',                  icon: Percent,     color: 'bg-amber-50 text-amber-600' },
-          { label: 'Total',      value: fmtN(total),            sub: '',                  icon: TrendingUp,  color: 'bg-indigo-50 text-indigo-600' },
-        ].map(c => (
-          <div key={c.label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${c.color}`}>
-              <c.icon size={18} />
+      {/* Top summary cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-brand-50 text-brand-600">
+            <FileText size={18} />
+          </div>
+          <div>
+            <p className="text-xl font-bold text-gray-900">{activeDocs.length}</p>
+            <p className="text-xs text-gray-500">Documentos</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">{pagados} pagados{anuladas > 0 ? ` · ${anuladas} anuladas` : ''}</p>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-green-50 text-green-600">
+            <DollarSign size={18} />
+          </div>
+          <div className="flex gap-10">
+            <div>
+              <p className="text-xl font-bold text-gray-900">{fmtN(neto)}</p>
+              <p className="text-xs text-gray-500">Monto Neto</p>
             </div>
             <div>
-              <p className="text-xl font-bold text-gray-900">{c.value}</p>
-              <p className="text-xs text-gray-500">{c.label}</p>
-              {c.sub && <p className="text-[10px] text-gray-400 mt-0.5">{c.sub}</p>}
+              <p className="text-xl font-bold text-gray-900">{fmtN(bruto)}</p>
+              <p className="text-xs text-gray-500">Monto Bruto</p>
             </div>
           </div>
-        ))}
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-amber-50 text-amber-600">
+            <Scale size={18} />
+          </div>
+          <div>
+            <p className="text-xl font-bold text-gray-900">{fmtN(brutoSinReemb)}</p>
+            <p className="text-xs text-gray-500">Bruto − Reembolsable</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">Bruto {fmtN(bruto)} − reemb. {fmtN(reembolsable)}</p>
+          </div>
+        </div>
       </div>
 
-      {/* Breakdown by entity and work center */}
-      <div className="grid grid-cols-2 gap-4">
-        <BreakdownTable
-          title="Neto y Bruto por Razón Social"
-          rows={groupByEntity(activeDocs)}
-        />
-        <BreakdownTable
-          title="Neto y Bruto por Centro de Trabajo"
-          rows={groupByCenter(activeDocs)}
-        />
-      </div>
+      {/* Totales por Razón Social — fila propia */}
+      <EntityBreakdownTable title="Totales por Razón Social" rows={entityRows} />
 
-      {/* Planta/Proyecto breakdown */}
-      <div className="grid grid-cols-2 gap-4">
-        <BreakdownTable
-          title="Planta Proyecto — por Razón Social"
-          rows={groupByEntity(plantaDocs)}
-          emptyLabel="Sin documentos clasificados como Planta/Proyecto"
-        />
-        <BreakdownTable
-          title="Planta Proyecto — por Centro de Trabajo"
-          rows={groupByCenter(plantaDocs)}
-          emptyLabel="Sin documentos clasificados como Planta/Proyecto"
-        />
-      </div>
-
-      {/* Reemplazos NR breakdown */}
-      <div className="grid grid-cols-2 gap-4">
-        <BreakdownTable
-          title="Reemplazos NR — por Razón Social"
-          rows={groupByEntity(reemplDocs)}
-          emptyLabel="Sin documentos clasificados como Reemplazos NR"
-        />
-        <BreakdownTable
-          title="Reemplazos NR — por Centro de Trabajo"
-          rows={groupByCenter(reemplDocs)}
-          emptyLabel="Sin documentos clasificados como Reemplazos NR"
-        />
-      </div>
+      {/* Totales por Centros de Trabajo — fila propia */}
+      <CenterBreakdownTable title="Totales por Centros de Trabajo" rows={centerRows} />
     </div>
   )
 }

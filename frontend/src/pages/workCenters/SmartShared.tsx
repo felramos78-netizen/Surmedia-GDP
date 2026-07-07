@@ -32,7 +32,23 @@ export const ENTITY_COLOR: Record<LegalEntity, string> = {
 
 export type SmartCategory = 'honorarios' | 'compras'
 
-// ── Constants for Areas and Categories ───────────────────────────────────────
+// ── Honorarios: Tipo y Categoría Surmedia (nivel documento) ──────────────────
+
+export const TIPOS = ['No Reembolsable', 'Reembolsable']
+
+export const CATEGORIAS_SURMEDIA = [
+  'Aseo y Servicios',
+  'Apoyo Operacional',
+  'Cobertura Operacional',
+  'Planta Operacional',
+  'Reemplazo',
+  'Práctica',
+  'Asesoría',
+  'Operaciones',
+  'Sin definir',
+]
+
+// ── Constants for Areas and Categories (Compras) ─────────────────────────────
 
 export const AREAS = ['Personas', 'Administración']
 
