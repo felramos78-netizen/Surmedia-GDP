@@ -571,8 +571,12 @@ export interface BudgetItem {
   spentAmount:  number
   sortOrder:    number
   notes:        string | null
-  createdAt:    string
-  updatedAt:    string
+  createdAt?:   string
+  updatedAt?:   string
+  // Gasto del año en curso desglosado por trimestre [Q1, Q2, Q3, Q4]
+  spentByQuarter?: number[]
+  // true = fila derivada de un gasto sin partida (no persistida, no editable)
+  virtual?:     boolean
 }
 
 export interface BudgetCategory {
