@@ -97,7 +97,12 @@
       "PowerShell($sp=\"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\bae4a4ff-a95d-435b-888f-c957587ddca3\\\\scratchpad\"; $out=Join-Path $sp \"Procedimiento - Onboarding de Colaboradores V1.docx\"; if\\(Test-Path $out\\){Remove-Item $out -Force}; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory\\(\\(Join-Path $sp \"ejemplo_extract\"\\), $out, [System.IO.Compression.CompressionLevel]::Optimal, $false\\); \\(Get-Item $out\\).Length)",
       "Bash(rm -rf verify)",
       "Bash(unzip -o \"Procedimiento - Onboarding de Colaboradores V1.docx\" -d verify)",
-      "Bash(unzip \"Procedimiento - Onboarding de Colaboradores V1.docx\" -d verify)"
+      "Bash(unzip \"Procedimiento - Onboarding de Colaboradores V1.docx\" -d verify)",
+      "Bash(grep -viE \"import|//\")",
+      "Bash(git rm *)",
+      "Bash(git push *)",
+      "Bash(GIT_TERMINAL_PROMPT=0 timeout 45 git ls-remote origin main)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }
