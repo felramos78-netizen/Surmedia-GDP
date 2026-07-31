@@ -59,3 +59,4 @@ uploads/
 
 # Reportes exportados (datos sensibles de RRHH — no commitear)
 backend/reportes/
+reportes/
