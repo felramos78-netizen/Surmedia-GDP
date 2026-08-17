@@ -6,6 +6,7 @@ import { getFormResponses, getSheetRowsByUrl, findRowByRut, mapRowToEmployee, ge
 import { sendEmail, sendTestEmail, buildFromDbTemplate } from '../services/email.service'
 import { sendEmailViaGmail, createGmailDraft, fetchGmailSignature, docxToPdfViaGoogleDrive } from '../services/gmail.service'
 import { examenesVar, beneficiosVar, tipoContratoVar, plazoContratoVar, stripRemovedParagraphs, stripSentinel, extractParagraphs, applyParagraphEdits } from '../services/docxTemplate'
+import { normalizeRut } from '../utils/rut'
 
 const UPLOADS_DIR = path.join(process.cwd(), 'uploads', 'documents')
 
@@ -181,12 +182,7 @@ function buildSendVars(proc: any): Record<string, string> {
   }
 }
 
-function normalizeRut(rut: string): string {
-  const clean = rut.replace(/\./g, '').trim()
-  const [body, dv] = clean.split('-')
-  if (!body || dv === undefined) return rut.trim()
-  return `${body.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}-${dv.toUpperCase()}`
-}
+// normalizeRut vive en utils/rut.ts — lo comparten employees, onboarding y reports
 
 // ─── Plantilla oficial de hitos (workflow Surmedia) ──────────────────────────
 // Cada hito tiene: id estable, período, nombre, herramienta, tipo de automatización,
@@ -1398,10 +1394,14 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     if (!selectedTaskIds?.length)  return reply.status(400).send({ message: 'Selecciona al menos un hito' })
 
     // Validar que el colaborador exista y no tenga proceso activo
+    // El RUT se normaliza para buscar y para guardar: si acá se busca en crudo y
+    // en otros endpoints normalizado, el mismo colaborador "aparece y desaparece".
+    const normalizedRut = normalizeRut(collaboratorRut)
+
     let employeeId: string | null = null
-    if (collaboratorRut?.trim()) {
+    if (normalizedRut) {
       const emp = await prisma.employee.findFirst({
-        where: { rut: collaboratorRut.trim() },
+        where: { rut: { equals: normalizedRut, mode: 'insensitive' } },
         select: { id: true },
       }).catch(() => null)
 
@@ -1414,7 +1414,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       employeeId = emp.id
 
       const existing = await prisma.onboardingProcess.findFirst({
-        where: { collaboratorRut: collaboratorRut.trim(), status: 'IN_PROGRESS' },
+        where: { collaboratorRut: normalizedRut, status: 'IN_PROGRESS' },
         select: { id: true },
       }).catch(() => null)
       if (existing) {
@@ -1479,7 +1479,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
 
     const process = await prisma.onboardingProcess.create({
       data: {
-        collaboratorRut:           collaboratorRut?.trim() || null,
+        collaboratorRut:           normalizedRut || null,
         collaboratorName:          collaboratorName.trim(),
         collaboratorEmail:         collaboratorEmail?.trim() || null,
         collaboratorPersonalEmail: collaboratorPersonalEmail?.trim() || null,
@@ -1901,7 +1901,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
 
     if (req.body.status !== undefined)                    updateData.status                    = req.body.status
     if (req.body.employeeId !== undefined)                updateData.employeeId                = req.body.employeeId
-    if (req.body.collaboratorRut !== undefined)           updateData.collaboratorRut           = req.body.collaboratorRut?.trim() || null
+    if (req.body.collaboratorRut !== undefined)           updateData.collaboratorRut           = normalizeRut(req.body.collaboratorRut) || null
     if (req.body.collaboratorName !== undefined)          updateData.collaboratorName          = req.body.collaboratorName?.trim()
     if (req.body.collaboratorEmail !== undefined)         updateData.collaboratorEmail         = req.body.collaboratorEmail?.trim() || null
     if (req.body.collaboratorPersonalEmail !== undefined) updateData.collaboratorPersonalEmail = req.body.collaboratorPersonalEmail?.trim() || null

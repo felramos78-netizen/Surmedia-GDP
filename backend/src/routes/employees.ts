@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import * as fs from 'fs'
 import * as path from 'path'
 import { requireRole } from '../middleware/requireRole'
+import { normalizeRut } from '../utils/rut'
 
 function resolveReportesDir(): string {
   const candidates = [
@@ -361,7 +362,11 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     if (!rut?.trim() || !firstName?.trim() || !lastName?.trim() || !startDate)
       return reply.status(400).send({ message: 'rut, firstName, lastName y startDate son requeridos' })
 
-    const existing = await fastify.prisma.employee.findUnique({ where: { rut: rut.trim() } })
+    // El RUT es el identificador único del colaborador: se normaliza antes de
+    // buscar duplicados y de guardar, para que toda la base use el mismo formato.
+    const normalizedRut = normalizeRut(rut)
+
+    const existing = await fastify.prisma.employee.findUnique({ where: { rut: normalizedRut } })
     if (existing) return reply.status(409).send({ message: 'Ya existe un colaborador con ese RUT', code: 'DUPLICATE_RUT' })
 
     const digits    = rut.replace(/\D/g, '')
@@ -371,7 +376,7 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
 
     const emp = await fastify.prisma.employee.create({
       data: {
-        rut:          rut.trim(),
+        rut:          normalizedRut,
         firstName:    firstName.trim(),
         lastName:     lastName.trim(),
         email:        resolvedEmail,
@@ -451,6 +456,9 @@ const employeeRoutes: FastifyPluginAsync = async (fastify) => {
     // rut y email son campos requeridos — no se pueden vaciar
     if ('rut'   in data && !data.rut)   return reply.status(400).send({ message: 'El RUT no puede estar vacío' })
     if ('email' in data && !data.email) return reply.status(400).send({ message: 'El correo corporativo no puede estar vacío' })
+
+    // Mismo criterio que en la creación: el RUT se guarda siempre normalizado.
+    if ('rut' in data) data.rut = normalizeRut(data.rut as string)
 
     try {
       const emp = await fastify.prisma.employee.update({ where: { id }, data })

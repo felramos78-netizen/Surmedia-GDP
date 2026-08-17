@@ -15,6 +15,7 @@ import ColaboradorDetallePage from '@/pages/colaboradores/ColaboradorDetallePage
 import CalendarioPage from '@/pages/calendario/CalendarioPage'
 import ProveedoresPage from '@/pages/proveedores/ProveedoresPage'
 import PresupuestoPage from '@/pages/budget/PresupuestoPage'
+import ReportesPage from '@/pages/reportes/ReportesPage'
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
               <Route path="/calendario"          element={<CalendarioPage />} />
               <Route path="/proveedores"         element={<ProveedoresPage />} />
               <Route path="/presupuesto"         element={<PresupuestoPage />} />
+              <Route path="/reportes"            element={<ReportesPage />} />
               <Route path="/" element={<Navigate to="/centros-trabajo" replace />} />
             </Route>
           </Route>

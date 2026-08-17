@@ -5,6 +5,7 @@ import {
   Users, FileText, UserPlus,
   Settings, Building2, Contact, Landmark, FileSpreadsheet, UserCircle2,
   RefreshCw, CheckCircle2, AlertTriangle, X, CalendarDays, Truck, Wallet,
+  BarChart3,
 } from 'lucide-react'
 import { useImportStore } from '@/store/importStore'
 
@@ -13,6 +14,7 @@ const navItems = [
   { to: '/centros-trabajo',  icon: Landmark,         label: 'Centros de Trabajo' },
   { to: '/proveedores',      icon: Truck,            label: 'Proveedores' },
   { to: '/presupuesto',      icon: Wallet,           label: 'Presupuesto DPDO' },
+  { to: '/reportes',         icon: BarChart3,        label: 'Reportes' },
   { to: '/recruitment',      icon: UserPlus,         label: 'Reclutamiento' },
   { to: '/calendario',       icon: CalendarDays,     label: 'Calendario' },
   { to: '/onboarding',       icon: Building2,        label: 'Onboarding' },

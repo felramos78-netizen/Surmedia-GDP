@@ -57,6 +57,8 @@ temp/
 # Uploads locales (en producción van a Drive)
 uploads/
 
-# Reportes exportados (datos sensibles de RRHH — no commitear)
-backend/reportes/
-reportes/
+# Reportes exportados (datos sensibles de RRHH — no commitear).
+# Anclados a la raíz: sin la barra inicial también ignoraban el código fuente
+# del módulo de reportes (frontend/src/pages/reportes/).
+/backend/reportes/
+/reportes/

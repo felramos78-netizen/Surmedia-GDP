@@ -102,7 +102,27 @@
       "Bash(git rm *)",
       "Bash(git push *)",
       "Bash(GIT_TERMINAL_PROMPT=0 timeout 45 git ls-remote origin main)",
-      "Bash(echo \"exit=$?\")"
+      "Bash(echo \"exit=$?\")",
+      "Bash(tasklist //FI \"IMAGENAME eq git.exe\")",
+      "Bash(tasklist //FI \"IMAGENAME eq git-credential-manager.exe\")",
+      "Bash(npx vercel *)",
+      "PowerShell(node \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\c6824127-d6c2-4769-9a1c-451f77875070\\\\scratchpad\\\\dump.js\" \"C:\\\\Users\\\\Felipe Ramos\\\\Downloads\\\\Reporte Honorarios 21-07 \\(1\\).xlsx\")",
+      "PowerShell(node \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\c6824127-d6c2-4769-9a1c-451f77875070\\\\scratchpad\\\\summ.js\" \"C:\\\\Users\\\\Felipe Ramos\\\\Downloads\\\\Reporte Honorarios 21-07 \\(1\\).xlsx\")",
+      "PowerShell(node \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\c6824127-d6c2-4769-9a1c-451f77875070\\\\scratchpad\\\\summ.js\" \"C:\\\\Users\\\\Felipe Ramos\\\\Downloads\\\\Informe Remuneraciones Abril 2026.xlsx\")",
+      "PowerShell(node \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\c6824127-d6c2-4769-9a1c-451f77875070\\\\scratchpad\\\\dash.js\")",
+      "PowerShell(node \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\c6824127-d6c2-4769-9a1c-451f77875070\\\\scratchpad\\\\checks.js\")",
+      "PowerShell(node \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\c6824127-d6c2-4769-9a1c-451f77875070\\\\scratchpad\\\\checks2.js\")",
+      "PowerShell(node \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\c6824127-d6c2-4769-9a1c-451f77875070\\\\scratchpad\\\\hon.js\")",
+      "Bash(npx --prefix \"C:/Users/Felipe Ramos/Proyectos/Surmedia-GDP\" tsx --tsconfig \"C:/Users/Felipe Ramos/Proyectos/Surmedia-GDP/frontend/tsconfig.app.json\" \"C:/Users/Felipe Ramos/Proyectos/Surmedia-GDP/frontend/verify-reports.ts\")",
+      "PowerShell(node \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\c6824127-d6c2-4769-9a1c-451f77875070\\\\scratchpad\\\\verify.js\")",
+      "PowerShell(node \"C:\\\\Users\\\\FELIPE~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP\\\\c6824127-d6c2-4769-9a1c-451f77875070\\\\scratchpad\\\\summ.js\" \"G:\\\\Unidades compartidas\\\\GDP\\\\Surmedia RRHH\\\\Compensaciones\\\\Informe Mensual Honorarios\\\\Reporte Honorarios 07.xlsx\")",
+      "Bash(npx --prefix \"C:/Users/Felipe Ramos/Proyectos/Surmedia-GDP\" tsx --tsconfig \"C:/Users/Felipe Ramos/Proyectos/Surmedia-GDP/frontend/tsconfig.app.json\" gen-julio.ts)",
+      "Bash(npx --prefix \"C:/Users/Felipe Ramos/Proyectos/Surmedia-GDP\" tsx --tsconfig \"C:/Users/Felipe Ramos/Proyectos/Surmedia-GDP/frontend/tsconfig.app.json\" gen-rem.ts 2026 4)",
+      "Bash(npx --prefix \"C:/Users/Felipe Ramos/Proyectos/Surmedia-GDP\" tsx --tsconfig \"C:/Users/Felipe Ramos/Proyectos/Surmedia-GDP/frontend/tsconfig.app.json\" gen-rem.ts 2026 7)",
+      "Read(//c/Users/FELIPE~1/AppData/Local/Temp/claude/C--Users-Felipe-Ramos-Proyectos-Surmedia-GDP/7941f358-6ccf-4d7a-935e-098a0e4ff93e/scratchpad/**)",
+      "Bash(mkdir -p doc1 doc2)",
+      "Bash(unzip -o -q \"/c/Users/Felipe Ramos/Downloads/440- CARTA ACEPTACIÓN PRACTICA EMPRESA  - 2026.docx\" -d doc1)",
+      "Bash(unzip -o -q \"/c/Users/Felipe Ramos/Downloads/440 - FORMULARIO INSCRIPCIÓN  PRÁCTICA - 2026.docx\" -d doc2)"
     ]
   }
 }
