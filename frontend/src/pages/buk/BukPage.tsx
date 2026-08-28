@@ -7,7 +7,7 @@ import { SmartImportTab } from '@/pages/workCenters/SmartTab'
 import {
   fetchBukPreview,
   type BukPreviewData, type BukSueldoNuevo, type BukSueldoCambio,
-  type BukDotacionCambio, type BukVacNueva, type BukDotacionNuevo,
+  type BukDotacionCambio, type BukVacNueva, type BukDotacionNuevo, type BukVacAprobadaNueva,
 } from '@/hooks/useBuk'
 import { useImportStore } from '@/store/importStore'
 
@@ -260,6 +260,44 @@ function TblVacNew({ rows, sel, setSel }: { rows: BukVacNueva[]; sel: Set<string
   )
 }
 
+function TblVacAprobadaNew({ rows, sel, setSel }: { rows: BukVacAprobadaNueva[]; sel: Set<string>; setSel: (s: Set<string>) => void }) {
+  const fmt = (d: string) => new Date(d + 'T00:00:00Z').toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
+  const today = new Date().toISOString().slice(0, 10)
+  return (
+    <table className="w-full text-xs">
+      <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase">
+        <tr>
+          <th className="px-3 py-1.5 w-8"></th>
+          <th className="px-3 py-1.5 text-left">Colaborador</th>
+          <th className="px-3 py-1.5">Emp.</th>
+          <th className="px-3 py-1.5 text-left">Inicio</th>
+          <th className="px-3 py-1.5 text-left">Término</th>
+          <th className="px-3 py-1.5 text-right">Días</th>
+          <th className="px-3 py-1.5 text-left">Tipo</th>
+          <th className="px-3 py-1.5 text-left">Aprobado por</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-gray-50">
+        {rows.map(r => (
+          <tr key={r.key} className={sel.has(r.key) ? 'bg-emerald-50/40' : 'hover:bg-gray-50'}>
+            <td className="px-3 py-1"><RowCheck checked={sel.has(r.key)} onChange={() => setSel(toggle(sel, r.key))} /></td>
+            <td className="px-3 py-1"><div className="font-medium text-gray-800">{r.nombre}</div><div className="text-gray-400">{r.rut}</div></td>
+            <td className="px-3 py-1"><Badge e={r.legalEntity} /></td>
+            <td className="px-3 py-1 text-gray-500">{fmt(r.startDate)}</td>
+            <td className="px-3 py-1 text-gray-500">{fmt(r.endDate)}</td>
+            <td className="px-3 py-1 text-right text-gray-700">{r.days}</td>
+            <td className="px-3 py-1 text-gray-500">
+              {r.tipo}
+              {r.startDate > today && <span className="ml-1.5 px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px]">futura</span>}
+            </td>
+            <td className="px-3 py-1 text-gray-500">{r.aprobadoPor || '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 function TblDotNew({ rows, sel, setSel }: { rows: BukDotacionNuevo[]; sel: Set<string>; setSel: (s: Set<string>) => void }) {
   const [exp, setExp] = useState<Set<string>>(new Set())
   const fmtDate = (d?: string | null) => d ? new Date(d + 'T00:00:00Z').toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : null
@@ -338,12 +376,14 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
   const vLChg  = data.vacLicencia?.cambios      ?? []
   const vLSync = data.vacLicencia?.sincronizados ?? []
   const vL     = [...vLNew, ...vLChg]
+  const vAN    = data.vacacionAprobada?.nuevas   ?? []
 
   const [selSN,   setSelSN]  = useState<Set<string>>(() => new Set(sN.map(r => r.key)))
   const [selSC,   setSelSC]  = useState<Set<string>>(() => new Set(sC.map(r => r.key)))
   const [selDC,   setSelDC]  = useState<Set<string>>(() => new Set(dC.map(r => r.key)))
   const [selVN,   setSelVN]  = useState<Set<string>>(() => new Set(vN.map(r => r.key)))
   const [selVL,   setSelVL]  = useState<Set<string>>(() => new Set(vL.map(r => r.key)))
+  const [selVAN,  setSelVAN] = useState<Set<string>>(() => new Set(vAN.map(r => r.key)))
   const [selSync, setSelSync] = useState<Set<string>>(new Set())
   const [selDN,   setSelDN]  = useState<Set<string>>(() => new Set(dN.map(r => `dot-nuevo|${r.rut}`)))
   const [sueldosOverrides, setSueldosOverrides] = useState<SueldosOverrides>(new Map())
@@ -352,13 +392,13 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
     ...sN.map(r => r.key), ...sC.map(r => r.key),
     ...dC.map(r => r.key), ...vN.map(r => r.key),
     ...dN.map(r => `dot-nuevo|${r.rut}`),
-    ...vL.map(r => r.key),
+    ...vL.map(r => r.key), ...vAN.map(r => r.key),
   ]
   const allSelected = allActionKeys.length > 0 && allActionKeys.every(k =>
-    selSN.has(k) || selSC.has(k) || selDC.has(k) || selVN.has(k) || selDN.has(k) || selVL.has(k)
+    selSN.has(k) || selSC.has(k) || selDC.has(k) || selVN.has(k) || selDN.has(k) || selVL.has(k) || selVAN.has(k)
   )
   const someSelected = allActionKeys.some(k =>
-    selSN.has(k) || selSC.has(k) || selDC.has(k) || selVN.has(k) || selDN.has(k) || selVL.has(k)
+    selSN.has(k) || selSC.has(k) || selDC.has(k) || selVN.has(k) || selDN.has(k) || selVL.has(k) || selVAN.has(k)
   )
   function toggleAll(on: boolean) {
     setSelSN(setAll(selSN, sN.map(r => r.key), on))
@@ -367,12 +407,13 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
     setSelVN(setAll(selVN, vN.map(r => r.key), on))
     setSelDN(setAll(selDN, dN.map(r => `dot-nuevo|${r.rut}`), on))
     setSelVL(setAll(selVL, vL.map(r => r.key), on))
+    setSelVAN(setAll(selVAN, vAN.map(r => r.key), on))
   }
 
   const { status: importStatus, startImport } = useImportStore()
   const isPending = importStatus === 'running'
 
-  const total = selSN.size + selSC.size + selDC.size + selVN.size + selSync.size + selDN.size + selVL.size
+  const total = selSN.size + selSC.size + selDC.size + selVN.size + selSync.size + selDN.size + selVL.size + selVAN.size
 
   function apply() {
     const overridesObj = sueldosOverrides.size > 0 ? Object.fromEntries(sueldosOverrides) : undefined
@@ -383,11 +424,12 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
       dotacion:    { cambiosKeys: [...selDC], nuevosKeys: [...selDN] },
       vacaciones:  { nuevasKeys: [...selVN] },
       vacLicencia: { keys: [...selVL] },
+      vacacionAprobada: { nuevasKeys: [...selVAN] },
     }, label)
     onDone()
   }
 
-  const hasActions = sN.length + sC.length + dC.length + vN.length + dN.length + vL.length > 0
+  const hasActions = sN.length + sC.length + dC.length + vN.length + dN.length + vL.length + vAN.length > 0
 
   return (
     <div className="space-y-4">
@@ -399,10 +441,12 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
         {dC.length > 0 && <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full">{dC.length} dotación con cambio</span>}
         {dN.length > 0 && <span className="px-2 py-1 bg-brand-50 text-brand-700 rounded-full">{dN.length} nuevos en BUK (no en GDP)</span>}
         {vN.length > 0 && <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">{vN.length} vacaciones nuevas</span>}
+        {vAN.length > 0 && <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-full">{vAN.length} vacaciones aprobadas nuevas</span>}
         {vLSync.length > 0 && <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full">{vLSync.length} saldos ya en GDP</span>}
         {vLNew.length > 0 && <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded-full">{vLNew.length} saldos nuevos</span>}
         {vLChg.length > 0 && <span className="px-2 py-1 bg-amber-50 text-amber-700 rounded-full">{vLChg.length} saldos con cambio</span>}
         {data.sueldos.sinEmpleado.length > 0 && <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full">{data.sueldos.sinEmpleado.length} RUTs sin coincidencia</span>}
+        {(data.vacacionAprobada?.sinMatch?.length ?? 0) > 0 && <span className="px-2 py-1 bg-gray-100 text-gray-500 rounded-full">{data.vacacionAprobada.sinMatch.length} nombres sin coincidencia (Vacación)</span>}
         {allActionKeys.length > 0 && (
           <button
             onClick={() => toggleAll(!allSelected)}
@@ -444,6 +488,13 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
           allKeys={vN.map(r => r.key)} selected={selVN}
           onToggleAll={on => setSelVN(setAll(selVN, vN.map(r => r.key), on))}>
           <TblVacNew rows={vN} sel={selVN} setSel={setSelVN} />
+        </Section>
+      )}
+      {vAN.length > 0 && (
+        <Section title="Vacaciones aprobadas nuevas (Libro Vacación) —" count={vAN.length} variant="new"
+          allKeys={vAN.map(r => r.key)} selected={selVAN}
+          onToggleAll={on => setSelVAN(setAll(selVAN, vAN.map(r => r.key), on))}>
+          <TblVacAprobadaNew rows={vAN} sel={selVAN} setSel={setSelVAN} />
         </Section>
       )}
       {sSync.length > 0 && (
@@ -556,8 +607,8 @@ function BukTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-sm text-gray-500">Lee automáticamente los 8 archivos Excel de la carpeta <code className="text-xs bg-gray-100 px-1 rounded">reportes/</code></p>
-          <p className="text-xs text-gray-400 mt-0.5">Comunicaciones y Consultoría · Dotación, Sueldos, Vacaciones tomadas, Vacaciones y licencia</p>
+          <p className="text-sm text-gray-500">Lee automáticamente los 10 archivos Excel de la carpeta <code className="text-xs bg-gray-100 px-1 rounded">reportes/</code></p>
+          <p className="text-xs text-gray-400 mt-0.5">Comunicaciones y Consultoría · Dotación, Sueldos, Vacaciones tomadas, Vacaciones y licencia, Vacación (aprobadas)</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="flex items-center gap-1.5">

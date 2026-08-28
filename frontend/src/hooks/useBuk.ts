@@ -31,11 +31,17 @@ export interface BukVacLicencia {
   saldoLegal: number; saldoProgresivas: number; saldoAdministrativos: number
   diasLicencias: number; vacacionesTomadas: number
 }
+export interface BukVacAprobadaNueva {
+  key: string; rut: string; nombre: string; legalEntity: string
+  startDate: string; endDate: string; days: number
+  tipo: string; aprobadoPor: string; fechaAprobacion: string | null; periodo: string
+}
 export interface BukPreviewData {
   sueldos:    { nuevos: BukSueldoNuevo[]; cambios: BukSueldoCambio[]; sincronizados: BukSueldoNuevo[]; sinEmpleado: string[] }
   dotacion:   { nuevos: BukDotacionNuevo[]; cambios: BukDotacionCambio[] }
   vacaciones: { nuevas: BukVacNueva[]; sinEmpleado: string[] }
   vacLicencia:{ nuevos: BukVacLicencia[]; cambios: BukVacLicencia[]; sincronizados: BukVacLicencia[]; sinEmpleado: string[] }
+  vacacionAprobada: { nuevas: BukVacAprobadaNueva[]; sinMatch: string[] }
 }
 export interface BukApplyPayload {
   year?: number
@@ -46,6 +52,7 @@ export interface BukApplyPayload {
   dotacion?:    { cambiosKeys?: string[]; nuevosKeys?: string[] }
   vacaciones?:  { nuevasKeys?: string[] }
   vacLicencia?: { keys?: string[] }
+  vacacionAprobada?: { nuevasKeys?: string[] }
 }
 
 export async function fetchBukPreview(year?: string): Promise<BukPreviewData & { _debug?: unknown }> {

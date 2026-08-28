@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Download, FileSpreadsheet, Receipt, AlertTriangle, Loader2 } from 'lucide-react'
+import { Download, FileSpreadsheet, Receipt, CalendarDays, AlertTriangle, Loader2 } from 'lucide-react'
 import { usePayrollTable, usePayrollYears } from '@/hooks/useDotacion'
-import { useHonorariosReport } from '@/hooks/useReports'
+import { useHonorariosReport, useVacacionesReport } from '@/hooks/useReports'
 import { exportRemuneracionesToExcel, buildRemuneracionRows } from './remuneracionesExcel'
 import { exportHonorariosToExcel } from './honorariosExcel'
+import { exportVacacionesToExcel } from './vacacionesExcel'
 import { ENTITY_OPTIONS, MONTH_NAMES, periodoLabel } from './reportShared'
 
 const CLP = new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 })
@@ -18,19 +19,21 @@ function defaultPeriodo() {
 // ── Tarjeta de reporte ────────────────────────────────────────────────────────
 
 interface ReportCardProps {
-  icon:        React.ReactNode
-  title:       string
-  description: string
-  isLoading:   boolean
-  count:       number
-  countLabel:  string
-  total?:      number
-  warnings?:   { label: string; count: number }[]
-  onDownload:  () => void
+  icon:          React.ReactNode
+  title:         string
+  description:   string
+  isLoading:     boolean
+  count:         number
+  countLabel:    string
+  total?:        number
+  warnings?:     { label: string; count: number }[]
+  warningsTitle?: string
+  onDownload:    () => void
 }
 
 function ReportCard({
-  icon, title, description, isLoading, count, countLabel, total, warnings = [], onDownload,
+  icon, title, description, isLoading, count, countLabel, total, warnings = [],
+  warningsTitle = 'Celdas sin completar', onDownload,
 }: ReportCardProps) {
   const empty = !isLoading && count === 0
 
@@ -66,7 +69,7 @@ function ReportCard({
               <div className="mt-3 flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
                 <AlertTriangle size={13} className="shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium">Celdas sin completar</p>
+                  <p className="font-medium">{warningsTitle}</p>
                   <p className="text-amber-600 mt-0.5">
                     {warnings.filter(w => w.count > 0).map(w => `${w.count} ${w.label}`).join(' · ')}
                   </p>
@@ -113,10 +116,16 @@ export default function ReportesPage() {
     year, month, legalEntity: legalEntity || undefined,
   })
 
+  const { data: vacaciones, isLoading: loadingVac } = useVacacionesReport({
+    legalEntity: legalEntity || undefined,
+  })
+
   const remRows   = useMemo(() => buildRemuneracionRows(payrollEntries), [payrollEntries])
   const remTotal  = remRows.reduce((s, r) => s + r.bruto, 0)
   const honRows   = honorarios?.data ?? []
   const honMeta   = honorarios?.meta
+  const vacRows   = vacaciones?.data ?? []
+  const vacMeta   = vacaciones?.meta
 
   return (
     <div className="p-8">
@@ -187,6 +196,20 @@ export default function ReportesPage() {
             { label: 'sin reembolsable',   count: honMeta?.pendientes.sinReembolsable  ?? 0 },
           ]}
           onDownload={() => exportHonorariosToExcel(honRows, year, month)}
+        />
+
+        <ReportCard
+          icon={<CalendarDays size={19} />}
+          title="Saldo de Vacaciones"
+          description={`Saldo vigente al ${vacMeta ? new Date(vacMeta.asOfDate + 'T00:00:00').toLocaleDateString('es-CL') : '—'}, descontando vacaciones aprobadas aún no ocurridas.`}
+          isLoading={loadingVac}
+          count={vacRows.length}
+          countLabel={vacRows.length === 1 ? 'colaborador' : 'colaboradores'}
+          warnings={[
+            { label: 'con descuento por vacaciones aprobadas futuras', count: vacMeta?.conDescuento ?? 0 },
+          ]}
+          warningsTitle="Ajustes aplicados"
+          onDownload={() => exportVacacionesToExcel(vacRows, vacMeta?.asOfDate ?? new Date().toISOString().slice(0, 10))}
         />
       </div>
 

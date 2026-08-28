@@ -43,6 +43,21 @@ function serialToDate(val: unknown): Date | null {
   return new Date((n - 25569) * 86400 * 1000)
 }
 
+// Fecha texto "DD/MM/YYYY" (o serial de Excel) → JS Date (UTC medianoche)
+function parseFlexDate(val: unknown): Date | null {
+  if (!val) return null
+  const s = String(val).trim()
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m) return new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1])))
+  return serialToDate(val)
+}
+
+// "5,00" → 5 (números con coma decimal, formato chileno)
+function parseComaNum(val: unknown): number {
+  const n = parseFloat(String(val ?? '').trim().replace(',', '.'))
+  return isNaN(n) ? 0 : n
+}
+
 // Incluye variantes mayús/minús del dígito verificador para queries case-sensitive
 function rutVariants(ruts: string[]): string[] {
   const set = new Set<string>()
@@ -357,6 +372,66 @@ function parseVacLicencia(yearOverride?: number): VacLicRow[] {
   return out
 }
 
+// ── Vacación (libro de solicitudes aprobadas) parser ──────────────────────────
+// A diferencia de "Vacaciones tomadas", este libro no trae RUT — solo
+// "Apellido, Nombres" — y cubre TODO el historial (pasado y futuro), no solo
+// el mes en curso. El match contra Employee se hace por nombre en la ruta.
+
+interface VacAprobadaRaw {
+  legalEntity: LegalEntityKey
+  apellido: string
+  nombre: string
+  startDate: Date
+  endDate: Date
+  days: number
+  tipo: string
+  aprobadoPor: string
+  fechaAprobacion: Date | null
+  periodo: string
+}
+
+function parseVacacionAprobada(): VacAprobadaRaw[] {
+  const out: VacAprobadaRaw[] = []
+  for (const { dir, entity } of FOLDERS) {
+    const fp = latestFile(path.join(REPORTES_DIR, dir), 'Vacación')
+    if (!fp) continue
+    const wb  = XLSX.readFile(fp)
+    const ws  = wb.Sheets[wb.SheetNames[0]]
+    const raw = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1, defval: '' }) as any[][]
+    const hdrIdx = raw.findIndex(r => r.some((c: any) => String(c).toLowerCase().includes('empleado')) &&
+      r.some((c: any) => String(c).toLowerCase().includes('inicio')))
+    if (hdrIdx === -1) continue
+
+    const headers = raw[hdrIdx].map((h: any) => String(h).trim())
+    const cc = (t: string) => headers.findIndex(h => h.toLowerCase().includes(t.toLowerCase()))
+    const EMP_COL = cc('empleado'), INI_COL = cc('inicio'), TER_COL = cc('término')
+    const DIA_COL = cc('días solicitados'), TIP_COL = cc('tipo de vacación')
+    const APR_COL = cc('aprobado por'), FAP_COL = cc('fecha de aprobación'), PER_COL = cc('período')
+    if (EMP_COL === -1 || INI_COL === -1 || TER_COL === -1) continue
+
+    for (let i = hdrIdx + 1; i < raw.length; i++) {
+      const r = raw[i]
+      const empleado = String(r[EMP_COL] ?? '').trim()
+      if (!empleado) continue
+      const [apellido, nombre] = empleado.split(',').map(s => s?.trim() ?? '')
+      if (!apellido || !nombre) continue
+      const sd = parseFlexDate(r[INI_COL]), ed = parseFlexDate(r[TER_COL])
+      if (!sd || !ed) continue
+      out.push({
+        legalEntity: entity,
+        apellido, nombre,
+        startDate: sd, endDate: ed,
+        days: Math.round(parseComaNum(r[DIA_COL])) || (Math.round((ed.getTime() - sd.getTime()) / 86400000) + 1),
+        tipo: String(r[TIP_COL] ?? '').trim() || 'Legales',
+        aprobadoPor: String(r[APR_COL] ?? '').trim(),
+        fechaAprobacion: FAP_COL !== -1 ? parseFlexDate(r[FAP_COL]) : null,
+        periodo: String(r[PER_COL] ?? '').trim(),
+      })
+    }
+  }
+  return out
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 const bukRoutes: FastifyPluginAsync = async (fastify) => {
@@ -488,8 +563,32 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       if (campos.length > 0) dotCambios.push({ key: `dotacion|${row.rut}`, rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, campos })
     }
 
-    // ── Vacaciones diff ───────────────────────────────────────────────────
-    const vacRuts = [...new Set(vacRows.map(r => r.rut))]
+    // ── Vacación (aprobadas) — match por nombre (el libro no trae RUT) ─────
+    const vacAprobadaRaw = parseVacacionAprobada()
+    const allEmpsForMatch = await fastify.prisma.employee.findMany({
+      select: { id: true, rut: true, firstName: true, lastName: true },
+    })
+    const nameKey = (apellido: string, nombre: string) => `${apellido.trim().toLowerCase()}|${nombre.trim().toLowerCase()}`
+    const empByNameKey = new Map(allEmpsForMatch.map(e => [nameKey(e.lastName.split(/\s+/)[0] ?? '', e.firstName), e]))
+
+    type VacAprobadaItem = { key: string; rut: string; nombre: string; legalEntity: LegalEntityKey; startDate: string; endDate: string; days: number; tipo: string; aprobadoPor: string; fechaAprobacion: string | null; periodo: string }
+    const vacAprobadaResolved: VacAprobadaItem[] = []
+    const vacAprobadaSinMatch: string[] = []
+    for (const row of vacAprobadaRaw) {
+      const emp = empByNameKey.get(nameKey(row.apellido, row.nombre))
+      if (!emp) { vacAprobadaSinMatch.push(`${row.apellido}, ${row.nombre}`); continue }
+      vacAprobadaResolved.push({
+        key: `vac|${upRut(emp.rut)}|${row.startDate.toISOString().slice(0, 10)}`,
+        rut: upRut(emp.rut), nombre: `${row.apellido}, ${row.nombre}`, legalEntity: row.legalEntity,
+        startDate: row.startDate.toISOString().slice(0, 10), endDate: row.endDate.toISOString().slice(0, 10), days: row.days,
+        tipo: row.tipo, aprobadoPor: row.aprobadoPor,
+        fechaAprobacion: row.fechaAprobacion ? row.fechaAprobacion.toISOString().slice(0, 10) : null,
+        periodo: row.periodo,
+      })
+    }
+
+    // ── Vacaciones diff (tomadas + aprobadas, comparten el mismo pool de Leave) ─
+    const vacRuts = [...new Set([...vacRows.map(r => r.rut), ...vacAprobadaResolved.map(r => r.rut)])]
     const [dbEmpsVac, dbLeaves] = await Promise.all([
       fastify.prisma.employee.findMany({
         where: { rut: { in: rutVariants(vacRuts) } },
@@ -511,6 +610,10 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       if (!existingLeaves.has(row.key))
         vacNuevas.push({ key: row.key, rut: row.rut, nombre: row.nombre, legalEntity: row.legalEntity, startDate: row.startDate.toISOString().slice(0, 10), endDate: row.endDate.toISOString().slice(0, 10), days: row.days })
     }
+
+    // vacacionAprobada nuevas: no ya en DB y no propuestas ya por "tomadas" en este mismo preview
+    const vacNuevasKeySet = new Set(vacNuevas.map(v => v.key))
+    const vacAprobadaNuevas = vacAprobadaResolved.filter(r => !existingLeaves.has(r.key) && !vacNuevasKeySet.has(r.key))
 
     // ── Vacaciones y licencia diff ─────────────────────────────────────────
     const vacLicRuts = [...new Set(vacLicRows.map(r => r.rut))]
@@ -572,6 +675,7 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
         dotacion:   { nuevos: dotNuevos,     cambios: dotCambios },
         vacaciones: { nuevas: vacNuevas,     sinEmpleado: [...new Set(vacSinEmpleado)] },
         vacLicencia:{ nuevos: vacLicNuevos, cambios: vacLicCambios, sincronizados: vacLicSincronizados, sinEmpleado: vacLicSinEmpleado },
+        vacacionAprobada: { nuevas: vacAprobadaNuevas, sinMatch: [...new Set(vacAprobadaSinMatch)] },
       },
     })
   })
@@ -587,9 +691,10 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       dotacion?:    { cambiosKeys?: string[]; nuevosKeys?: string[] }
       vacaciones?:  { nuevasKeys?: string[] }
       vacLicencia?: { keys?: string[] }
+      vacacionAprobada?: { nuevasKeys?: string[] }
     }
   }>('/apply', { bodyLimit: 1_000_000, preHandler: requireRole('ADMIN', 'RRHH_MANAGER') }, async (req, reply) => {
-    const { sueldos, dotacion, vacaciones, vacLicencia, year: yearOverride } = req.body
+    const { sueldos, dotacion, vacaciones, vacLicencia, vacacionAprobada, year: yearOverride } = req.body
     const sueldosAllKeys = new Set([
       ...(sueldos?.nuevosKeys       ?? []),
       ...(sueldos?.cambiosKeys      ?? []),
@@ -599,6 +704,7 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
     const dotNuevosKeys   = new Set(dotacion?.nuevosKeys  ?? [])
     const vacNuevasKeys   = new Set(vacaciones?.nuevasKeys ?? [])
     const vacLicKeys   = new Set(vacLicencia?.keys ?? [])
+    const vacAprobadaKeys = new Set(vacacionAprobada?.nuevasKeys ?? [])
     const applied = { sueldos: 0, dotacion: 0, vacaciones: 0, vacLicencia: 0 }
 
     // ── Sueldos (batch con $transaction) ─────────────────────────────────
@@ -758,6 +864,34 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       if (leaveData.length > 0) {
         await fastify.prisma.leave.createMany({ data: leaveData, skipDuplicates: true })
         applied.vacaciones = leaveData.length
+      }
+    }
+
+    // ── Vacación (aprobadas, match por nombre) — createMany ─────────────────
+    if (vacAprobadaKeys.size > 0) {
+      const raw = parseVacacionAprobada()
+      const allEmps = await fastify.prisma.employee.findMany({
+        select: { id: true, rut: true, firstName: true, lastName: true },
+      })
+      const nameKey = (apellido: string, nombre: string) => `${apellido.trim().toLowerCase()}|${nombre.trim().toLowerCase()}`
+      const empByNameKey = new Map(allEmps.map(e => [nameKey(e.lastName.split(/\s+/)[0] ?? '', e.firstName), e]))
+
+      const leaveData = raw.flatMap(row => {
+        const emp = empByNameKey.get(nameKey(row.apellido, row.nombre))
+        if (!emp) return []
+        const key = `vac|${upRut(emp.rut)}|${row.startDate.toISOString().slice(0, 10)}`
+        if (!vacAprobadaKeys.has(key)) return []
+        const tipoCorto = row.tipo.toLowerCase().includes('administrativ') ? 'Administrativos' : 'Legales'
+        return [{
+          employeeId: emp.id, type: 'VACACIONES' as any, startDate: row.startDate, endDate: row.endDate,
+          days: row.days, status: 'APPROVED' as any,
+          reason: `${tipoCorto} · Periodo ${row.periodo || 's/i'} · Importado desde BUK (Libro Vacación)`,
+          approvedBy: row.aprobadoPor || null, approvedAt: row.fechaAprobacion,
+        }]
+      })
+      if (leaveData.length > 0) {
+        await fastify.prisma.leave.createMany({ data: leaveData, skipDuplicates: true })
+        applied.vacaciones += leaveData.length
       }
     }
 

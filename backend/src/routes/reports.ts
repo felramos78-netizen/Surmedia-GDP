@@ -10,6 +10,13 @@ const ENTITY_LABEL: Record<LegalEntity, string> = {
   SURMEDIA_CONSULTORIA:    'Consultoría',
 }
 
+// Nombre largo de razón social — así venía el reporte de Saldo de Vacaciones
+// que RRHH ya usaba antes de integrarlo a este módulo.
+const ENTITY_LABEL_LARGO: Record<LegalEntity, string> = {
+  COMUNICACIONES_SURMEDIA: 'Comunicaciones Surmedia',
+  SURMEDIA_CONSULTORIA:    'Surmedia Consultoría',
+}
+
 // Alias históricos de la columna "Contrato" de los reportes manuales de honorarios
 // hacia el nombre real del centro de trabajo en GDP. Se usan para resolver un
 // centro cuando el texto no coincide exacto con el catálogo.
@@ -114,6 +121,70 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
         total:      rows.length,
         montoTotal: rows.reduce((s, r) => s + r.montoTotal, 0),
         pendientes,
+      },
+    })
+  })
+
+  // GET /api/reports/vacaciones?legalEntity=COMUNICACIONES_SURMEDIA
+  //
+  // Saldo de vacaciones vigente (última entrada de VacationBalance por
+  // colaborador × razón social) descontando las vacaciones ya APROBADAS cuyo
+  // período todavía no ocurre a la fecha de hoy — para que RRHH no apruebe
+  // más días de los que realmente quedan disponibles. Ver [[vacaciones-aprobadas-libro-vacacion]]
+  // en la memoria del proyecto para el detalle de esta decisión de negocio.
+  fastify.get<{ Querystring: { legalEntity?: string } }>('/vacaciones', async (req, reply) => {
+    const today = new Date()
+    const entityFilter = req.query.legalEntity as LegalEntity | undefined
+
+    const employees = await fastify.prisma.employee.findMany({
+      where: { status: { in: ['ACTIVE', 'ON_LEAVE'] } },
+      select: {
+        firstName: true, lastName: true, rut: true, jobTitle: true,
+        vacationBalances: {
+          where: entityFilter ? { legalEntity: entityFilter } : undefined,
+          orderBy: [{ year: 'desc' }, { month: 'desc' }],
+          select: { legalEntity: true, year: true, month: true, saldoLegal: true, saldoProgresivas: true, saldoAdministrativos: true },
+        },
+        leaves: {
+          where: { type: 'VACACIONES', status: 'APPROVED', startDate: { gt: today } },
+          select: { days: true, reason: true },
+        },
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+    })
+
+    const rows = employees.flatMap(e => {
+      const latestByEntity = new Map<LegalEntity, typeof e.vacationBalances[0]>()
+      for (const b of e.vacationBalances) if (!latestByEntity.has(b.legalEntity)) latestByEntity.set(b.legalEntity, b)
+      if (latestByEntity.size === 0) return []
+
+      let pendienteVacaciones = 0, pendienteAdmin = 0
+      for (const l of e.leaves) {
+        if ((l.reason ?? '').toLowerCase().includes('administrativ')) pendienteAdmin += l.days
+        else pendienteVacaciones += l.days
+      }
+
+      return [...latestByEntity.entries()].map(([legalEntity, b]) => {
+        const diasVacacionesDisponibles = b.saldoLegal + b.saldoProgresivas
+        const diasAdministrativos       = b.saldoAdministrativos
+        return {
+          rut: e.rut ?? '', nombre: `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim(), cargo: e.jobTitle ?? '',
+          razonSocial: ENTITY_LABEL_LARGO[legalEntity], legalEntity,
+          periodo: `${b.month}/${b.year}`,
+          diasVacacionesDisponibles, diasAdministrativos,
+          pendienteVacaciones, pendienteAdmin,
+          diasVacacionesAjustado:    diasVacacionesDisponibles - pendienteVacaciones,
+          diasAdministrativosAjustado: diasAdministrativos - pendienteAdmin,
+        }
+      })
+    })
+
+    return reply.send({
+      data: rows,
+      meta: {
+        asOfDate: today.toISOString().slice(0, 10),
+        total: rows.length,
+        conDescuento: rows.filter(r => r.pendienteVacaciones > 0 || r.pendienteAdmin > 0).length,
       },
     })
   })

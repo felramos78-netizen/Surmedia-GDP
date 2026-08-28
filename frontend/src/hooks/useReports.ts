@@ -46,6 +46,42 @@ export function useHonorariosReport(filters: { year: number; month: number; lega
   })
 }
 
+export interface VacacionReportRow {
+  rut:                          string
+  nombre:                       string
+  cargo:                        string
+  razonSocial:                  string
+  legalEntity:                  string
+  periodo:                      string
+  diasVacacionesDisponibles:    number
+  diasAdministrativos:          number
+  pendienteVacaciones:          number
+  pendienteAdmin:               number
+  diasVacacionesAjustado:       number
+  diasAdministrativosAjustado:  number
+}
+
+export interface VacacionReportMeta {
+  asOfDate:     string
+  total:        number
+  conDescuento: number
+}
+
+export function useVacacionesReport(filters: { legalEntity?: string }) {
+  return useQuery({
+    queryKey: ['vacacionesReport', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (filters.legalEntity) params.set('legalEntity', filters.legalEntity)
+      const qs = params.toString()
+      const { data } = await api.get<{ data: VacacionReportRow[]; meta: VacacionReportMeta }>(
+        `/reports/vacaciones${qs ? `?${qs}` : ''}`
+      )
+      return data
+    },
+  })
+}
+
 export interface HonorarioPeriodo {
   year:  number
   month: number
