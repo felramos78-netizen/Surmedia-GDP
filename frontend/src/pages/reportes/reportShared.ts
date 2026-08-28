@@ -2,7 +2,6 @@
 import * as XLSX from 'xlsx'
 
 export const CLP_FMT  = '$#,##0'
-export const DATE_FMT = 'dd/mm/yyyy'
 
 export const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -23,15 +22,6 @@ export function periodoLabel(year: number, month: number): string {
 /** "2026-07" — para nombres de archivo ordenables */
 export function periodoSlug(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, '0')}`
-}
-
-/** Aplica formato a una columna completa (saltando el encabezado). */
-export function formatColumn(ws: XLSX.WorkSheet, col: number, fmt: string) {
-  const range = XLSX.utils.decode_range(ws['!ref']!)
-  for (let R = range.s.r + 1; R <= range.e.r; R++) {
-    const cell = ws[XLSX.utils.encode_cell({ r: R, c: col })]
-    if (cell && (typeof cell.v === 'number' || cell.v instanceof Date)) cell.z = fmt
-  }
 }
 
 /**
