@@ -62,3 +62,6 @@ uploads/
 # del módulo de reportes (frontend/src/pages/reportes/).
 /backend/reportes/
 /reportes/
+
+# Excel de trabajo sueltos en la raíz (datos sensibles de RRHH — no commitear)
+/*.xlsx
