@@ -117,7 +117,7 @@ export interface DocSummary {
   lastSync:          { at: string | null; filesAdded: number; filesRemoved: number; failed: number } | null
   totalDocs:         number
   totalFichas:       number
-  activeFichas:      number
+  activePeople:      number  // personas (RUT) con al menos una ficha BUK activa
   uncategorizedDocs: number
   categories:        DocCategorySummary[]
   topUncategorized:  { stem: string; docs: number; fichas: number; example: string }[]
@@ -145,19 +145,18 @@ export function useStartDocSync() {
   })
 }
 
-export interface MissingFicha {
-  legalEntity:   LegalEntity
-  bukEmployeeId: number
+export interface MissingPerson {
   rut:           string
   fullName:      string
   employeeId:    string | null
+  legalEntities: LegalEntity[]
 }
 
 export function useCategoryMissing(categoryId: string | null) {
   return useQuery({
     queryKey: ['docCategoryMissing', categoryId],
     queryFn: async () => {
-      const { data } = await api.get<MissingFicha[]>(`/documents/categories/${categoryId}/missing`)
+      const { data } = await api.get<MissingPerson[]>(`/documents/categories/${categoryId}/missing`)
       return data
     },
     enabled: !!categoryId,

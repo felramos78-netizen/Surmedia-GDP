@@ -182,18 +182,21 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
   // ── Dashboard ───────────────────────────────────────────────────────────────
 
   // GET /api/documents/summary — documentos por categoría, cobertura de los
-  // obligatorios entre fichas activas y los nombres más frecuentes sin clasificar
+  // obligatorios por persona activa y los nombres más frecuentes sin clasificar.
+  // La cobertura es por persona (RUT), no por ficha: quien tiene el documento en
+  // otra ficha (la otra razón social o una ficha anterior por recontratación)
+  // cuenta como cubierto.
   fastify.get('/summary', async () => {
     await ensureDefaultCategories(prisma)
     void autoSyncIfStale(prisma, logErr)
     const live = { removedAt: null }
-    const [categories, byCategory, catFichas, allFichas, activeFichas, activeCatFichas, uncategorized, last] = await Promise.all([
+    const [categories, byCategory, catFichas, allFichas, activeRuts, catRuts, uncategorized, last] = await Promise.all([
       prisma.documentCategory.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
       prisma.bukDocument.groupBy({ by: ['categoryId'], where: live, _count: { _all: true } }),
       prisma.bukDocument.groupBy({ by: ['categoryId', 'legalEntity', 'bukEmployeeId'], where: live }),
       prisma.bukDocument.groupBy({ by: ['legalEntity', 'bukEmployeeId'], where: live }),
-      prisma.bukDocument.groupBy({ by: ['legalEntity', 'bukEmployeeId'], where: { ...live, bukStatus: ACTIVE } }),
-      prisma.bukDocument.groupBy({ by: ['categoryId', 'legalEntity', 'bukEmployeeId'], where: { ...live, bukStatus: ACTIVE } }),
+      prisma.bukDocument.groupBy({ by: ['rut'], where: { ...live, bukStatus: ACTIVE } }),
+      prisma.bukDocument.groupBy({ by: ['categoryId', 'rut'], where: live }),
       prisma.bukDocument.findMany({ where: { ...live, categoryId: null }, select: { filename: true, personName: true, legalEntity: true, bukEmployeeId: true } }),
       lastFullSync(prisma),
     ])
@@ -205,7 +208,8 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const docs = new Map(byCategory.map(r => [r.categoryId, r._count._all]))
     const fichas = countBy(catFichas)
-    const activeWith = countBy(activeCatFichas)
+    const active = new Set(activeRuts.map(r => r.rut))
+    const activeWith = countBy(catRuts.filter(r => active.has(r.rut)))
 
     // Nombres sin clasificar más frecuentes (para crear categorías nuevas)
     const stems = new Map<string, { docs: number; fichas: Set<string>; example: string }>()
@@ -221,7 +225,7 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
       lastSync:     last ? { at: last.finishedAt?.toISOString() ?? null, filesAdded: last.filesAdded, filesRemoved: last.filesRemoved, failed: last.failed } : null,
       totalDocs:    [...docs.values()].reduce((a, b) => a + b, 0),
       totalFichas:  allFichas.length,
-      activeFichas: activeFichas.length,
+      activePeople: active.size,
       uncategorizedDocs: docs.get(null) ?? 0,
       categories: categories.map(c => ({
         id: c.id, name: c.name, group: c.group, keywords: c.keywords, required: c.required, sortOrder: c.sortOrder,
@@ -236,18 +240,24 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
     }
   })
 
-  // GET /api/documents/categories/:id/missing — fichas activas sin documentos de la categoría
+  // GET /api/documents/categories/:id/missing — personas activas que no tienen
+  // documentos de la categoría en ninguna de sus fichas BUK
   fastify.get<{ Params: { id: string } }>('/categories/:id/missing', async (req) => {
-    const where = { removedAt: null, bukStatus: ACTIVE }
-    const [active, withCat] = await Promise.all([
-      prisma.bukDocument.groupBy({ by: ['legalEntity', 'bukEmployeeId', 'rut', 'personName', 'employeeId'], where }),
-      prisma.bukDocument.groupBy({ by: ['legalEntity', 'bukEmployeeId'], where: { ...where, categoryId: req.params.id } }),
+    const live = { removedAt: null }
+    const [activeFichas, withCat] = await Promise.all([
+      prisma.bukDocument.groupBy({ by: ['rut', 'legalEntity', 'personName', 'employeeId'], where: { ...live, bukStatus: ACTIVE } }),
+      prisma.bukDocument.groupBy({ by: ['rut'], where: { ...live, categoryId: req.params.id } }),
     ])
-    const has = new Set(withCat.map(fichaKey))
-    return active
-      .filter(f => !has.has(fichaKey(f)))
-      .map(f => ({ legalEntity: f.legalEntity, bukEmployeeId: f.bukEmployeeId, rut: f.rut, fullName: f.personName, employeeId: f.employeeId }))
-      .sort((a, b) => a.fullName.localeCompare(b.fullName, 'es'))
+    const has = new Set(withCat.map(r => r.rut))
+    const people = new Map<string, { rut: string; fullName: string; employeeId: string | null; legalEntities: LegalEntity[] }>()
+    for (const f of activeFichas) {
+      if (has.has(f.rut)) continue
+      const p = people.get(f.rut) ?? { rut: f.rut, fullName: f.personName, employeeId: f.employeeId, legalEntities: [] }
+      if (!p.legalEntities.includes(f.legalEntity)) p.legalEntities.push(f.legalEntity)
+      p.employeeId ??= f.employeeId
+      people.set(f.rut, p)
+    }
+    return [...people.values()].sort((a, b) => a.fullName.localeCompare(b.fullName, 'es'))
   })
 
   // ── Categorías (CRUD) ───────────────────────────────────────────────────────

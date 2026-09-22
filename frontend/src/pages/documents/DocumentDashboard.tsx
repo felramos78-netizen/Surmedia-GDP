@@ -38,8 +38,8 @@ function Meter({ value, max }: { value: number; max: number }) {
   )
 }
 
-function MissingModal({ category, activeFichas, onClose, onOpenEmployee }: {
-  category: DocCategorySummary; activeFichas: number; onClose: () => void; onOpenEmployee: (id: string) => void
+function MissingModal({ category, activePeople, onClose, onOpenEmployee }: {
+  category: DocCategorySummary; activePeople: number; onClose: () => void; onOpenEmployee: (id: string) => void
 }) {
   useEscapeKey(onClose)
   const { data, isLoading } = useCategoryMissing(category.id)
@@ -54,21 +54,23 @@ function MissingModal({ category, activeFichas, onClose, onOpenEmployee }: {
           <div>
             <h2 className="text-base font-semibold text-gray-900">Activos sin {category.name}</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              {data ? `${data.length} de ${activeFichas} fichas BUK activas` : 'Cargando…'}
+              {data ? `${data.length} de ${activePeople} personas activas (revisando todas sus fichas BUK)` : 'Cargando…'}
             </p>
           </div>
           <button onClick={onClose} aria-label="Cerrar" className="p-1 text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <ul className="overflow-y-auto divide-y divide-gray-50 px-2 py-2">
           {isLoading && <li className="px-4 py-3 text-sm text-gray-400">Cargando…</li>}
-          {data?.length === 0 && <li className="px-4 py-3 text-sm text-gray-400">Todas las fichas activas tienen este documento.</li>}
+          {data?.length === 0 && <li className="px-4 py-3 text-sm text-gray-400">Todas las personas activas tienen este documento.</li>}
           {data?.map(f => (
-            <li key={`${f.legalEntity}-${f.bukEmployeeId}`} className="flex items-center gap-3 px-4 py-2.5">
+            <li key={f.rut} className="flex items-center gap-3 px-4 py-2.5">
               <span className="flex-1 min-w-0">
                 <span className="block text-sm text-gray-800 truncate">{f.fullName}</span>
                 <span className="block text-xs text-gray-400">{f.rut}</span>
               </span>
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ENTITY_COLOR[f.legalEntity]}`}>{ENTITY_LABEL[f.legalEntity]}</span>
+              {f.legalEntities.map(e => (
+                <span key={e} className={`text-xs font-medium px-2 py-0.5 rounded-full ${ENTITY_COLOR[e]}`}>{ENTITY_LABEL[e]}</span>
+              ))}
               {f.employeeId ? (
                 <button
                   onClick={() => onOpenEmployee(f.employeeId!)}
@@ -94,17 +96,17 @@ function RequiredCoverage({ summary, onMissing }: { summary: DocSummary; onMissi
       <div className="flex items-center gap-2 mb-4">
         <ShieldCheck size={16} className="text-brand-600" />
         <h2 className="text-sm font-semibold text-gray-900">Documentos obligatorios</h2>
-        <span className="text-xs text-gray-400">cobertura sobre {summary.activeFichas} fichas BUK activas</span>
+        <span className="text-xs text-gray-400">cobertura sobre {summary.activePeople} personas activas, en cualquiera de sus fichas BUK</span>
       </div>
       <div className="space-y-3">
         {required.map(c => {
-          const missing = summary.activeFichas - c.activeWith
+          const missing = summary.activePeople - c.activeWith
           return (
             <div key={c.id} className="grid grid-cols-[10rem_1fr_9rem_8rem] items-center gap-4">
               <span className="text-sm text-gray-700 truncate" title={c.name}>{c.name}</span>
-              <Meter value={c.activeWith} max={summary.activeFichas} />
+              <Meter value={c.activeWith} max={summary.activePeople} />
               <span className="text-xs text-gray-600 tabular-nums">
-                {c.activeWith} de {summary.activeFichas} ({pct(c.activeWith, summary.activeFichas)}%)
+                {c.activeWith} de {summary.activePeople} ({pct(c.activeWith, summary.activePeople)}%)
               </span>
               {missing > 0 ? (
                 <button onClick={() => onMissing(c)} className="flex items-center gap-1 text-xs text-amber-700 hover:underline justify-self-start">
@@ -162,7 +164,7 @@ export default function DocumentDashboard({ onSearchCategory, onOpenEmployee }: 
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <StatTile label="Documentos en BUK" value={fmt(data.totalDocs)} />
-            <StatTile label="Fichas con documentos" value={fmt(data.totalFichas)} detail={`${data.activeFichas} activas`} />
+            <StatTile label="Fichas con documentos" value={fmt(data.totalFichas)} detail={`${data.activePeople} personas activas`} />
             <StatTile label="Categorías" value={fmt(data.categories.length)} detail={`${groupNames.length} grupos`} />
             <StatTile
               label="Sin clasificar"
@@ -263,7 +265,7 @@ export default function DocumentDashboard({ onSearchCategory, onOpenEmployee }: 
       {missing && (
         <MissingModal
           category={missing}
-          activeFichas={data.activeFichas}
+          activePeople={data.activePeople}
           onClose={() => setMissing(null)}
           onOpenEmployee={id => { setMissing(null); onOpenEmployee(id) }}
         />

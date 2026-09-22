@@ -553,8 +553,9 @@ Documentos de cada colaborador (liquidaciones, contratos, anexos, S.S.O, RIOHS, 
   - `POST /api/documents/sync` — sincronización total en segundo plano (~280 fichas, ~80 s). También se dispara sola al abrir el resumen o el buscador si la última tiene más de 24 h.
   - `GET /api/documents/employee/:employeeId` — documentos del colaborador desde la DB (si nunca se sincronizó, consulta BUK en el momento). `POST .../sync` actualiza solo sus fichas ("Actualizar desde BUK").
   - `GET /api/documents/search?q=&categoryId=&legalEntity=&status=` — cuántos documentos coinciden y quiénes los tienen (`categoryId=none` → sin clasificar).
-  - `GET /api/documents/summary` — dashboard: documentos por categoría, cobertura de los obligatorios sobre fichas BUK activas y nombres sin clasificar más frecuentes. `GET /api/documents/categories/:id/missing` — fichas activas sin esa categoría.
+  - `GET /api/documents/summary` — dashboard: documentos por categoría, cobertura de los obligatorios por persona activa y nombres sin clasificar más frecuentes. `GET /api/documents/categories/:id/missing` — personas activas sin esa categoría en ninguna de sus fichas.
   - `POST/PATCH/DELETE /api/documents/categories` — CRUD de categorías.
   - `GET /api/documents/file/:legalEntity/:bukEmployeeId/:fileId` — proxy del archivo (BUK redirige a una URL S3 prefirmada; el cliente nunca la ve).
 - **Frontend:** `pages/documents/DocumentsPage.tsx` con tres pestañas: **Resumen** (`DocumentDashboard.tsx` + `CategoryModal.tsx`), **Por colaborador** (`EmployeePicker.tsx` + `EmployeeDocuments.tsx`) y **Buscar documento** (`DocumentSearch.tsx`). La ficha `/colaboradores/:id` tiene además el tab "Documentos". Hook: `useBukDocuments.ts`.
-- La cobertura cuenta solo fichas BUK activas **con al menos un documento** (una ficha sin documentos no queda registrada).
+- **Cobertura de obligatorios: por persona (RUT), no por ficha.** Una persona activa está cubierta si tiene el documento en cualquiera de sus fichas BUK (la otra razón social o una ficha anterior por recontratación). "Activa" = tiene al menos una ficha BUK activa **con documentos** (una ficha sin documentos no queda registrada).
+- **ODI e IRL son equivalentes:** desde 2025 (DS 44) la IRL reemplazó a la ODI; cada persona suele tener una u otra, así que la cobertura por separado de cada una se ve baja.

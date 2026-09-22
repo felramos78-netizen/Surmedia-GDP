@@ -24,7 +24,7 @@ const DEFAULT_CATEGORIES: { name: string; group: string; keywords: string[]; req
   { name: 'Anexo reajuste de remuneración', group: 'Anexos de contrato',   keywords: ['reajuste', 'cambio renta', 'cambio de renta'] },
   { name: 'Anexo teletrabajo',              group: 'Anexos de contrato',   keywords: ['teletrabajo'] },
   { name: 'Anexo uso de redes sociales',    group: 'Anexos de contrato',   keywords: ['redes sociales'] },
-  { name: 'Anexo contrato indefinido',      group: 'Anexos de contrato',   keywords: ['anexo indefinido', 'contrato indefinido', 'paso a indefinido'] },
+  { name: 'Anexo contrato indefinido',      group: 'Anexos de contrato',   keywords: ['anexo indefinido', 'anexo contrato indefinido', 'anexo de contrato indefinido', 'paso a indefinido'] },
   { name: 'Anexo cambio de cargo',          group: 'Anexos de contrato',   keywords: ['cambio de cargo'] },
   { name: 'Anexo (otros)',                  group: 'Anexos de contrato',   keywords: ['anexo'] },
   { name: 'Contrato de trabajo',            group: 'Contratación',         keywords: ['contrato'], required: true },
