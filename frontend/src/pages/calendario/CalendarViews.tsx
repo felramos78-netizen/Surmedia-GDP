@@ -113,7 +113,7 @@ function WeekRow({
             onClick={e2 => { e2.stopPropagation(); onEventClick(ev.event) }}
             title={ev.event.title}
           >
-            {ev.isStart && ev.event.title}
+            {(ev.isStart || ev.startCol === 0) && ev.event.title}
           </div>
         )
       })}

@@ -65,9 +65,9 @@ function ImportToast() {
 
 export default function AppLayout() {
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Sidebar */}
-      <aside className="w-64 bg-surmedia-navy flex flex-col">
+      <aside className="w-64 bg-surmedia-navy flex flex-col overflow-y-auto">
         <div className="p-6 border-b border-white/10">
           <img src="/logo-white.png" alt="Surmedia" className="h-10 w-auto object-contain object-left" />
           <p className="text-xs text-white/50 mt-2 tracking-wide">GDP · Gestión de Personas</p>
@@ -104,7 +104,7 @@ export default function AppLayout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 min-h-0 overflow-auto">
         <Outlet />
       </main>
 
