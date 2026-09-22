@@ -2,11 +2,19 @@ import type { FastifyPluginAsync } from 'fastify'
 import { Readable } from 'stream'
 import type { LegalEntity } from '@prisma/client'
 import { requireRole } from '../middleware/requireRole'
-import { BUK_ENTITIES, findBukEmployees, listEmployeeFiles, fetchEmployeeFile, type BukFile } from '../services/bukApi.service'
+import { BUK_ENTITIES, findBukEmployees, listEmployeeFiles, fetchEmployeeFile, getAllDocsIndex, type BukFile } from '../services/bukApi.service'
+import { normalizeRut } from '../utils/rut'
 
 // Documentos de colaboradores leídos en vivo desde BUK (ambas razones sociales).
 // Solo lectura: no se guarda ningún archivo en GDP. Acceso restringido a ADMIN
 // porque incluye liquidaciones y contratos.
+
+// Minúsculas, sin tildes y con _ - . como espacios: "certificado de vacacion"
+// encuentra "2026_09-21_Certificado_de_Vacaciones.pdf"
+const fold = (s: string) => s
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ')
 
 interface EntityDocs {
   legalEntity:   LegalEntity
@@ -45,6 +53,62 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
     }))
 
     return { rut: emp.rut, entities: entities.flat() }
+  })
+
+  // GET /api/documents/search?q=&legalEntity=&status= — busca documentos por nombre en
+  // todas las fichas BUK. Usa el índice global; si aún se está construyendo
+  // devuelve ready:false con el progreso para que el frontend reintente.
+  fastify.get<{ Querystring: { q?: string; legalEntity?: string; status?: string } }>('/search', async (req) => {
+    const index = getAllDocsIndex()
+    const base = {
+      ready:    index.builtAt != null,
+      building: index.building,
+      builtAt:  index.builtAt ? new Date(index.builtAt).toISOString() : null,
+      failed:   index.failed,
+      error:    index.error,
+      statuses: [...new Set(index.entries.map(e => e.status).filter(Boolean))].sort(),
+    }
+    const q = fold((req.query.q ?? '').trim())
+    if (!base.ready || q.length < 2) return { ...base, totalPeople: 0, totalFiles: 0, people: [] }
+
+    const scope = index.entries.filter(e =>
+      (!req.query.legalEntity || e.legalEntity === req.query.legalEntity) &&
+      (!req.query.status      || e.status === req.query.status))
+
+    const matches = scope
+      .map(e => ({ ...e, files: e.files.filter(f => fold(f.filename).includes(q) || fold(f.folder).includes(q)) }))
+      .filter(e => e.files.length > 0)
+
+    // Vincula cada ficha BUK con su colaborador en GDP (por RUT)
+    const ruts = [...new Set(matches.map(m => m.rut))]
+    const emps = await fastify.prisma.employee.findMany({ where: { rut: { in: ruts } }, select: { id: true, rut: true } })
+    const byRut = new Map(emps.map(e => [normalizeRut(e.rut), e.id]))
+
+    const people = matches
+      .map(m => ({
+        legalEntity:   m.legalEntity,
+        bukEmployeeId: m.id,
+        rut:           m.rut,
+        fullName:      m.fullName,
+        bukStatus:     m.status,
+        employeeId:    byRut.get(m.rut) ?? null,
+        files:         m.files.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')),
+      }))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName, 'es'))
+
+    return {
+      ...base,
+      scopePeople: scope.length,
+      totalPeople: people.length,
+      totalFiles:  people.reduce((n, p) => n + p.files.length, 0),
+      people,
+    }
+  })
+
+  // POST /api/documents/index/refresh — reconstruye el índice global en segundo plano
+  fastify.post('/index/refresh', async () => {
+    const index = getAllDocsIndex({ refresh: true })
+    return { building: index.building }
   })
 
   // GET /api/documents/file/:legalEntity/:bukEmployeeId/:fileId?download=1 — proxy del archivo

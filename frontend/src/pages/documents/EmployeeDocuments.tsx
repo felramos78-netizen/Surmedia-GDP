@@ -4,11 +4,11 @@ import { useBukDocuments, openBukFile, downloadBukFile, type BukEntityDocs, type
 import { formatDate } from '@/lib/utils'
 import type { LegalEntity } from '@/types'
 
-const ENTITY_LABEL: Record<LegalEntity, string> = {
+export const ENTITY_LABEL: Record<LegalEntity, string> = {
   COMUNICACIONES_SURMEDIA: 'Comunicaciones',
   SURMEDIA_CONSULTORIA:    'Consultoría',
 }
-const ENTITY_COLOR: Record<LegalEntity, string> = {
+export const ENTITY_COLOR: Record<LegalEntity, string> = {
   COMUNICACIONES_SURMEDIA: 'bg-brand-100 text-brand-700',
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
@@ -26,7 +26,7 @@ function groupByFolder(files: BukFile[]) {
   return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, 'es'))
 }
 
-function FileRow({ file, entity, bukEmployeeId }: { file: BukFile; entity: LegalEntity; bukEmployeeId: number }) {
+export function FileRow({ file, entity, bukEmployeeId }: { file: BukFile; entity: LegalEntity; bukEmployeeId: number }) {
   const [busy,  setBusy]  = useState<'open' | 'download' | null>(null)
   const [error, setError] = useState(false)
 

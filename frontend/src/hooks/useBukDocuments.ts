@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
 import type { LegalEntity } from '@/types'
 
@@ -31,6 +31,54 @@ export function useBukDocuments(employeeId: string | null) {
       return data
     },
     enabled: !!employeeId,
+  })
+}
+
+export interface BukDocSearchPerson {
+  legalEntity:   LegalEntity
+  bukEmployeeId: number
+  rut:           string
+  fullName:      string
+  bukStatus:     string
+  employeeId:    string | null
+  files:         BukFile[]
+}
+
+export interface BukDocSearchResponse {
+  ready:        boolean
+  building:     { done: number; total: number } | null
+  builtAt:      string | null
+  failed:       number
+  error:        string | null
+  statuses:     string[]
+  scopePeople?: number
+  totalPeople:  number
+  totalFiles:   number
+  people:       BukDocSearchPerson[]
+}
+
+// Búsqueda de documentos por nombre en todas las fichas BUK. Mientras el índice
+// del backend se construye, se reconsulta cada 2 s para mostrar el progreso.
+export function useBukDocSearch(filters: { q: string; legalEntity?: string; status?: string }) {
+  return useQuery({
+    queryKey: ['bukDocSearch', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams({ q: filters.q })
+      if (filters.legalEntity) params.set('legalEntity', filters.legalEntity)
+      if (filters.status)      params.set('status', filters.status)
+      const { data } = await api.get<BukDocSearchResponse>(`/documents/search?${params}`)
+      return data
+    },
+    placeholderData: prev => prev,
+    refetchInterval: query => (query.state.data?.building ? 2000 : false),
+  })
+}
+
+export function useRefreshBukDocIndex() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => { await api.post('/documents/index/refresh') },
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['bukDocSearch'] }),
   })
 }
 
