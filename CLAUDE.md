@@ -74,6 +74,7 @@ surmedia-gdp/
   /api/payroll       → src/routes/payroll.ts
   /api/work-centers  → src/routes/workCenters.ts
   /api/buk           → src/routes/buk.ts        (importación desde Excel)
+  /api/documents     → src/routes/bukDocuments.ts (documentos BUK vía API, solo lectura, solo ADMIN)
   /api/health        → health check
   ```
 - **Servicios:**
@@ -100,12 +101,12 @@ surmedia-gdp/
   - `/perfiles` — Perfiles del equipo RRHH
   - `/buk` — Importación de Excel desde BUK
   - `/recruitment` — Reclutamiento (en sidebar; página no implementada aún)
-  - `/documents` — Documentos (en sidebar; página no implementada aún)
+  - `/documents` — Documentos de cada colaborador leídos en vivo desde la API de BUK (solo ADMIN)
 - **Despliegue:** Vercel (configurado en `frontend/vercel.json`).
 
 ### Importación de datos (flujo Excel manual)
 
-No hay integración directa con ninguna API externa. El equipo RRHH exporta reportes manualmente desde BUK y los coloca en `reportes/` (raíz del proyecto), organizado por razón social:
+Salvo el módulo Documentos (ver abajo), no hay integración directa con ninguna API externa. El equipo RRHH exporta reportes manualmente desde BUK y los coloca en `reportes/` (raíz del proyecto), organizado por razón social:
 
 ```
 reportes/
@@ -533,3 +534,14 @@ Los archivos Excel deben ubicarse en `reportes/Comunicaciones/` y `reportes/Cons
 3. **Vacaciones tomadas** (keyword `Vacaciones tomadas`): crea registros `Leave` de tipo `VACACIONES` con fechas y días calculados. Solo registra las nuevas (no duplica las ya existentes).
 
 4. **Vacaciones y licencia** (keyword `Vacaciones y licencia`): crea o actualiza registros `VacationBalance` con los saldos acumulados de vacaciones y licencias por colaborador × razón social × mes. Se hace upsert por la clave única `(employeeId, legalEntity, year, month)`.
+
+---
+
+### Documentos (`/documents`)
+
+Documentos de cada colaborador (liquidaciones, contratos, anexos, S.S.O, RIOHS, etc.) leídos **en vivo desde la API de BUK** de ambas razones sociales. Solo lectura: ningún archivo se guarda en GDP. Acceso solo para `ADMIN`.
+
+- **Backend:** `services/bukApi.service.ts` (cliente BUK; credenciales `BUK_URL_*` / `BUK_API_KEY_*` en `.env`) y `routes/bukDocuments.ts`.
+  - `GET /api/documents/employee/:employeeId` — busca el RUT del colaborador en cada tenant BUK (índice RUT → id BUK en memoria, TTL 30 min) y lista sus archivos por carpeta. Un mismo RUT puede tener varias fichas BUK en la misma empresa (recontrataciones).
+  - `GET /api/documents/file/:legalEntity/:bukEmployeeId/:fileId` — proxy del archivo (BUK redirige a una URL S3 prefirmada; el cliente nunca la ve).
+- **Frontend:** página `pages/documents/DocumentsPage.tsx` (selector de colaborador + documentos) y tab "Documentos" en `/colaboradores/:id`; ambos usan `EmployeeDocuments.tsx` y el hook `useBukDocuments.ts`.

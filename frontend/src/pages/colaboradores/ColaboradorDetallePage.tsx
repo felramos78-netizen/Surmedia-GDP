@@ -8,6 +8,8 @@ import { useEmployee, useEmployeePayroll, useUpdateEmployee, useDeleteEmployee, 
 import { useWorkCenters, useAssignWorkCenter, useUnassignWorkCenter } from '@/hooks/useWorkCenters'
 import { formatDate, formatCLP } from '@/lib/utils'
 import type { Contract, LegalEntity, PayrollItem, Leave, Employee, VacationBalance, EmployeeWorkCenter } from '@/types'
+import { useAuthStore } from '@/store/auth'
+import EmployeeDocuments from '@/pages/documents/EmployeeDocuments'
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -40,7 +42,7 @@ const LEAVE_STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pendiente', APPROVED: 'Aprobada', REJECTED: 'Rechazada', CANCELLED: 'Cancelada',
 }
 const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
-const TABS = ['Datos', 'Contratos', 'Remuneraciones', 'Ausencias', 'Centros'] as const
+const TABS = ['Datos', 'Contratos', 'Remuneraciones', 'Ausencias', 'Centros', 'Documentos'] as const
 type Tab = typeof TABS[number]
 
 // ─── Formulario de edición ────────────────────────────────────────────────────
@@ -667,6 +669,9 @@ export default function ColaboradorDetallePage() {
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // Documentos BUK: solo ADMIN (incluye liquidaciones y contratos)
+  const isAdmin = useAuthStore(s => s.user?.role === 'ADMIN')
+  const visibleTabs = TABS.filter(t => t !== 'Documentos' || isAdmin)
   const { data: emp, isLoading } = useEmployee(id ?? null)
   const { data: payroll = [] }   = useEmployeePayroll(id ?? null)
   const update = useUpdateEmployee()
@@ -833,7 +838,7 @@ export default function ColaboradorDetallePage() {
 
           {/* Tabs */}
           <div className="flex gap-1 -mb-px">
-            {TABS.map(t => (
+            {visibleTabs.map(t => (
               <button
                 key={t}
                 onClick={() => { setTab(t); if (t !== 'Datos') setEditing(false) }}
@@ -1083,6 +1088,10 @@ export default function ColaboradorDetallePage() {
 
         {tab === 'Centros' && (
           <CentrosTab emp={emp} />
+        )}
+
+        {tab === 'Documentos' && isAdmin && (
+          <EmployeeDocuments employeeId={emp.id} />
         )}
 
       </div>
