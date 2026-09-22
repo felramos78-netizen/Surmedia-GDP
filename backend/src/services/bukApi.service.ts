@@ -97,6 +97,11 @@ async function getIndex(entity: LegalEntity, forceIfOlderThan = CACHE_TTL_MS) {
   return p
 }
 
+// Todas las fichas BUK de una razón social (índice recién consultado)
+export async function listBukEmployees(entity: LegalEntity): Promise<BukEmployeeRef[]> {
+  return [...(await getIndex(entity, 0)).values()].flat()
+}
+
 export async function findBukEmployees(entity: LegalEntity, rawRut: string): Promise<BukEmployeeRef[]> {
   const rut = normalizeRut(rawRut)
   let found = (await getIndex(entity)).get(rut)
@@ -140,70 +145,4 @@ export async function fetchEmployeeFile(entity: LegalEntity, bukEmployeeId: numb
   const file = await fetch(location, { signal: AbortSignal.timeout(60_000) })
   if (!file.ok || !file.body) throw new Error(`Descarga del archivo ${fileId} falló (status ${file.status})`)
   return file
-}
-
-// ── Índice global de documentos (para el buscador por nombre de documento) ───
-// Recorre todas las fichas BUK de ambas razones sociales y lista sus archivos.
-// Tarda ~1 minuto, así que se construye en segundo plano y se reutiliza.
-
-const ALL_DOCS_TTL_MS = 6 * 60 * 60_000
-const ALL_DOCS_CONCURRENCY = 6
-
-export interface BukEmployeeDocs extends BukEmployeeRef {
-  legalEntity: LegalEntity
-  files:       BukFile[]
-}
-
-interface AllDocsState {
-  builtAt:  number | null
-  entries:  BukEmployeeDocs[]
-  failed:   number
-  building: { done: number; total: number } | null
-  error:    string | null
-}
-
-const allDocs: AllDocsState = { builtAt: null, entries: [], failed: 0, building: null, error: null }
-
-async function buildAllDocsIndex() {
-  allDocs.building = { done: 0, total: 0 }
-  allDocs.error = null
-  try {
-    const refs: { legalEntity: LegalEntity; ref: BukEmployeeRef }[] = []
-    for (const legalEntity of BUK_ENTITIES) {
-      // Siempre índice fresco de colaboradores al reconstruir
-      const byRut = await getIndex(legalEntity, 0)
-      for (const list of byRut.values()) for (const ref of list) refs.push({ legalEntity, ref })
-    }
-    allDocs.building.total = refs.length
-
-    const entries: BukEmployeeDocs[] = []
-    let failed = 0, next = 0
-    const worker = async () => {
-      while (next < refs.length) {
-        const { legalEntity, ref } = refs[next++]
-        try {
-          entries.push({ ...ref, legalEntity, files: await listEmployeeFiles(legalEntity, ref.id) })
-        } catch {
-          failed++
-        }
-        allDocs.building!.done++
-      }
-    }
-    await Promise.all(Array.from({ length: ALL_DOCS_CONCURRENCY }, worker))
-
-    allDocs.entries = entries
-    allDocs.failed  = failed
-    allDocs.builtAt = Date.now()
-  } catch (err) {
-    allDocs.error = err instanceof Error ? err.message : String(err)
-  } finally {
-    allDocs.building = null
-  }
-}
-
-// Devuelve el estado del índice; dispara la construcción si no existe, venció o se pide refrescar
-export function getAllDocsIndex(opts: { refresh?: boolean } = {}) {
-  const stale = !allDocs.builtAt || Date.now() - allDocs.builtAt > ALL_DOCS_TTL_MS
-  if (!allDocs.building && (opts.refresh || stale)) void buildAllDocsIndex()
-  return allDocs
 }

@@ -231,6 +231,7 @@ model Employee {
   onboardingProcesses OnboardingProcess[]
   workCenters    EmployeeWorkCenter[]
   vacationBalances VacationBalance[]
+  bukDocuments     BukDocument[]
 
   deletedAt    DateTime?
   createdAt    DateTime       @default(now())
@@ -351,6 +352,71 @@ model Document {
   updatedAt   DateTime @updatedAt
 
   @@map("documents")
+}
+
+// ─────────────────────────────────────────────
+// Documentos BUK (metadata sincronizada desde la API de BUK; los archivos
+// viven en BUK y se descargan vía proxy)
+// ─────────────────────────────────────────────
+
+model BukDocument {
+  id            String            @id @default(uuid())
+  legalEntity   LegalEntity
+  bukEmployeeId Int
+  bukFileId     Int
+  rut           String
+  personName    String            // nombre según BUK (sirve también para ex-colaboradores sin ficha GDP)
+  bukStatus     String            // estado de la ficha BUK: activo / inactivo
+  employee      Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  employeeId    String?           // vinculado por RUT
+  filename      String
+  folder        String
+  searchText    String            // carpeta + nombre normalizado (sin tildes ni _ -) para búsquedas
+  bukCreatedAt  DateTime?
+  category      DocumentCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryId    String?
+  firstSeenAt   DateTime          @default(now())
+  lastSeenAt    DateTime          @default(now())
+  removedAt     DateTime?         // ya no aparece en BUK
+
+  @@unique([legalEntity, bukFileId])
+  @@index([employeeId])
+  @@index([rut])
+  @@index([categoryId])
+  @@index([legalEntity, bukEmployeeId])
+  @@map("buk_documents")
+}
+
+// Categorías de documentos: agrupan nombres distintos pero similares por palabras clave
+model DocumentCategory {
+  id        String        @id @default(uuid())
+  name      String        @unique
+  group     String        // agrupador visual del dashboard (Remuneraciones, Contratos, SSO…)
+  keywords  String[]      // prefijos de palabra buscados en carpeta + nombre del archivo
+  required  Boolean       @default(false) // todo colaborador activo debería tenerlo (cobertura)
+  sortOrder Int           @default(0) // prioridad: gana la primera categoría que coincide
+  documents BukDocument[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@map("document_categories")
+}
+
+model BukDocumentSync {
+  id           String    @id @default(uuid())
+  scope        String    // ALL o el RUT sincronizado
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  status       String    // RUNNING / OK / ERROR
+  fichas       Int       @default(0)
+  filesSeen    Int       @default(0)
+  filesAdded   Int       @default(0)
+  filesRemoved Int       @default(0)
+  failed       Int       @default(0)
+  error        String?
+
+  @@index([scope, startedAt])
+  @@map("buk_document_syncs")
 }
 
 // ─────────────────────────────────────────────

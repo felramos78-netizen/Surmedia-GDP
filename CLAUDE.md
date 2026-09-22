@@ -136,6 +136,7 @@ El esquema vive en `backend/prisma/schema.prisma`. Entidades núcleo:
 - `PayrollEntry` — Liquidaciones mensuales (importadas desde Excel BUK). Unique por `(employeeId, legalEntity, year, month)`.
 - `Leave` — Vacaciones y permisos (tipos: `VACACIONES`, `LICENCIA_MEDICA`, etc.).
 - `VacationBalance` — Saldo de vacaciones por colaborador × razón social × mes. Campos: `saldoLegal`, `saldoProgresivas`, `saldoAdministrativos`, `diasLicencias`, `vacacionesTomadas`. Importado desde Excel "Vacaciones y licencia". Unique por `(employeeId, legalEntity, year, month)`.
+- `BukDocument` + `DocumentCategory` + `BukDocumentSync` — Metadata de los documentos BUK de cada colaborador, clasificada por palabras clave (ver módulo Documentos).
 - `OnboardingProcess` + `OnboardingTask` — Proceso de onboarding con hitos por período (`PRE_INGRESO`, `DIA_1`, `SEMANA_1`, `MES_1`, `EVALUACION`) y automatizaciones.
 - `Profile` + `ProfileRole` — Perfiles del equipo RRHH con roles por área (BUK, SMART, ADMINISTRACION, etc.) y tipo (RESPONSABLE_HITO, ENVIA_CORREOS, etc.).
 
@@ -180,7 +181,7 @@ cd backend && npm run db:push
 npm run db:migrate
 ```
 
-Las migraciones existentes en `backend/prisma/migrations/` documentan la evolución del schema y se pueden aplicar en orden con `npm run db:deploy`.
+Las migraciones existentes en `backend/prisma/migrations/` solo **documentan** la evolución del schema: la DB actual de Supabase se ha mantenido con `db push` y `prisma migrate status` las reporta todas como no aplicadas. **No correr `npm run db:deploy` ni `db:migrate` contra esa DB** (intentaría recrear tablas existentes). Para cambios de schema: generar el SQL con `npx prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --script`, revisar que sea aditivo, guardarlo como carpeta de migración y aplicarlo con `npx prisma db execute --file <migration.sql> --schema prisma/schema.prisma` (habilitar RLS en tablas nuevas).
 
 ---
 
@@ -539,10 +540,21 @@ Los archivos Excel deben ubicarse en `reportes/Comunicaciones/` y `reportes/Cons
 
 ### Documentos (`/documents`)
 
-Documentos de cada colaborador (liquidaciones, contratos, anexos, S.S.O, RIOHS, etc.) leídos **en vivo desde la API de BUK** de ambas razones sociales. Solo lectura: ningún archivo se guarda en GDP. Acceso solo para `ADMIN`.
+Documentos de cada colaborador (liquidaciones, contratos, anexos, S.S.O, RIOHS, etc.) de ambas razones sociales, obtenidos desde la **API de BUK**. GDP guarda solo la **metadata** (nombre, carpeta, fecha, ficha BUK, categoría); los archivos viven en BUK y se descargan vía proxy. Acceso solo para `ADMIN`.
 
-- **Backend:** `services/bukApi.service.ts` (cliente BUK; credenciales `BUK_URL_*` / `BUK_API_KEY_*` en `.env`) y `routes/bukDocuments.ts`.
-  - `GET /api/documents/employee/:employeeId` — busca el RUT del colaborador en cada tenant BUK (índice RUT → id BUK en memoria, TTL 30 min) y lista sus archivos por carpeta. Un mismo RUT puede tener varias fichas BUK en la misma empresa (recontrataciones).
+**Modelos** (`schema.prisma`, migración `20260922_add_buk_documents`, con RLS):
+- `BukDocument` — un documento BUK. Unique `(legalEntity, bukFileId)`. Guarda `rut`, `personName` y `bukStatus` de la ficha (sirve también para ex-colaboradores sin ficha GDP), `employeeId` (vinculado por RUT), `searchText` normalizado y `removedAt` cuando deja de aparecer en BUK.
+- `DocumentCategory` — tipo de documento (RIOHS, ODI, Liquidación, Anexo teletrabajo…): `group`, `keywords` (prefijos de palabra), `required` (obligatorio → cobertura) y `sortOrder` (prioridad: gana la primera que coincide). Se editan desde la UI; semilla inicial en `DEFAULT_CATEGORIES`.
+- `BukDocumentSync` — registro de cada sincronización (`scope` = `ALL` o el RUT).
+
+**Clasificación:** `categorize()` en `services/bukDocumentSync.service.ts` busca las palabras clave como inicio de palabra, primero en el nombre del archivo y, si nada coincide, en la carpeta; todo normalizado con `fold()` (`utils/text.ts`: sin tildes, minúsculas, `_ - .` como espacios; BUK a veces borra tildes: "Liquidacin"). Crear/editar/borrar una categoría reclasifica todo (`recategorizeAll`).
+
+- **Backend:** `services/bukApi.service.ts` (cliente BUK de solo lectura; credenciales `BUK_URL_*` / `BUK_API_KEY_*` en `.env`), `services/bukDocumentSync.service.ts` (sincronización y clasificación) y `routes/bukDocuments.ts`:
+  - `POST /api/documents/sync` — sincronización total en segundo plano (~280 fichas, ~80 s). También se dispara sola al abrir el resumen o el buscador si la última tiene más de 24 h.
+  - `GET /api/documents/employee/:employeeId` — documentos del colaborador desde la DB (si nunca se sincronizó, consulta BUK en el momento). `POST .../sync` actualiza solo sus fichas ("Actualizar desde BUK").
+  - `GET /api/documents/search?q=&categoryId=&legalEntity=&status=` — cuántos documentos coinciden y quiénes los tienen (`categoryId=none` → sin clasificar).
+  - `GET /api/documents/summary` — dashboard: documentos por categoría, cobertura de los obligatorios sobre fichas BUK activas y nombres sin clasificar más frecuentes. `GET /api/documents/categories/:id/missing` — fichas activas sin esa categoría.
+  - `POST/PATCH/DELETE /api/documents/categories` — CRUD de categorías.
   - `GET /api/documents/file/:legalEntity/:bukEmployeeId/:fileId` — proxy del archivo (BUK redirige a una URL S3 prefirmada; el cliente nunca la ve).
-  - `GET /api/documents/search?q=&legalEntity=&status=` — busca documentos por nombre o carpeta en todas las fichas BUK (sin distinguir tildes, mayúsculas ni `_`/`-`). Usa un índice global en memoria (~280 fichas, ~35 s en construirse, TTL 6 h); mientras se construye responde `ready: false` con el progreso. `POST /api/documents/index/refresh` lo reconstruye.
-- **Frontend:** página `pages/documents/DocumentsPage.tsx` con dos pestañas: **Por colaborador** (selector desplegable `EmployeePicker.tsx` + `EmployeeDocuments.tsx`) y **Buscar documento** (`DocumentSearch.tsx`: cuántos documentos hay y quiénes los tienen). La ficha `/colaboradores/:id` tiene además el tab "Documentos". Hook: `useBukDocuments.ts`.
+- **Frontend:** `pages/documents/DocumentsPage.tsx` con tres pestañas: **Resumen** (`DocumentDashboard.tsx` + `CategoryModal.tsx`), **Por colaborador** (`EmployeePicker.tsx` + `EmployeeDocuments.tsx`) y **Buscar documento** (`DocumentSearch.tsx`). La ficha `/colaboradores/:id` tiene además el tab "Documentos". Hook: `useBukDocuments.ts`.
+- La cobertura cuenta solo fichas BUK activas **con al menos un documento** (una ficha sin documentos no queda registrada).

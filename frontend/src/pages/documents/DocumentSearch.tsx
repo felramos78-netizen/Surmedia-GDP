@@ -1,20 +1,14 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw, Search, UserCircle2 } from 'lucide-react'
-import { useBukDocSearch, useRefreshBukDocIndex, type BukDocSearchPerson } from '@/hooks/useBukDocuments'
+import { AlertTriangle, ChevronDown, ChevronRight, Search, UserCircle2 } from 'lucide-react'
+import { useBukDocSearch, useDocSummary, type BukDocSearchPerson } from '@/hooks/useBukDocuments'
 import { FileRow, ENTITY_LABEL, ENTITY_COLOR } from './EmployeeDocuments'
+import SyncStatus from './SyncStatus'
 
 const ENTITY_FILTERS = [
   { value: '',                        label: 'Todas' },
   { value: 'COMUNICACIONES_SURMEDIA', label: 'Comunicaciones' },
   { value: 'SURMEDIA_CONSULTORIA',    label: 'Consultoría' },
 ]
-
-function timeAgo(iso: string) {
-  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000)
-  if (min < 1)  return 'recién'
-  if (min < 60) return `hace ${min} min`
-  return `hace ${Math.round(min / 60)} h`
-}
 
 function PersonRow({ person, onOpenEmployee }: { person: BukDocSearchPerson; onOpenEmployee: (id: string) => void }) {
   const [open, setOpen] = useState(false)
@@ -37,7 +31,7 @@ function PersonRow({ person, onOpenEmployee }: { person: BukDocSearchPerson; onO
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${ENTITY_COLOR[person.legalEntity]}`}>
             {ENTITY_LABEL[person.legalEntity]}
           </span>
-          <span className="text-xs text-gray-500 w-20 text-right">
+          <span className="text-xs text-gray-500 w-24 text-right">
             {person.files.length} {person.files.length === 1 ? 'documento' : 'documentos'}
           </span>
         </button>
@@ -65,8 +59,12 @@ function PersonRow({ person, onOpenEmployee }: { person: BukDocSearchPerson; onO
   )
 }
 
-// Buscador de documentos por nombre en todas las fichas BUK: cuántos hay y quiénes los tienen
-export default function DocumentSearch({ onOpenEmployee }: { onOpenEmployee: (id: string) => void }) {
+// Buscador de documentos por nombre y/o categoría: cuántos hay y quiénes los tienen
+export default function DocumentSearch({ categoryId, onCategoryChange, onOpenEmployee }: {
+  categoryId:       string
+  onCategoryChange: (id: string) => void
+  onOpenEmployee:   (id: string) => void
+}) {
   const [input,  setInput]  = useState('')
   const [q,      setQ]      = useState('')
   const [entity, setEntity] = useState('')
@@ -78,17 +76,20 @@ export default function DocumentSearch({ onOpenEmployee }: { onOpenEmployee: (id
     return () => clearTimeout(t)
   }, [input])
 
-  const { data, isLoading, isError, isFetching } = useBukDocSearch({ q, legalEntity: entity, status })
-  const refresh = useRefreshBukDocIndex()
+  const { data, isLoading, isError, isFetching } = useBukDocSearch({ q, categoryId, legalEntity: entity, status })
+  const { data: summary } = useDocSummary()
 
-  const building = data?.building
-  const pct = building && building.total ? Math.round((building.done / building.total) * 100) : 0
+  // Categorías agrupadas para el selector
+  const groups = new Map<string, { id: string; name: string }[]>()
+  for (const c of summary?.categories ?? []) groups.set(c.group, [...(groups.get(c.group) ?? []), c])
+
+  const searching = q.length >= 2 || !!categoryId
 
   return (
     <div className="space-y-4">
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-80">
+        <div className="relative w-72">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             value={input}
@@ -98,6 +99,20 @@ export default function DocumentSearch({ onOpenEmployee }: { onOpenEmployee: (id
             className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
         </div>
+        <select
+          value={categoryId}
+          onChange={e => onCategoryChange(e.target.value)}
+          aria-label="Categoría de documento"
+          className="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 max-w-60"
+        >
+          <option value="">Todas las categorías</option>
+          {[...groups.entries()].map(([group, cats]) => (
+            <optgroup key={group} label={group}>
+              {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </optgroup>
+          ))}
+          <option value="none">Sin clasificar</option>
+        </select>
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
           {ENTITY_FILTERS.map(f => (
             <button
@@ -120,39 +135,8 @@ export default function DocumentSearch({ onOpenEmployee }: { onOpenEmployee: (id
           <option value="">Todos los estados BUK</option>
           {(data?.statuses ?? []).map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
         </select>
-
-        <div className="ml-auto flex items-center gap-2 text-xs text-gray-400">
-          {data?.builtAt && !building && <span>Índice actualizado {timeAgo(data.builtAt)}</span>}
-          <button
-            onClick={() => refresh.mutate()}
-            disabled={!!building || refresh.isPending}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-          >
-            <RefreshCw size={12} className={building ? 'animate-spin' : ''} />
-            Actualizar índice
-          </button>
-        </div>
+        <div className="ml-auto"><SyncStatus /></div>
       </div>
-
-      {/* Progreso de construcción del índice */}
-      {building && (
-        <div className="bg-white border border-gray-100 rounded-xl p-4">
-          <p className="text-sm text-gray-600 mb-2">
-            Leyendo los documentos de todas las fichas en BUK… {building.done}/{building.total || '…'}
-            {data?.ready && <span className="text-gray-400"> (mientras tanto se muestran los resultados del índice anterior)</span>}
-          </p>
-          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-brand-600 transition-all" style={{ width: `${pct}%` }} />
-          </div>
-        </div>
-      )}
-
-      {data?.error && (
-        <p className="text-sm text-red-500 flex items-center gap-2"><AlertTriangle size={14} /> No se pudo construir el índice: {data.error}</p>
-      )}
-      {!!data?.failed && !building && (
-        <p className="text-xs text-amber-600">{data.failed} fichas no se pudieron leer desde BUK; actualiza el índice para reintentar.</p>
-      )}
 
       {/* Resultados */}
       {isError ? (
@@ -160,20 +144,20 @@ export default function DocumentSearch({ onOpenEmployee }: { onOpenEmployee: (id
           <AlertTriangle size={24} className="text-red-300 mx-auto mb-3" />
           <p className="text-sm text-gray-500">Error consultando el buscador de documentos.</p>
         </div>
-      ) : isLoading || !data?.ready ? (
-        !building && <div className="py-16 text-center text-sm text-gray-400">Preparando índice de documentos…</div>
-      ) : q.length < 2 ? (
+      ) : isLoading ? (
+        <div className="py-16 text-center text-sm text-gray-400">Cargando…</div>
+      ) : !searching ? (
         <div className="py-16 text-center text-sm text-gray-400">
-          Escribe al menos 2 letras para buscar entre los documentos de todas las fichas BUK.
+          Escribe al menos 2 letras o elige una categoría para buscar entre los documentos de todas las fichas BUK.
         </div>
-      ) : (
+      ) : data && (
         <div className={`space-y-3 ${isFetching ? 'opacity-70' : ''}`}>
           <p className="text-sm text-gray-600">
-            <strong className="text-gray-900">{data.totalFiles}</strong> documentos en{' '}
-            <strong className="text-gray-900">{data.totalPeople}</strong> de {data.scopePeople ?? 0} fichas BUK
+            <strong className="text-gray-900">{data.totalFiles.toLocaleString('es-CL')}</strong> documentos en{' '}
+            <strong className="text-gray-900">{data.totalPeople}</strong> de {data.scopePeople} fichas BUK
           </p>
           {data.people.length === 0 ? (
-            <div className="py-12 text-center text-sm text-gray-400">Ningún documento coincide con “{q}”.</div>
+            <div className="py-12 text-center text-sm text-gray-400">Ningún documento coincide con la búsqueda.</div>
           ) : (
             <ul className="bg-white border border-gray-100 rounded-xl">
               {data.people.map(p => (
