@@ -4,6 +4,33 @@ import React, { useState, useMemo } from 'react'
 import { Mail, Calendar, RefreshCw, Wrench, Globe, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { OnboardingProcess, OnboardingPeriod, TaskAutomationType } from '@/types'
 
+// ─── Borrador de "Nuevo proceso" (localStorage) ────────────────────────────────
+// Persiste el formulario del modal de creación para no perderlo si se recarga
+// la página o el modal se cierra por accidente. Se limpia solo al crear el
+// proceso exitosamente o cuando el usuario lo descarta explícitamente.
+export const ONBOARDING_DRAFT_KEY = 'gdp_onboarding_draft_v1'
+
+export function hasOnboardingDraft(): boolean {
+  try {
+    return !!localStorage.getItem(ONBOARDING_DRAFT_KEY)
+  } catch {
+    return false
+  }
+}
+
+export function loadOnboardingDraft<T>(): T | null {
+  try {
+    const raw = localStorage.getItem(ONBOARDING_DRAFT_KEY)
+    return raw ? (JSON.parse(raw) as T) : null
+  } catch {
+    return null
+  }
+}
+
+export function clearOnboardingDraft() {
+  try { localStorage.removeItem(ONBOARDING_DRAFT_KEY) } catch {}
+}
+
 // ─── Helpers de jornada ─────────────────────────────────────────────────────────
 
 // Días de la semana (orden lunes→domingo) usados para la jornada y el teletrabajo.

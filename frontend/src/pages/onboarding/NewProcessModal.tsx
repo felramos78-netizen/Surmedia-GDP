@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import {
   Plus, Rocket, AlertTriangle, X, ChevronRight, ChevronLeft,
-  Calendar, Search, UserCheck, Building2,
+  Calendar, Search, UserCheck, Building2, RefreshCw,
 } from 'lucide-react'
 import { useCreateOnboarding, useTemplateTasks } from '@/hooks/useOnboarding'
 import { useJobTitles, useJobFamilies, useWorkSchedules, useEmployees, useCreateEmployee } from '@/hooks/useDotacion'
@@ -16,7 +16,55 @@ import {
   WEEKDAYS, formatDays, buildJornada, parseDays,
   PERIOD_ORDER, PERIOD_LABELS, PERIOD_COLORS, AutoBadge,
   CalendarPreview, type CalItem, type CalItemWithTime,
+  ONBOARDING_DRAFT_KEY, loadOnboardingDraft, clearOnboardingDraft,
 } from './onboardingPageShared'
+
+type MatchedEmployee = { id: string; name: string; position?: string | null; rut: string } | null
+
+const emptyForm = () => ({
+  // Campos obligatorios
+  collaboratorRut: '', collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '',
+  collaboratorPosition: '', collaboratorPhone: '', legalEntity: '', costCenter: '', startDate: '', notes: '',
+  // Nombre desglosado
+  primerNombre: '', segundoNombre: '', primerApellido: '', segundoApellido: '',
+  // Datos personales adicionales
+  city: '', commune: '',
+  direccionCalle: '', direccionNumero: '', direccionDepto: '',
+  address: '',
+  birthDate: '', gender: '', nationality: '',
+  // Datos laborales adicionales
+  jobFamily: '', contractType: '', companyStartDate: '', contractEndDate: '',
+  workSchedule: '', distribucionJornada: '', supervisorName: '', supervisorTitle: '', supervisorEmail: '',
+  supervisorFirstName: '', supervisorLastName: '',
+  mentorAsignado: '',
+  // Vínculo laboral
+  vinculo: '', reemplazaA: '',
+  // Previsión social
+  afp: '', isapre: '',
+  // Datos bancarios
+  banco: '', tipoCuenta: '', numeroCuenta: '',
+  // Condiciones de la oferta
+  tipoJornadaTipo: '', tipoJornadaHoras: '',
+  horario: '',
+  modalidadTipo: '', modalidad: '',
+  sueldoLiquido: '',
+})
+
+type Draft = {
+  form: ReturnType<typeof emptyForm>
+  beneficios: string[]
+  selected: string[]
+  matchedEmployee: MatchedEmployee
+  creatingNew: boolean
+  positionMode: 'select' | 'custom'
+  jornadaDias: string[]
+  teletrabajoDias: string[]
+  acreditacion: boolean
+  modalidades: string[]
+  showCalendar: boolean
+  eventExtraProfileIds: Record<string, string[]>
+  eventTimes: Record<string, string>
+}
 
 export function NewProcessModal({ onClose, onCreated, processes }: {
   onClose:   () => void
@@ -24,45 +72,20 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
   processes: OnboardingProcess[]
 }) {
   useEscapeKey(onClose)
-  const [form, setForm] = useState({
-    // Campos obligatorios
-    collaboratorRut: '', collaboratorName: '', collaboratorEmail: '', collaboratorPersonalEmail: '',
-    collaboratorPosition: '', collaboratorPhone: '', legalEntity: '', costCenter: '', startDate: '', notes: '',
-    // Nombre desglosado
-    primerNombre: '', segundoNombre: '', primerApellido: '', segundoApellido: '',
-    // Datos personales adicionales
-    city: '', commune: '',
-    direccionCalle: '', direccionNumero: '', direccionDepto: '',
-    address: '',
-    birthDate: '', gender: '', nationality: '',
-    // Datos laborales adicionales
-    jobFamily: '', contractType: '', companyStartDate: '', contractEndDate: '',
-    workSchedule: '', distribucionJornada: '', supervisorName: '', supervisorTitle: '', supervisorEmail: '',
-    supervisorFirstName: '', supervisorLastName: '',
-    mentorAsignado: '',
-    // Vínculo laboral
-    vinculo: '', reemplazaA: '',
-    // Previsión social
-    afp: '', isapre: '',
-    // Datos bancarios
-    banco: '', tipoCuenta: '', numeroCuenta: '',
-    // Condiciones de la oferta
-    tipoJornadaTipo: '', tipoJornadaHoras: '',
-    horario: '',
-    modalidadTipo: '', modalidad: '',
-    sueldoLiquido: '',
-  })
-  const [beneficios, setBeneficios] = useState<string[]>([])
+  const [initialDraft] = useState(() => loadOnboardingDraft<Draft>())
+  const [draftRestored, setDraftRestored] = useState(() => !!initialDraft)
+  const [form, setForm] = useState(() => initialDraft?.form ?? emptyForm())
+  const [beneficios, setBeneficios] = useState<string[]>(() => initialDraft?.beneficios ?? [])
   const [rutSearch,          setRutSearch]          = useState('')
-  const [matchedEmployee,    setMatchedEmployee]    = useState<{ id: string; name: string; position?: string | null; rut: string } | null>(null)
+  const [matchedEmployee,    setMatchedEmployee]    = useState<MatchedEmployee>(() => initialDraft?.matchedEmployee ?? null)
   const [duplicateProcessId, setDuplicateProcessId] = useState<string | null>(null)
   const [entityPickEmp,      setEntityPickEmp]      = useState<any | null>(null)
-  const [creatingNew,        setCreatingNew]        = useState(false)
-  const [positionMode,       setPositionMode]       = useState<'select' | 'custom'>('select')
-  const [selected,           setSelected]           = useState<Set<string>>(new Set())
-  const [showCalendar,         setShowCalendar]         = useState(false)
-  const [eventExtraProfileIds, setEventExtraProfileIds] = useState<Record<string, string[]>>({})
-  const [eventTimes,           setEventTimes]           = useState<Record<string, string>>({})
+  const [creatingNew,        setCreatingNew]        = useState(() => initialDraft?.creatingNew ?? false)
+  const [positionMode,       setPositionMode]       = useState<'select' | 'custom'>(() => initialDraft?.positionMode ?? 'select')
+  const [selected,           setSelected]           = useState<Set<string>>(() => new Set(initialDraft?.selected ?? []))
+  const [showCalendar,         setShowCalendar]         = useState(() => initialDraft?.showCalendar ?? false)
+  const [eventExtraProfileIds, setEventExtraProfileIds] = useState<Record<string, string[]>>(() => initialDraft?.eventExtraProfileIds ?? {})
+  const [eventTimes,           setEventTimes]           = useState<Record<string, string>>(() => initialDraft?.eventTimes ?? {})
   const [expandedEventId,      setExpandedEventId]      = useState<string | null>(null)
   const [supervisorSearch,     setSupervisorSearch]     = useState('')
   const [supervisorOpen,       setSupervisorOpen]       = useState(false)
@@ -73,10 +96,10 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
   const [reemplazaSearch,      setReemplazaSearch]      = useState('')
   const [reemplazaOpen,        setReemplazaOpen]        = useState(false)
   const reemplazaRef = React.useRef<HTMLDivElement>(null)
-  const [jornadaDias,     setJornadaDias]     = useState<string[]>([])
-  const [teletrabajoDias, setTeletrabajoDias] = useState<string[]>([])
-  const [acreditacion,    setAcreditacion]    = useState(false)
-  const [modalidades, setModalidades] = useState<string[]>([])
+  const [jornadaDias,     setJornadaDias]     = useState<string[]>(() => initialDraft?.jornadaDias ?? [])
+  const [teletrabajoDias, setTeletrabajoDias] = useState<string[]>(() => initialDraft?.teletrabajoDias ?? [])
+  const [acreditacion,    setAcreditacion]    = useState(() => initialDraft?.acreditacion ?? false)
+  const [modalidades, setModalidades] = useState<string[]>(() => initialDraft?.modalidades ?? [])
   const [beneficiosOpciones, setBeneficiosOpciones] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('gdp_beneficios_opciones')
@@ -264,6 +287,44 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
     localStorage.setItem('gdp_beneficios_opciones', JSON.stringify(beneficiosOpciones))
   }, [beneficiosOpciones])
 
+  // Guarda el borrador en localStorage mientras el usuario completa el formulario,
+  // para no perderlo si la página se recarga o el modal se cierra por accidente.
+  useEffect(() => {
+    const hasContent = !!(
+      form.primerNombre || form.primerApellido || form.collaboratorRut ||
+      form.collaboratorEmail || form.startDate || matchedEmployee || creatingNew
+    )
+    if (!hasContent) { clearOnboardingDraft(); return }
+    const draft: Draft = {
+      form, beneficios, selected: Array.from(selected), matchedEmployee, creatingNew,
+      positionMode, jornadaDias, teletrabajoDias, acreditacion, modalidades,
+      showCalendar, eventExtraProfileIds, eventTimes,
+    }
+    try { localStorage.setItem(ONBOARDING_DRAFT_KEY, JSON.stringify(draft)) } catch {}
+  }, [
+    form, beneficios, selected, matchedEmployee, creatingNew, positionMode,
+    jornadaDias, teletrabajoDias, acreditacion, modalidades, showCalendar,
+    eventExtraProfileIds, eventTimes,
+  ])
+
+  const discardDraft = () => {
+    clearOnboardingDraft()
+    setDraftRestored(false)
+    setForm(emptyForm())
+    setBeneficios([])
+    setMatchedEmployee(null)
+    setCreatingNew(false)
+    setPositionMode('select')
+    setSelected(new Set())
+    setJornadaDias([])
+    setTeletrabajoDias([])
+    setAcreditacion(false)
+    setModalidades([])
+    setShowCalendar(false)
+    setEventExtraProfileIds({})
+    setEventTimes({})
+  }
+
   const field = (key: string, val: string) => setForm(f => ({ ...f, [key]: val }))
 
   const toggle = (key: string) => setSelected(prev => {
@@ -356,6 +417,7 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
         selectedTaskIds:      Array.from(selected),
         collaboratorData:     Object.keys(collaboratorData).length ? collaboratorData : undefined,
       })
+      clearOnboardingDraft()
       onCreated(process.id)
       onClose()
     } catch (err: any) {
@@ -595,6 +657,20 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
 
         {/* Body — paso 1 */}
         {!showCalendar && <div className="overflow-y-auto flex-1 p-6 space-y-6">
+
+          {/* ── Aviso: borrador restaurado ── */}
+          {draftRestored && (
+            <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
+              <RefreshCw size={15} className="text-blue-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-blue-800">Se restauró un borrador guardado</p>
+                <p className="text-xs text-blue-600 mt-0.5">Continúa donde quedaste, o descártalo para empezar de nuevo.</p>
+              </div>
+              <button onClick={discardDraft} className="text-xs font-medium text-blue-600 hover:underline flex-shrink-0 mt-0.5">
+                Descartar borrador
+              </button>
+            </div>
+          )}
 
           {/* ── Alerta: proceso activo duplicado ── */}
           {duplicateProcessId && !matchedEmployee && (

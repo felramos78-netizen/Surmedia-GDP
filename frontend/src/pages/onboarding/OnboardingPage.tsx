@@ -8,12 +8,15 @@ import OnboardingDrawer from './OnboardingDrawer'
 import HitosTab from './tabs/HitosTab'
 import AutomatizacionTab from './tabs/AutomatizacionTab'
 import { NewProcessModal } from './NewProcessModal'
-import { calcProgress, daysIn, fmt, initials, STATUS_BADGE, ENTITY_LABEL } from './onboardingPageShared'
+import { calcProgress, daysIn, fmt, initials, STATUS_BADGE, ENTITY_LABEL, hasOnboardingDraft } from './onboardingPageShared'
 
 export default function OnboardingPage() {
   const [tab, setTab]                         = useState<'procesos' | 'hitos' | 'automatizacion'>('procesos')
   const [drawerProcessId, setDrawerProcessId] = useState<string | null>(null)
-  const [showNewModal, setShowNewModal]       = useState(false)
+  // Si hay un borrador de "Nuevo proceso" guardado (p.ej. porque la página se
+  // recargó a mitad de la creación), reabre el modal automáticamente para
+  // que el usuario siga donde quedó en vez de perder lo que llevaba escrito.
+  const [showNewModal, setShowNewModal]       = useState(() => hasOnboardingDraft())
   const [filterStatus, setFilterStatus]       = useState<string>('IN_PROGRESS')
 
   const { data: processes, isLoading, isError } = useOnboardingProcesses()
