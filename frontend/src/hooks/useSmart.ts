@@ -76,6 +76,7 @@ export function useSmartApply() {
       qc.invalidateQueries({ queryKey: ['smart-compras'] })
       qc.invalidateQueries({ queryKey: ['smart-periodos'] })
       qc.invalidateQueries({ queryKey: ['smart-proveedores'] })
+      qc.invalidateQueries({ queryKey: ['budget'] }) // el gasto del Presupuesto DPDO depende de área, categoría y centro
     },
   })
 }
@@ -126,6 +127,7 @@ export function usePatchProveedor() {
       qc.invalidateQueries({ queryKey: ['smart-honorarios'] })
       qc.invalidateQueries({ queryKey: ['smart-compras'] })
       qc.invalidateQueries({ queryKey: ['smart-proveedores'] })
+      qc.invalidateQueries({ queryKey: ['budget'] }) // el gasto del Presupuesto DPDO depende de área, categoría y centro
       qc.invalidateQueries({ queryKey: ['smart-proveedor', vars.id] })
     },
   })
@@ -144,6 +146,7 @@ export function usePatchDocument() {
       qc.invalidateQueries({ queryKey: ['smart-honorarios'] })
       qc.invalidateQueries({ queryKey: ['smart-compras'] })
       qc.invalidateQueries({ queryKey: ['smart-proveedores'] })
+      qc.invalidateQueries({ queryKey: ['budget'] }) // el gasto del Presupuesto DPDO depende de área, categoría y centro
       qc.invalidateQueries({ queryKey: ['smart-proveedor'] })
     },
   })
@@ -163,6 +166,7 @@ export function useBulkClassify() {
       qc.invalidateQueries({ queryKey: ['smart-honorarios'] })
       qc.invalidateQueries({ queryKey: ['smart-compras'] })
       qc.invalidateQueries({ queryKey: ['smart-proveedores'] })
+      qc.invalidateQueries({ queryKey: ['budget'] }) // el gasto del Presupuesto DPDO depende de área, categoría y centro
     },
   })
 }
