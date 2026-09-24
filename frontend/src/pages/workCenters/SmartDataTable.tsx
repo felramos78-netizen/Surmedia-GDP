@@ -3,11 +3,19 @@ import { createPortal } from 'react-dom'
 import { RefreshCw, Check, ChevronDown, ChevronUp, ChevronsUpDown, X, Pencil, Filter, FileText, DollarSign, Scale, Search } from 'lucide-react'
 import { usePatchProveedor, usePatchDocument } from '@/hooks/useSmart'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
+import { useBudgetItemNames, useBudgetSegments, useCreateBudgetItem } from '@/hooks/useBudget'
 import type { SmartDocument, LegalEntity } from '@/types'
 import {
   ENTITY_LABEL, ENTITY_COLOR, fmt, fmtN, fmtDate, fmtPeriodo,
   AREAS, CATEGORIES_BY_AREA, TIPOS, CATEGORIAS_SURMEDIA, type SmartCategory,
 } from './SmartShared'
+
+// Categorías por área. Las de Personas son las partidas del Presupuesto DPDO: así una
+// partida nueva queda disponible de inmediato y el gasto calza con el presupuesto.
+function useCategoriesByArea(): Record<string, string[]> {
+  const partidas = useBudgetItemNames()
+  return useMemo(() => ({ ...CATEGORIES_BY_AREA, Personas: partidas }), [partidas])
+}
 
 // ── Inline editable cell ──────────────────────────────────────────────────────
 
@@ -30,6 +38,12 @@ function EditableCell({
   const patchDoc  = usePatchDocument()
   const patch      = documentId ? patchDoc : patchProv
   const inputRef  = useRef<HTMLInputElement>(null)
+  const categoriesByArea = useCategoriesByArea()
+  const segments = useBudgetSegments()
+  const createBudgetItem = useCreateBudgetItem()
+  const [segmentId, setSegmentId] = useState('')
+  // Una categoría nueva en Personas es una partida nueva del presupuesto: se pide su segmento.
+  const isBudgetCategory = field === 'categoria' && !documentId && currentArea === 'Personas'
 
   useEffect(() => {
     if (editing || editingCustom) {
@@ -64,21 +78,70 @@ function EditableCell({
       base = TIPOS
     } else if (field === 'categoria') {
       // Documento (honorarios) → Categoría Surmedia; Proveedor (compras) → según área
-      base = documentId ? CATEGORIAS_SURMEDIA : (currentArea ? (CATEGORIES_BY_AREA[currentArea] || []) : [])
+      base = documentId ? CATEGORIAS_SURMEDIA : (currentArea ? (categoriesByArea[currentArea] || []) : [])
     }
 
-    // Merge with extra unique options found in data, avoiding duplicates
-    const all = [...new Set([...base, ...extraOptions])].sort((a, b) =>
+    // Personas solo ofrece partidas del presupuesto; el resto suma los valores ya usados en los datos.
+    const extras = field === 'categoria' && !documentId && currentArea === 'Personas' ? [] : extraOptions
+    const all = [...new Set([...base, ...extras])].sort((a, b) =>
       a.localeCompare(b, 'es', { sensitivity: 'base' })
     )
     return all.map(v => ({ value: v, label: v }))
-  }, [type, field, currentArea, extraOptions, documentId])
+  }, [type, field, currentArea, extraOptions, documentId, categoriesByArea])
 
   const display = value
     ? (type === 'select' || type === 'smart-select'
         ? (options?.find(o => o.value === value)?.label || smartOptions.find(o => o.value === value)?.label || value)
         : value)
     : null
+
+  async function saveNewPartida() {
+    const name = val.trim()
+    if (!name || !segmentId) return
+    await createBudgetItem.mutateAsync({ categoryId: segmentId, name })
+    save(name)
+  }
+
+  // "Otro" en Personas: nombre de la partida + segmento del presupuesto donde se crea.
+  if (editingCustom && isBudgetCategory) {
+    const cancel = () => { setEditingCustom(false); setVal(value ?? '') }
+    const onKey = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') saveNewPartida()
+      if (e.key === 'Escape') cancel()
+    }
+    return (
+      <div className="flex flex-col gap-1 w-44">
+        <input
+          ref={inputRef}
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onKeyDown={onKey}
+          placeholder="Nueva partida..."
+          className="text-xs border border-brand-400 rounded px-1.5 py-0.5 bg-white focus:outline-none"
+        />
+        <select
+          value={segmentId}
+          onChange={e => setSegmentId(e.target.value)}
+          onKeyDown={onKey}
+          aria-label="Segmento del presupuesto"
+          className="text-xs border border-brand-400 rounded px-1.5 py-0.5 bg-white focus:outline-none"
+        >
+          <option value="">Segmento del presupuesto…</option>
+          {segments.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={saveNewPartida}
+            disabled={!val.trim() || !segmentId || createBudgetItem.isPending}
+            className="flex items-center gap-1 text-xs text-green-700 hover:text-green-800 disabled:text-gray-300"
+          >
+            <Check size={12} /> Crear
+          </button>
+          <button onClick={cancel} className="text-xs text-gray-400 hover:text-gray-600"><X size={12} /></button>
+        </div>
+      </div>
+    )
+  }
 
   // Manual entry mode for "Otro"
   if (editingCustom) {

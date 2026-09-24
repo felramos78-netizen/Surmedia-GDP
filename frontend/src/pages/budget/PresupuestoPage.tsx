@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from '@/lib/api'
-import type { BudgetCategory, BudgetItem, ApiResponse } from '@/types'
+import { useBudget } from '@/hooks/useBudget'
+import type { BudgetCategory, BudgetItem } from '@/types'
 import { formatCLP } from '@/lib/utils'
 import { Loader2, Pencil, Check, X, AlertTriangle, Trash2, Plus, GripVertical, Columns3, ChevronLeft, ChevronRight } from 'lucide-react'
 
@@ -17,16 +18,6 @@ function moveBefore<T>(arr: T[], fromId: string, toId: string, idOf: (x: T) => s
 }
 
 const VIRTUAL_CATEGORY_ID = 'virtual-unbudgeted'
-
-function useBudget() {
-  return useQuery<BudgetCategory[]>({
-    queryKey: ['budget'],
-    queryFn: async () => {
-      const res = await axios.get<ApiResponse<BudgetCategory[]>>('/budget')
-      return res.data.data
-    },
-  })
-}
 
 // ─── Mutaciones ───────────────────────────────────────────────────────────────
 function useBudgetMutations() {
