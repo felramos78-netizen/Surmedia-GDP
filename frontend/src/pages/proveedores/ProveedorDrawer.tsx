@@ -49,14 +49,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ── Documento row ─────────────────────────────────────────────────────────────
 
-function DocRow({ d, onSetCategoria, saving }: {
+function DocRow({ d, provArea, onSetCategoria, saving }: {
   d: SmartDocument
+  provArea: string | null
   onSetCategoria: (id: string, categoria: string | null) => void
   saving: boolean
 }) {
   const isHon = d.category === 'HONORARIO'
+  // Área de la factura/BH: la propia si es una excepción, si no la del proveedor
+  const area = d.area ?? provArea
   return (
-    <tr className="hover:bg-gray-50 border-b border-gray-100 last:border-0">
+    <tr className={`border-b border-gray-100 last:border-0 ${d.vigente ? 'hover:bg-gray-50' : 'bg-red-50/70 hover:bg-red-100/70'}`}>
       <td className="px-3 py-2">
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ENTITY_COLOR[d.legalEntity]}`}>
           {ENTITY_LABEL[d.legalEntity]}
@@ -64,6 +67,17 @@ function DocRow({ d, onSetCategoria, saving }: {
       </td>
       <td className="px-3 py-2 text-xs text-gray-600">{fmtPeriodo(d.periodoTributario)}</td>
       <td className="px-3 py-2 text-xs text-gray-500 max-w-[120px] truncate">{d.clasificacion || '—'}</td>
+      <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">
+        {area || <span className="text-gray-300">—</span>}
+        {d.area && (
+          <span
+            className="ml-1 text-[9px] px-1 py-px rounded bg-violet-100 text-violet-700 font-medium"
+            title={`Excepción de este documento. Proveedor: ${provArea ?? 'sin área'}`}
+          >
+            Excepción
+          </span>
+        )}
+      </td>
       <td className="px-3 py-2">
         <select
           value={d.categoria ?? ''}
@@ -90,6 +104,11 @@ function DocRow({ d, onSetCategoria, saving }: {
       <td className="px-3 py-2 text-xs text-right tabular-nums font-medium">{fmt(d.montoTotal)}</td>
       <td className="px-3 py-2 text-center">
         {d.pagado ? <Check size={12} className="text-green-500 mx-auto" /> : <span className="text-gray-200 text-[10px]">—</span>}
+      </td>
+      <td className="px-3 py-2">
+        {d.vigente
+          ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">Vigente</span>
+          : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">Anulada</span>}
       </td>
     </tr>
   )
@@ -134,8 +153,10 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
   const cmpDocs  = docs.filter(d => d.category === 'COMPRA')
   const shownDocs = docTab === 'honorarios' ? honDocs : docTab === 'compras' ? cmpDocs : docs
 
-  const totalHon = honDocs.reduce((s, d) => s + d.montoTotal, 0)
-  const totalCmp = cmpDocs.reduce((s, d) => s + d.montoTotal, 0)
+  // Los totales excluyen los documentos anulados (igual que reportes y presupuesto)
+  const totalHon = honDocs.reduce((s, d) => s + (d.vigente ? d.montoTotal : 0), 0)
+  const totalCmp = cmpDocs.reduce((s, d) => s + (d.vigente ? d.montoTotal : 0), 0)
+  const anuladas = docs.filter(d => !d.vigente).length
   const totalAll = totalHon + totalCmp
 
   // Categoría y centro de trabajo son criterios de cada BH: el proveedor puede tener
@@ -248,7 +269,9 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
               <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-3">
                 <p className="text-[11px] text-brand-500 mb-0.5">Total</p>
                 <p className="text-sm font-semibold text-brand-700 tabular-nums">{CLP.format(totalAll)}</p>
-                <p className="text-[10px] text-brand-400 mt-0.5">{docs.length} documentos</p>
+                <p className="text-[10px] text-brand-400 mt-0.5">
+                  {docs.length} documentos{anuladas > 0 && ` · ${anuladas} anulado${anuladas > 1 ? 's' : ''} (no suman)`}
+                </p>
               </div>
             </div>
 
@@ -274,6 +297,7 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Empresa</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Período</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Clasificación</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Área</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Categoría</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Centro de Trabajo</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Documento</th>
@@ -283,18 +307,19 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                       <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Imp.</th>
                       <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Total</th>
                       <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Pag.</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Estado</th>
                     </tr>
                   </thead>
                   <tbody>
                     {shownDocs.length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="px-3 py-8 text-center text-sm text-gray-400">
+                        <td colSpan={14} className="px-3 py-8 text-center text-sm text-gray-400">
                           Sin documentos
                         </td>
                       </tr>
                     ) : (
                       shownDocs.map(d => (
-                        <DocRow key={d.id} d={d} onSetCategoria={setDocCategoria} saving={patchDoc.isPending} />
+                        <DocRow key={d.id} d={d} provArea={prov.area} onSetCategoria={setDocCategoria} saving={patchDoc.isPending} />
                       ))
                     )}
                   </tbody>
