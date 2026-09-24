@@ -327,6 +327,9 @@ model VacationBalance {
   saldoAdministrativos Float       @default(0)
   diasLicencias        Float       @default(0)
   vacacionesTomadas    Float       @default(0)
+  // "API": saldo de BUK que ya descuenta las vacaciones aprobadas a futuro
+  // "EXCEL": saldo del reporte "Vacaciones y licencia" (el reporte las descuenta)
+  source               String      @default("EXCEL")
 
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt

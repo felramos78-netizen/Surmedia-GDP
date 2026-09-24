@@ -73,7 +73,7 @@ surmedia-gdp/
   /api/profiles      → src/routes/profiles.ts
   /api/payroll       → src/routes/payroll.ts
   /api/work-centers  → src/routes/workCenters.ts
-  /api/buk           → src/routes/buk.ts        (importación desde Excel)
+  /api/buk           → src/routes/buk.ts        (sincronización BUK: API o Excel)
   /api/documents     → src/routes/bukDocuments.ts (documentos BUK vía API, solo lectura, solo ADMIN)
   /api/health        → health check
   ```
@@ -99,14 +99,14 @@ surmedia-gdp/
   - `/calendario` — Vista de fechas relevantes de la organización
   - `/onboarding` — Procesos de onboarding
   - `/perfiles` — Perfiles del equipo RRHH
-  - `/buk` — Importación de Excel desde BUK
+  - `/buk` — Sincronización con BUK (API por defecto, Excel como respaldo)
   - `/recruitment` — Reclutamiento (en sidebar; página no implementada aún)
   - `/documents` — Documentos de cada colaborador leídos en vivo desde la API de BUK (solo ADMIN)
 - **Despliegue:** Vercel (configurado en `frontend/vercel.json`).
 
-### Importación de datos (flujo Excel manual)
+### Importación de datos (API de BUK, Excel como respaldo)
 
-Salvo el módulo Documentos (ver abajo), no hay integración directa con ninguna API externa. El equipo RRHH exporta reportes manualmente desde BUK y los coloca en `reportes/` (raíz del proyecto), organizado por razón social:
+Los datos de BUK se sincronizan desde la **API de BUK** (ver módulo Importables `/buk` y módulo Documentos). Como respaldo, se mantiene el flujo anterior: el equipo RRHH exporta reportes manualmente desde BUK y los coloca en `reportes/` (raíz del proyecto), organizado por razón social:
 
 ```
 reportes/
@@ -122,7 +122,7 @@ reportes/
     └── Vacaciones y licencia YYYY-MM.xlsx
 ```
 
-`GET /api/buk/preview` parsea estos archivos con `xlsx` y los compara contra la DB, devolviendo un diff (nuevos, cambios, sincronizados). `POST /api/buk/apply` aplica los cambios seleccionados. La UI en `/buk` permite revisar y confirmar cada importación antes de escribir en la DB. Previred no está implementado.
+`GET /api/buk/preview?source=api|excel` lee la API de BUK (por defecto) o parsea estos archivos con `xlsx`, y los compara contra la DB, devolviendo un diff (nuevos, cambios, sincronizados). `POST /api/buk/apply` aplica los cambios seleccionados. La UI en `/buk` permite revisar y confirmar cada importación antes de escribir en la DB. Previred no está implementado.
 
 ---
 
@@ -518,13 +518,18 @@ Módulo transversal de vista de fechas relevantes de toda la organización. Cent
 
 ---
 
-### Importables Excel (`/buk`)
+### Importables (`/buk`)
 
-Módulo para importar datos desde reportes Excel exportados manualmente de BUK. No hay conexión directa con la API de BUK.
+Módulo para sincronizar GDP con BUK. Dos fuentes, elegibles con un selector en la UI (`source` en `/preview` y `/apply`):
+
+- **API BUK (por defecto)** — `services/bukApiImport.service.ts` arma desde la API las mismas filas que los lectores de Excel, así el diff y la UI no dependen de la fuente. Toma ~40 s; `/preview` guarda la lectura en memoria (30 min) y `/apply` aplica esa misma lectura. Endpoints: `/employees` (dotación; por RUT se usa la ficha activa o la última terminada, solo fichas activas o terminadas en el año), `/payroll_detail/month` (solo períodos **cerrados**; líquido = `income_net`), `/vacations` (solo trae **aprobadas**: las del año ya iniciadas → "tomadas", las futuras → "aprobadas"; tipo Legales/Administrativos/Progresivas en `reason`), `/employees/{id}/vacations_available` (saldo del mes en curso) y `/absences/licence` (días de licencia del mes). La API **no expone solicitudes de vacaciones pendientes de aprobar**.
+- **Excel (respaldo)** — `services/bukExcelImport.service.ts`, los reportes de `reportes/`.
+
+**Saldo de vacaciones:** el saldo de la API **ya descuenta las vacaciones aprobadas a futuro**; el del Excel no. `VacationBalance.source` (`API` / `EXCEL`) lo indica y el reporte de saldos (`GET /api/reports/vacaciones`) solo resta las vacaciones futuras cuando el saldo es `EXCEL`. La API solo entrega el saldo actual (no historial): el historial mensual se arma con cada sincronización.
 
 **Flujo:** Preview (diff contra DB) → Selección de registros a aplicar → Apply.
 
-Los archivos Excel deben ubicarse en `reportes/Comunicaciones/` y `reportes/Consultoría/`. El sistema selecciona automáticamente el archivo más reciente que contenga la keyword correspondiente en el nombre.
+Con la fuente Excel, los archivos deben ubicarse en `reportes/Comunicaciones/` y `reportes/Consultoría/`. El sistema selecciona automáticamente el archivo más reciente que contenga la keyword correspondiente en el nombre.
 
 **Tres tipos de datos que maneja:**
 

@@ -132,6 +132,8 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
   // período todavía no ocurre a la fecha de hoy — para que RRHH no apruebe
   // más días de los que realmente quedan disponibles. Ver [[vacaciones-aprobadas-libro-vacacion]]
   // en la memoria del proyecto para el detalle de esta decisión de negocio.
+  // Los saldos sincronizados desde la API de BUK (source = 'API') ya vienen con
+  // esas vacaciones descontadas: se informan como pendientes, pero no se restan.
   fastify.get<{ Querystring: { legalEntity?: string } }>('/vacaciones', async (req, reply) => {
     const today = new Date()
     const entityFilter = req.query.legalEntity as LegalEntity | undefined
@@ -143,7 +145,7 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
         vacationBalances: {
           where: entityFilter ? { legalEntity: entityFilter } : undefined,
           orderBy: [{ year: 'desc' }, { month: 'desc' }],
-          select: { legalEntity: true, year: true, month: true, saldoLegal: true, saldoProgresivas: true, saldoAdministrativos: true },
+          select: { legalEntity: true, year: true, month: true, saldoLegal: true, saldoProgresivas: true, saldoAdministrativos: true, source: true },
         },
         leaves: {
           where: { type: 'VACACIONES', status: 'APPROVED', startDate: { gt: today } },
@@ -167,14 +169,15 @@ const reportsRoutes: FastifyPluginAsync = async (fastify) => {
       return [...latestByEntity.entries()].map(([legalEntity, b]) => {
         const diasVacacionesDisponibles = b.saldoLegal + b.saldoProgresivas
         const diasAdministrativos       = b.saldoAdministrativos
+        const yaDescontado              = b.source === 'API'
         return {
           rut: e.rut ?? '', nombre: `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim(), cargo: e.jobTitle ?? '',
           razonSocial: ENTITY_LABEL_LARGO[legalEntity], legalEntity,
           periodo: `${b.month}/${b.year}`,
           diasVacacionesDisponibles, diasAdministrativos,
           pendienteVacaciones, pendienteAdmin,
-          diasVacacionesAjustado:    diasVacacionesDisponibles - pendienteVacaciones,
-          diasAdministrativosAjustado: diasAdministrativos - pendienteAdmin,
+          diasVacacionesAjustado:      yaDescontado ? diasVacacionesDisponibles : diasVacacionesDisponibles - pendienteVacaciones,
+          diasAdministrativosAjustado: yaDescontado ? diasAdministrativos       : diasAdministrativos - pendienteAdmin,
         }
       })
     })

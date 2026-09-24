@@ -43,17 +43,46 @@ const MAX_RETRIES = 3
 
 async function bukFetch(entity: LegalEntity, path: string, init: { redirect?: 'follow' | 'manual' } = {}, attempt = 1): Promise<Response> {
   const { base, key } = tenant(entity)
-  const res = await fetch(base + path, {
-    headers:  { auth_token: key, Accept: 'application/json' },
-    redirect: init.redirect ?? 'follow',
-    signal:   AbortSignal.timeout(TIMEOUT_MS),
-  })
+  let res: Response
+  try {
+    res = await fetch(base + path, {
+      headers:  { auth_token: key, Accept: 'application/json' },
+      redirect: init.redirect ?? 'follow',
+      signal:   AbortSignal.timeout(TIMEOUT_MS),
+    })
+  } catch (err) {
+    // Timeout o falla de red: BUK a veces se demora con páginas grandes (/employees ~1 MB)
+    if (attempt > MAX_RETRIES) throw err
+    await new Promise(r => setTimeout(r, 1000 * 2 ** attempt))
+    return bukFetch(entity, path, init, attempt + 1)
+  }
   // Rate limit de BUK: reintentar con backoff exponencial
   if (res.status === 429 && attempt <= MAX_RETRIES) {
     await new Promise(r => setTimeout(r, 1000 * 2 ** attempt))
     return bukFetch(entity, path, init, attempt + 1)
   }
   return res
+}
+
+// GET JSON de un endpoint BUK (lanza error si no responde 2xx)
+export async function bukGetJson<T>(entity: LegalEntity, path: string): Promise<T> {
+  const res = await bukFetch(entity, path)
+  if (!res.ok) throw new Error(`BUK ${entity} ${path.split('?')[0]} respondió ${res.status}`)
+  return res.json() as Promise<T>
+}
+
+// Recorre todas las páginas de un endpoint paginado de BUK ({ data, pagination })
+export async function bukGetAll<T>(entity: LegalEntity, path: string): Promise<T[]> {
+  const out: T[] = []
+  const sep = path.includes('?') ? '&' : '?'
+  let page = 1, totalPages = 1
+  do {
+    const body = await bukGetJson<{ data?: T[]; pagination?: { total_pages?: number } }>(entity, `${path}${sep}page_size=100&page=${page}`)
+    out.push(...(body.data ?? []))
+    totalPages = body.pagination?.total_pages ?? 1
+    page++
+  } while (page <= totalPages)
+  return out
 }
 
 // ── Índice RUT → colaborador BUK (cacheado en memoria por razón social) ──────

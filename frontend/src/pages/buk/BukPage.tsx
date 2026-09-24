@@ -8,6 +8,7 @@ import {
   fetchBukPreview,
   type BukPreviewData, type BukSueldoNuevo, type BukSueldoCambio,
   type BukDotacionCambio, type BukVacNueva, type BukDotacionNuevo, type BukVacAprobadaNueva,
+  type BukSource,
 } from '@/hooks/useBuk'
 import { useImportStore } from '@/store/importStore'
 
@@ -368,7 +369,7 @@ const MONTHS: Record<number, string> = {
   1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic',
 }
 
-function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string; onDone: () => void }) {
+function BukPreview({ data, year, source, onDone }: { data: BukPreviewData; year: string; source: BukSource; onDone: () => void }) {
   const sN = data.sueldos.nuevos,   sC = data.sueldos.cambios, sSync = data.sueldos.sincronizados ?? []
   const dC = data.dotacion.cambios, dN = data.dotacion.nuevos
   const vN = data.vacaciones.nuevas
@@ -420,6 +421,7 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
     const label = `Importando ${total} registro${total !== 1 ? 's' : ''}…`
     startImport({
       year: Number(year),
+      source,
       sueldos:     { nuevosKeys: [...selSN], cambiosKeys: [...selSC], sincronizadosKeys: [...selSync], overrides: overridesObj },
       dotacion:    { cambiosKeys: [...selDC], nuevosKeys: [...selDN] },
       vacaciones:  { nuevasKeys: [...selVN] },
@@ -491,7 +493,7 @@ function BukPreview({ data, year, onDone }: { data: BukPreviewData; year: string
         </Section>
       )}
       {vAN.length > 0 && (
-        <Section title="Vacaciones aprobadas nuevas (Libro Vacación) —" count={vAN.length} variant="new"
+        <Section title={source === 'api' ? 'Vacaciones aprobadas futuras nuevas —' : 'Vacaciones aprobadas nuevas (Libro Vacación) —'} count={vAN.length} variant="new"
           allKeys={vAN.map(r => r.key)} selected={selVAN}
           onToggleAll={on => setSelVAN(setAll(selVAN, vAN.map(r => r.key), on))}>
           <TblVacAprobadaNew rows={vAN} sel={selVAN} setSel={setSelVAN} />
@@ -591,15 +593,16 @@ function BukTab() {
   const [error,    setError]    = useState<string | null>(null)
   const [preview,  setPreview]  = useState<BukPreviewData | null>(null)
   const [year,     setYear]     = useState(String(new Date().getFullYear()))
+  const [source,   setSource]   = useState<BukSource>('api')
 
   async function load() {
     setLoading(true); setError(null); setPreview(null)
     try {
-      const result = await fetchBukPreview(year)
+      const result = await fetchBukPreview(year, source)
       if ((result as any)._debug) console.warn('[BUK debug]', (result as any)._debug)
       setPreview(result)
     }
-    catch (e: any) { setError(e?.response?.data?.message ?? e?.message ?? 'Error al leer archivos') }
+    catch (e: any) { setError(e?.response?.data?.message ?? e?.message ?? (source === 'api' ? 'Error al consultar BUK' : 'Error al leer archivos')) }
     finally { setLoading(false) }
   }
 
@@ -607,10 +610,27 @@ function BukTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-sm text-gray-500">Lee automáticamente los 10 archivos Excel de la carpeta <code className="text-xs bg-gray-100 px-1 rounded">reportes/</code></p>
-          <p className="text-xs text-gray-400 mt-0.5">Comunicaciones y Consultoría · Dotación, Sueldos, Vacaciones tomadas, Vacaciones y licencia, Vacación (aprobadas)</p>
+          {source === 'api' ? (
+            <>
+              <p className="text-sm text-gray-500">Consulta en vivo la API de BUK de ambas razones sociales</p>
+              <p className="text-xs text-gray-400 mt-0.5">Dotación, sueldos (meses cerrados), vacaciones aprobadas y saldo de vacaciones del mes · toma ~40 s</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-gray-500">Lee automáticamente los archivos Excel de la carpeta <code className="text-xs bg-gray-100 px-1 rounded">reportes/</code></p>
+              <p className="text-xs text-gray-400 mt-0.5">Comunicaciones y Consultoría · Dotación, Sueldos, Vacaciones tomadas, Vacaciones y licencia, Vacación (aprobadas)</p>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex rounded-lg border border-gray-200 p-0.5" role="group" aria-label="Fuente de datos">
+            {([['api', 'API BUK'], ['excel', 'Excel']] as [BukSource, string][]).map(([id, label]) => (
+              <button key={id} onClick={() => { setSource(id); setPreview(null) }} disabled={loading} aria-pressed={source === id}
+                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${source === id ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center gap-1.5">
             <label className="text-xs text-gray-500 whitespace-nowrap">Año sueldos</label>
             <input
@@ -624,7 +644,7 @@ function BukTab() {
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Leyendo archivos…' : preview ? 'Recargar' : 'Cargar y previsualizar'}
+            {loading ? (source === 'api' ? 'Consultando BUK…' : 'Leyendo archivos…') : preview ? 'Recargar' : 'Cargar y previsualizar'}
           </button>
         </div>
       </div>
@@ -634,7 +654,7 @@ function BukTab() {
       )}
 
       {preview && (
-        <BukPreview data={preview} year={year} onDone={() => setPreview(null)} />
+        <BukPreview data={preview} year={year} source={source} onDone={() => setPreview(null)} />
       )}
     </div>
   )

@@ -43,8 +43,11 @@ export interface BukPreviewData {
   vacLicencia:{ nuevos: BukVacLicencia[]; cambios: BukVacLicencia[]; sincronizados: BukVacLicencia[]; sinEmpleado: string[] }
   vacacionAprobada: { nuevas: BukVacAprobadaNueva[]; sinMatch: string[] }
 }
+export type BukSource = 'api' | 'excel'
+
 export interface BukApplyPayload {
   year?: number
+  source?: BukSource
   sueldos?:     {
     nuevosKeys?: string[]; cambiosKeys?: string[]; sincronizadosKeys?: string[]
     overrides?: Record<string, { grossSalary?: number; liquidSalary?: number }>
@@ -55,9 +58,11 @@ export interface BukApplyPayload {
   vacacionAprobada?: { nuevasKeys?: string[] }
 }
 
-export async function fetchBukPreview(year?: string): Promise<BukPreviewData & { _debug?: unknown }> {
-  const params = year ? `?year=${year}` : ''
-  const { data } = await api.get<{ data: BukPreviewData; _debug?: unknown }>(`/buk/preview${params}`)
+export async function fetchBukPreview(year: string, source: BukSource): Promise<BukPreviewData & { _debug?: unknown }> {
+  const params = new URLSearchParams({ source })
+  if (year) params.set('year', year)
+  // La lectura desde la API de BUK toma ~40 s
+  const { data } = await api.get<{ data: BukPreviewData; _debug?: unknown }>(`/buk/preview?${params}`, { timeout: 180_000 })
   return { ...data.data, _debug: data._debug }
 }
 
