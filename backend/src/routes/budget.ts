@@ -2,9 +2,10 @@ import { FastifyInstance } from 'fastify'
 
 // Fuentes de gasto imputadas al Presupuesto DPDO:
 //  - Honorarios (BH):      documentos del centro de trabajo PERSONAS.
-//  - Compras (facturas):   documentos cuyo proveedor pertenece al área "Personas".
+//  - Compras (facturas):   documentos del área "Personas": la del proveedor o, como excepción,
+//                          el área propia del documento (`SmartDocument.area`).
 // En ambos casos se agrupan por categoría (categoría del documento o, si viene vacía,
-// la del proveedor). Las boletas anuladas quedan fuera; las notas de crédito restan porque
+// la del proveedor). Las rendiciones suman a su partida por id. Las boletas anuladas quedan fuera; las notas de crédito restan porque
 // se guardan con monto negativo (ver parseSmartFile en smart.ts), salvo las que corrigen
 // una factura que no está en GDP (p. ej. de un año anterior): esas no cuentan.
 const HONORARIOS_WORK_CENTER = 'PERSONAS'
@@ -85,7 +86,13 @@ export default async function budgetRoutes(app: FastifyInstance) {
         ? app.prisma.smartDocument.findMany({ where: { category: 'HONORARIO', workCenterId: wc.id, vigente: true }, select: docSelect })
         : Promise.resolve([]),
       app.prisma.smartDocument.findMany({
-        where: { category: 'COMPRA', vigente: true, proveedor: { area: { contains: COMPRAS_AREA, mode: 'insensitive' } } },
+        where: {
+          category: 'COMPRA', vigente: true,
+          OR: [
+            { area: { contains: COMPRAS_AREA, mode: 'insensitive' } },
+            { area: null, proveedor: { area: { contains: COMPRAS_AREA, mode: 'insensitive' } } },
+          ],
+        },
         select: docSelect,
       }),
     ])
@@ -119,6 +126,18 @@ export default async function budgetRoutes(app: FastifyInstance) {
       spendByCat.set(key, cur)
     }
 
+    // Rendiciones: se imputan directamente a su partida.
+    const rendiciones = await app.prisma.budgetRendicion.findMany({ select: { itemId: true, amount: true, date: true } })
+    const spendByItem = new Map<string, { total: number; quarters: number[] }>()
+    const addToItem = (itemId: string, yq: { year: number; q: number } | null, amount: number) => {
+      if (!yq || yq.year !== budgetYear) return
+      const cur = spendByItem.get(itemId) ?? { total: 0, quarters: [0, 0, 0, 0] }
+      cur.total += amount
+      cur.quarters[yq.q] += amount
+      spendByItem.set(itemId, cur)
+    }
+    for (const r of rendiciones) addToItem(r.itemId, docYearQuarter(null, r.date), r.amount)
+
     // Empareja cada partida con su gasto por nombre normalizado; marca la categoría como consumida.
     const consumed = new Set<string>()
     const withSpent = categories.map(cat => ({
@@ -127,10 +146,11 @@ export default async function budgetRoutes(app: FastifyInstance) {
         const key = normalizeCat(item.name)
         const match = spendByCat.get(key)
         if (match) consumed.add(key)
+        const direct = spendByItem.get(item.id)
         return {
           ...item,
-          spentAmount: match?.total ?? 0,
-          spentByQuarter: match?.quarters ?? [0, 0, 0, 0],
+          spentAmount: (match?.total ?? 0) + (direct?.total ?? 0),
+          spentByQuarter: [0, 1, 2, 3].map(q => (match?.quarters[q] ?? 0) + (direct?.quarters[q] ?? 0)),
           virtual: false,
         }
       }),
@@ -163,6 +183,50 @@ export default async function budgetRoutes(app: FastifyInstance) {
     }
 
     return reply.send({ data: withSpent })
+  })
+
+  // ── Rendiciones ───────────────────────────────────────────────────────────
+
+  const rendicionInclude = { item: { select: { id: true, name: true, category: { select: { name: true } } } } }
+
+  app.get('/rendiciones', async (_req, reply) => {
+    const data = await app.prisma.budgetRendicion.findMany({ orderBy: [{ date: 'desc' }, { createdAt: 'desc' }], include: rendicionInclude })
+    return reply.send({ data })
+  })
+
+  app.post('/rendiciones', async (req, reply) => {
+    const b = req.body as { itemId?: string; description?: string; amount?: number; date?: string; notes?: string | null }
+    if (!b.itemId || !b.description?.trim() || typeof b.amount !== 'number' || !b.date) {
+      return reply.status(400).send({ message: 'itemId, description, amount y date son requeridos' })
+    }
+    const data = await app.prisma.budgetRendicion.create({
+      data: { itemId: b.itemId, description: b.description.trim(), amount: Math.round(b.amount), date: new Date(b.date), notes: b.notes?.trim() || null },
+      include: rendicionInclude,
+    })
+    return reply.send({ data })
+  })
+
+  app.patch('/rendiciones/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const b = req.body as { itemId?: string; description?: string; amount?: number; date?: string; notes?: string | null }
+    const data = await app.prisma.budgetRendicion.update({
+      where: { id },
+      data: {
+        ...(b.itemId !== undefined && { itemId: b.itemId }),
+        ...(b.description?.trim() && { description: b.description.trim() }),
+        ...(typeof b.amount === 'number' && { amount: Math.round(b.amount) }),
+        ...(b.date && { date: new Date(b.date) }),
+        ...(b.notes !== undefined && { notes: b.notes?.trim() || null }),
+      },
+      include: rendicionInclude,
+    })
+    return reply.send({ data })
+  })
+
+  app.delete('/rendiciones/:id', async (req, reply) => {
+    const { id } = req.params as { id: string }
+    await app.prisma.budgetRendicion.delete({ where: { id } })
+    return reply.send({ data: { id } })
   })
 
   // ── Partidas (BudgetItem) ─────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from '@/lib/api'
 import { useBudget } from '@/hooks/useBudget'
+import RendicionesTab from './RendicionesTab'
 import type { BudgetCategory, BudgetItem } from '@/types'
 import { formatCLP } from '@/lib/utils'
 import { Loader2, Pencil, Check, X, AlertTriangle, Trash2, Plus, GripVertical, Columns3, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -644,6 +645,7 @@ function PartidasTable({ categories, expanded }: { categories: BudgetCategory[];
 export default function PresupuestoPage() {
   const { data: categories, isLoading, isError } = useBudget()
   const [expanded, setExpanded] = useState(false)
+  const [tab, setTab] = useState<'partidas' | 'rendiciones'>('partidas')
 
   if (isLoading) {
     return (
@@ -671,22 +673,43 @@ export default function PresupuestoPage() {
           <h1 className="text-2xl font-bold text-gray-900">Presupuesto DPDO</h1>
           <p className="text-sm text-gray-500 mt-0.5">Gestión de partidas y gastos anuales</p>
         </div>
-        <button
+        {tab === 'partidas' && <button
           onClick={() => setExpanded(v => !v)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 hover:text-brand-700 transition-colors whitespace-nowrap"
         >
           <Columns3 size={15} />
           {expanded ? 'Ocultar trimestres' : 'Ver trimestres'}
           {expanded ? <ChevronLeft size={15} /> : <ChevronRight size={15} />}
-        </button>
+        </button>}
       </div>
 
-      <PartidasTable categories={partidas} expanded={expanded} />
+      <div className="flex gap-1 border-b border-gray-200">
+        {([['partidas', 'Partidas'], ['rendiciones', 'Rendiciones']] as const).map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setTab(value)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === value ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <p className="text-xs text-gray-400 italic">
-        Haz clic en cualquier nombre o monto para editarlo. Arrastra ⠿ para reordenar o mover partidas entre subáreas.
-        {expanded && ' La columna «Disp. proyectado» es el presupuesto disponible para el resto del año (y su promedio por trimestre restante).'}
-      </p>
+      {tab === 'partidas' ? (
+        <>
+          <PartidasTable categories={partidas} expanded={expanded} />
+
+          <p className="text-xs text-gray-400 italic">
+            Haz clic en cualquier nombre o monto para editarlo. Arrastra ⠿ para reordenar o mover partidas entre subáreas.
+            El gasto incluye BH, facturas y las rendiciones de la pestaña Rendiciones.
+            {expanded && ' La columna «Disp. proyectado» es el presupuesto disponible para el resto del año (y su promedio por trimestre restante).'}
+          </p>
+        </>
+      ) : (
+        <RendicionesTab />
+      )}
     </div>
   )
 }

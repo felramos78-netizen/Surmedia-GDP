@@ -31,19 +31,19 @@ enum UserRole {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  name         String
-  role         UserRole  @default(EMPLOYEE)
-  avatarUrl    String?
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  name               String
+  role               UserRole  @default(EMPLOYEE)
+  avatarUrl          String?
   googleId           String?   @unique
   microsoftId        String?   @unique
   passwordHash       String?
   googleRefreshToken String?
-  employee     Employee? @relation(fields: [employeeId], references: [id])
-  employeeId   String?   @unique
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  employee           Employee? @relation(fields: [employeeId], references: [id])
+  employeeId         String?   @unique
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@map("users")
 }
@@ -53,16 +53,16 @@ model User {
 // ─────────────────────────────────────────────
 
 model Department {
-  id        String      @id @default(uuid())
+  id        String       @id @default(uuid())
   name      String
-  code      String      @unique
-  parent    Department? @relation("DeptHierarchy", fields: [parentId], references: [id])
+  code      String       @unique
+  parent    Department?  @relation("DeptHierarchy", fields: [parentId], references: [id])
   parentId  String?
   children  Department[] @relation("DeptHierarchy")
   positions Position[]
   employees Employee[]
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
   @@map("departments")
 }
@@ -108,17 +108,17 @@ enum CostType {
 }
 
 model WorkCenter {
-  id          String               @id @default(uuid())
-  name        String               @unique
-  costType    CostType             @default(DIRECTO)
-  presupuesto Float?
-  ubicacion   String?
+  id             String               @id @default(uuid())
+  name           String               @unique
+  costType       CostType             @default(DIRECTO)
+  presupuesto    Float?
+  ubicacion      String?
   assignments    EmployeeWorkCenter[]
   ingresos       WorkCenterIngreso[]
   proveedores    SmartProveedor[]
   smartDocuments SmartDocument[]
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   @@map("work_centers")
 }
@@ -153,16 +153,16 @@ model EmployeeWorkCenter {
 }
 
 model Employee {
-  id           String         @id @default(uuid())
-  rut          String         @unique
-  firstName    String
-  lastName     String
-  email        String         @unique
-  phone        String?
-  birthDate    DateTime?
-  address      String?
-  nationality  String?        @default("Chilena")
-  gender       String?
+  id          String    @id @default(uuid())
+  rut         String    @unique
+  firstName   String
+  lastName    String
+  email       String    @unique
+  phone       String?
+  birthDate   DateTime?
+  address     String?
+  nationality String?   @default("Chilena")
+  gender      String?
 
   position     Position?      @relation(fields: [positionId], references: [id])
   positionId   String?
@@ -180,18 +180,18 @@ model Employee {
   previredCode String?
 
   // Campos extendidos desde BUK
-  city           String?
-  commune        String?
-  personalEmail  String?
-  workSchedule   String?
-  supervisorName  String?
-  supervisorTitle String?
-  jobFamily      String?   // Familia de Cargo (role_family)
-  jobTitle       String?   // Cargo directo (role.name)
-  costCenter     String?   // Centro / proyecto (current_job.cost_center)
-  exclusive      Boolean?  // Exclusividad laboral
-  vinculo        String?   // Planta, Reemplazo, etc.
-  reemplazaA     String?   // Nombre del colaborador que reemplaza (solo si vínculo=Reemplazo)
+  city                String?
+  commune             String?
+  personalEmail       String?
+  workSchedule        String?
+  supervisorName      String?
+  supervisorTitle     String?
+  jobFamily           String? // Familia de Cargo (role_family)
+  jobTitle            String? // Cargo directo (role.name)
+  costCenter          String? // Centro / proyecto (current_job.cost_center)
+  exclusive           Boolean? // Exclusividad laboral
+  vinculo             String? // Planta, Reemplazo, etc.
+  reemplazaA          String? // Nombre del colaborador que reemplaza (solo si vínculo=Reemplazo)
   segundoApellido     String?
   distribucionJornada String?
   banco               String?
@@ -223,19 +223,19 @@ model Employee {
   docLicenciaConducir Boolean?
   docCartaRenuncia    Boolean?
 
-  user           User?
-  contracts      Contract[]
-  leaves         Leave[]
-  documents      Document[]
+  user                User?
+  contracts           Contract[]
+  leaves              Leave[]
+  documents           Document[]
   payrollEntries      PayrollEntry[]
   onboardingProcesses OnboardingProcess[]
-  workCenters    EmployeeWorkCenter[]
-  vacationBalances VacationBalance[]
-  bukDocuments     BukDocument[]
+  workCenters         EmployeeWorkCenter[]
+  vacationBalances    VacationBalance[]
+  bukDocuments        BukDocument[]
 
-  deletedAt    DateTime?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([status])
   @@map("employees")
@@ -246,24 +246,24 @@ model Employee {
 // ─────────────────────────────────────────────
 
 model Contract {
-  id           String       @id @default(uuid())
-  employee     Employee     @relation(fields: [employeeId], references: [id])
-  employeeId   String
-  type         ContractType
-  startDate    DateTime
-  endDate      DateTime?
-  salary       Int
-  currency     String       @default("CLP")
-  isActive     Boolean      @default(true)
-  fileUrl      String?
+  id         String       @id @default(uuid())
+  employee   Employee     @relation(fields: [employeeId], references: [id])
+  employeeId String
+  type       ContractType
+  startDate  DateTime
+  endDate    DateTime?
+  salary     Int
+  currency   String       @default("CLP")
+  isActive   Boolean      @default(true)
+  fileUrl    String?
 
-  legalEntity  LegalEntity?
+  legalEntity   LegalEntity?
   bukEmployeeId Int?
-  grossSalary  Int?
+  grossSalary   Int?
 
-  deletedAt    DateTime?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([legalEntity])
   @@index([isActive])
@@ -291,19 +291,19 @@ enum LeaveStatus {
 }
 
 model Leave {
-  id          String      @id @default(uuid())
-  employee    Employee    @relation(fields: [employeeId], references: [id])
-  employeeId  String
-  type        LeaveType
-  startDate   DateTime
-  endDate     DateTime
-  days        Int
-  reason      String?
-  status      LeaveStatus @default(PENDING)
-  approvedBy  String?
-  approvedAt  DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id         String      @id @default(uuid())
+  employee   Employee    @relation(fields: [employeeId], references: [id])
+  employeeId String
+  type       LeaveType
+  startDate  DateTime
+  endDate    DateTime
+  days       Int
+  reason     String?
+  status     LeaveStatus @default(PENDING)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 
   @@index([type])
   @@index([status])
@@ -315,24 +315,24 @@ model Leave {
 // ─────────────────────────────────────────────
 
 model VacationBalance {
-  id                   String      @id @default(uuid())
-  employeeId           String
-  employee             Employee    @relation(fields: [employeeId], references: [id])
-  legalEntity          LegalEntity
-  year                 Int
-  month                Int
+  id          String      @id @default(uuid())
+  employeeId  String
+  employee    Employee    @relation(fields: [employeeId], references: [id])
+  legalEntity LegalEntity
+  year        Int
+  month       Int
 
-  saldoLegal           Float       @default(0)
-  saldoProgresivas     Float       @default(0)
-  saldoAdministrativos Float       @default(0)
-  diasLicencias        Float       @default(0)
-  vacacionesTomadas    Float       @default(0)
+  saldoLegal           Float  @default(0)
+  saldoProgresivas     Float  @default(0)
+  saldoAdministrativos Float  @default(0)
+  diasLicencias        Float  @default(0)
+  vacacionesTomadas    Float  @default(0)
   // "API": saldo de BUK que ya descuenta las vacaciones aprobadas a futuro
   // "EXCEL": saldo del reporte "Vacaciones y licencia" (el reporte las descuenta)
-  source               String      @default("EXCEL")
+  source               String @default("EXCEL")
 
-  createdAt            DateTime    @default(now())
-  updatedAt            DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([employeeId, legalEntity, year, month])
   @@map("vacation_balances")
@@ -368,19 +368,19 @@ model BukDocument {
   bukEmployeeId Int
   bukFileId     Int
   rut           String
-  personName    String            // nombre según BUK (sirve también para ex-colaboradores sin ficha GDP)
-  bukStatus     String            // estado de la ficha BUK: activo / inactivo
+  personName    String // nombre según BUK (sirve también para ex-colaboradores sin ficha GDP)
+  bukStatus     String // estado de la ficha BUK: activo / inactivo
   employee      Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
-  employeeId    String?           // vinculado por RUT
+  employeeId    String? // vinculado por RUT
   filename      String
   folder        String
-  searchText    String            // carpeta + nombre normalizado (sin tildes ni _ -) para búsquedas
+  searchText    String // carpeta + nombre normalizado (sin tildes ni _ -) para búsquedas
   bukCreatedAt  DateTime?
   category      DocumentCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   categoryId    String?
   firstSeenAt   DateTime          @default(now())
   lastSeenAt    DateTime          @default(now())
-  removedAt     DateTime?         // ya no aparece en BUK
+  removedAt     DateTime? // ya no aparece en BUK
 
   @@unique([legalEntity, bukFileId])
   @@index([employeeId])
@@ -394,8 +394,8 @@ model BukDocument {
 model DocumentCategory {
   id        String        @id @default(uuid())
   name      String        @unique
-  group     String        // agrupador visual del dashboard (Remuneraciones, Contratos, SSO…)
-  keywords  String[]      // prefijos de palabra buscados en carpeta + nombre del archivo
+  group     String // agrupador visual del dashboard (Remuneraciones, Contratos, SSO…)
+  keywords  String[] // prefijos de palabra buscados en carpeta + nombre del archivo
   required  Boolean       @default(false) // todo colaborador activo debería tenerlo (cobertura)
   sortOrder Int           @default(0) // prioridad: gana la primera categoría que coincide
   documents BukDocument[]
@@ -407,10 +407,10 @@ model DocumentCategory {
 
 model BukDocumentSync {
   id           String    @id @default(uuid())
-  scope        String    // ALL o el RUT sincronizado
+  scope        String // ALL o el RUT sincronizado
   startedAt    DateTime  @default(now())
   finishedAt   DateTime?
-  status       String    // RUNNING / OK / ERROR
+  status       String // RUNNING / OK / ERROR
   fichas       Int       @default(0)
   filesSeen    Int       @default(0)
   filesAdded   Int       @default(0)
@@ -427,15 +427,15 @@ model BukDocumentSync {
 // ─────────────────────────────────────────────
 
 model AuditLog {
-  id         String   @id @default(uuid())
-  userId     String
-  action     String
-  entity     String
-  entityId   String
-  oldValues  Json?
-  newValues  Json?
-  ip         String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  entity    String
+  entityId  String
+  oldValues Json?
+  newValues Json?
+  ip        String?
+  createdAt DateTime @default(now())
 
   @@map("audit_logs")
 }
@@ -455,18 +455,18 @@ enum SyncStatus {
 // ─────────────────────────────────────────────
 
 model PayrollEntry {
-  id             String      @id @default(uuid())
-  employee       Employee    @relation(fields: [employeeId], references: [id])
-  employeeId     String
-  legalEntity    LegalEntity
-  year           Int
-  month          Int
-  bukPayrollId   Int?
-  grossSalary    Int         @default(0)
-  liquidSalary   Int         @default(0)
-  items          Json        @default("[]")
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  id           String      @id @default(uuid())
+  employee     Employee    @relation(fields: [employeeId], references: [id])
+  employeeId   String
+  legalEntity  LegalEntity
+  year         Int
+  month        Int
+  bukPayrollId Int?
+  grossSalary  Int         @default(0)
+  liquidSalary Int         @default(0)
+  items        Json        @default("[]")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@unique([employeeId, legalEntity, year, month])
   @@map("payroll_entries")
@@ -508,7 +508,7 @@ enum AutomationStatus {
 }
 
 model OnboardingProcess {
-  id                   String           @id @default(uuid())
+  id                        String           @id @default(uuid())
   // Colaborador — RUT obligatorio, nombre libre
   collaboratorRut           String?
   collaboratorName          String
@@ -517,55 +517,55 @@ model OnboardingProcess {
   collaboratorPosition      String?
   collaboratorPhone         String?
   costCenter                String?
-  legalEntity          LegalEntity?
-  notes                String?
-  collaboratorData     Json?        // Snapshot de variables del colaborador al crear el proceso
+  legalEntity               LegalEntity?
+  notes                     String?
+  collaboratorData          Json? // Snapshot de variables del colaborador al crear el proceso
   // Vinculación opcional a Employee de BUK (se hace después o auto por RUT)
-  employee             Employee?        @relation(fields: [employeeId], references: [id])
-  employeeId           String?
+  employee                  Employee?        @relation(fields: [employeeId], references: [id])
+  employeeId                String?
   // Estado del proceso
-  status               OnboardingStatus @default(IN_PROGRESS)
-  startDate            DateTime
-  expectedEndDate      DateTime
-  completedAt          DateTime?
-  tasks                OnboardingTask[]
-  forms                OnboardingForm[]
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
+  status                    OnboardingStatus @default(IN_PROGRESS)
+  startDate                 DateTime
+  expectedEndDate           DateTime
+  completedAt               DateTime?
+  tasks                     OnboardingTask[]
+  forms                     OnboardingForm[]
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
 
   @@map("onboarding_processes")
 }
 
 model OnboardingTask {
-  id               String             @id @default(uuid())
-  process          OnboardingProcess  @relation(fields: [processId], references: [id], onDelete: Cascade)
+  id               String                     @id @default(uuid())
+  process          OnboardingProcess          @relation(fields: [processId], references: [id], onDelete: Cascade)
   processId        String
-  templateId       String?            // ID del hito en la plantilla (para trazabilidad)
+  templateId       String? // ID del hito en la plantilla (para trazabilidad)
   period           OnboardingPeriod
   name             String
   tool             String?
   appliesWhen      String?
-  sortOrder        Int                @default(0)
+  sortOrder        Int                        @default(0)
   // Automatización
-  automationType   TaskAutomationType @default(MANUAL)
-  automationConfig Json?              // Configuración específica (email template, calendar config, etc.)
+  automationType   TaskAutomationType         @default(MANUAL)
+  automationConfig Json? // Configuración específica (email template, calendar config, etc.)
   automationStatus AutomationStatus?
-  automationResult Json?              // Resultado del último intento
+  automationResult Json? // Resultado del último intento
   automatedAt      DateTime?
   // Completado
   completedAt      DateTime?
   completedBy      String?
   completedNote    String?
   // Sub-tareas (sólo para hitos de plazo; copiadas de la plantilla al crear el proceso)
-  subTasks         Json               @default("[]")
+  subTasks         Json                       @default("[]")
   // Snapshot del contenido de la plantilla en la última sincronización; sirve para
   // detectar si el proceso personalizó el hito y si la plantilla tiene cambios nuevos.
   templateSnapshot Json?
   // Versiones editadas del correo de este hito (cuerpo + adjuntos editados + formato)
   emailVersions    Json?
   assignments      OnboardingTaskAssignment[]
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
 
   @@map("onboarding_tasks")
 }
@@ -575,18 +575,18 @@ model OnboardingTask {
 // ─────────────────────────────────────────────
 
 model Profile {
-  id        String        @id @default(uuid())
-  name      String
-  position  String
-  email     String        @unique
-  phone     String?
-  notes     String?
+  id                       String                      @id @default(uuid())
+  name                     String
+  position                 String
+  email                    String                      @unique
+  phone                    String?
+  notes                    String?
   roles                    ProfileRole[]
   taskAssignments          OnboardingTaskAssignment[]
   templateTasksResponsable OnboardingTemplateTask[]    @relation("TemplateTaskResponsable")
   subTasksResponsable      OnboardingTemplateSubTask[] @relation("SubTaskResponsable")
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
 
   @@map("profiles")
 }
@@ -597,7 +597,7 @@ model OnboardingTaskAssignment {
   taskId    String
   profile   Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
   profileId String
-  roleType  String         // RESPONSABLE_HITO | COPIA_CORREOS | ENVIA_CORREOS | RECIBE_CORREOS | PREPARA_ADM_FISICA
+  roleType  String // RESPONSABLE_HITO | COPIA_CORREOS | ENVIA_CORREOS | RECIBE_CORREOS | PREPARA_ADM_FISICA
   createdAt DateTime       @default(now())
 
   @@unique([taskId, profileId, roleType])
@@ -608,8 +608,8 @@ model ProfileRole {
   id        String  @id @default(uuid())
   profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   profileId String
-  area      String  // BUK | SMART | ADMINISTRACION | ACREDITACION | INGRESANTE | JEFATURA | MENTORIA | CHECKPOINTS | GENERAL
-  roleType  String  // ENVIA_CORREOS | RECIBE_CORREOS | COPIA_CORREOS | PREPARA_ADM_FISICA | RESPONSABLE_HITO
+  area      String // BUK | SMART | ADMINISTRACION | ACREDITACION | INGRESANTE | JEFATURA | MENTORIA | CHECKPOINTS | GENERAL
+  roleType  String // ENVIA_CORREOS | RECIBE_CORREOS | COPIA_CORREOS | PREPARA_ADM_FISICA | RESPONSABLE_HITO
 
   @@map("profile_roles")
 }
@@ -619,24 +619,24 @@ model ProfileRole {
 // ─────────────────────────────────────────────
 
 model OnboardingTemplateTask {
-  id               String             @id @default(uuid())
-  key              String             @unique
-  period           OnboardingPeriod
-  name             String
-  tool             String?
-  automationType   TaskAutomationType @default(MANUAL)
-  automationConfig Json?
-  appliesWhen      String?
-  sortOrder        Int                @default(0)
-  isActive         Boolean            @default(true)
+  id                   String                      @id @default(uuid())
+  key                  String                      @unique
+  period               OnboardingPeriod
+  name                 String
+  tool                 String?
+  automationType       TaskAutomationType          @default(MANUAL)
+  automationConfig     Json?
+  appliesWhen          String?
+  sortOrder            Int                         @default(0)
+  isActive             Boolean                     @default(true)
   // Nuevos campos para gestión de hitos
-  taskType              String   @default("PLAZO")  // FECHA_ESPECIFICA | PLAZO
-  responsableProfileId  String?
-  responsable           Profile? @relation("TemplateTaskResponsable", fields: [responsableProfileId], references: [id], onDelete: SetNull)
-  appliesTo             Json     @default("[]")     // string[] de jobTitles; vacío = Todos
-  subTasks              OnboardingTemplateSubTask[]
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  taskType             String                      @default("PLAZO") // FECHA_ESPECIFICA | PLAZO
+  responsableProfileId String?
+  responsable          Profile?                    @relation("TemplateTaskResponsable", fields: [responsableProfileId], references: [id], onDelete: SetNull)
+  appliesTo            Json                        @default("[]") // string[] de jobTitles; vacío = Todos
+  subTasks             OnboardingTemplateSubTask[]
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
 
   @@map("onboarding_template_tasks")
 }
@@ -756,16 +756,16 @@ model CalendarEmailRule {
   id              String                 @id @default(uuid())
   name            String
   eventType       CalendarEmailEventType
-  fromProfileId   String?                // Perfil remitente ("De:")
+  fromProfileId   String? // Perfil remitente ("De:")
   subject         String
   bodyHtml        String                 @db.Text
   daysBeforeEvent Int                    @default(0)
   sendTime        String                 @default("09:00") // HH:MM hora Chile
   toColaborador   Boolean                @default(true)
-  toDirectEmails  Json                   @default("[]")    // Para: emails directos adicionales
-  ccProfileIds    Json                   @default("[]")    // CC: perfiles del sistema
-  ccCustomEmails  Json                   @default("[]")    // CC: emails adicionales
-  isActive        Boolean                @default(false)   // true = envío automático por SMTP
+  toDirectEmails  Json                   @default("[]") // Para: emails directos adicionales
+  ccProfileIds    Json                   @default("[]") // CC: perfiles del sistema
+  ccCustomEmails  Json                   @default("[]") // CC: emails adicionales
+  isActive        Boolean                @default(false) // true = envío automático por SMTP
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
 
@@ -804,19 +804,19 @@ model FormResponse {
 }
 
 model SyncLog {
-  id               String      @id @default(uuid())
-  source           String
-  legalEntity      LegalEntity
-  status           SyncStatus  @default(RUNNING)
-  startedAt        DateTime    @default(now())
-  completedAt      DateTime?
-  employeesTotal   Int         @default(0)
-  employeesCreated Int         @default(0)
-  employeesUpdated Int         @default(0)
-  contractsUpserted Int        @default(0)
-  duplicatesSkipped Int        @default(0)
-  errorMessage     String?
-  errorDetails     Json?
+  id                String      @id @default(uuid())
+  source            String
+  legalEntity       LegalEntity
+  status            SyncStatus  @default(RUNNING)
+  startedAt         DateTime    @default(now())
+  completedAt       DateTime?
+  employeesTotal    Int         @default(0)
+  employeesCreated  Int         @default(0)
+  employeesUpdated  Int         @default(0)
+  contractsUpserted Int         @default(0)
+  duplicatesSkipped Int         @default(0)
+  errorMessage      String?
+  errorDetails      Json?
 
   @@map("sync_logs")
 }
@@ -838,18 +838,35 @@ model BudgetCategory {
 }
 
 model BudgetItem {
-  id           String         @id @default(uuid())
-  category     BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  id           String            @id @default(uuid())
+  category     BudgetCategory    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   categoryId   String
   name         String
-  annualAmount Int            @default(0)
-  spentAmount  Int            @default(0)
-  sortOrder    Int            @default(0)
+  annualAmount Int               @default(0)
+  spentAmount  Int               @default(0)
+  sortOrder    Int               @default(0)
   notes        String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  rendiciones  BudgetRendicion[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   @@map("budget_items")
+}
+
+// Gasto rendido (caja chica, tarjeta, reembolsos) imputado a una partida: no es BH ni factura.
+model BudgetRendicion {
+  id          String     @id @default(uuid())
+  item        BudgetItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId      String
+  description String
+  amount      Int
+  date        DateTime
+  notes       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([itemId])
+  @@map("budget_rendiciones")
 }
 
 // ─────────────────────────────────────────────
@@ -896,8 +913,11 @@ model SmartDocument {
   fechaVencimiento          DateTime?
   fechaPago                 DateTime?
   clasificacion             String?
-  tipo                      String?          // Reembolsable / No Reembolsable (taxonomía interna GDP)
-  categoria                 String?          // Categoría Surmedia (Aseo y Servicios, Apoyo Operacional, ...)
+  // Excepción: área propia de este documento cuando no es la de su proveedor (p. ej. un pasaje
+  // de Administración que corresponde a un taller de Personas). Con área propia, `categoria` es la suya.
+  area                      String?
+  tipo                      String? // Reembolsable / No Reembolsable (taxonomía interna GDP)
+  categoria                 String? // Categoría Surmedia (Aseo y Servicios, Apoyo Operacional, ...)
   montoExento               Int              @default(0)
   montoAfecto               Int              @default(0)
   montoNeto                 Int              @default(0)

@@ -369,18 +369,19 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send(prov)
   })
 
-  // PATCH /api/smart/documents/:id — actualiza workCenterId por documento
+  // PATCH /api/smart/documents/:id — actualiza centro, tipo, categoría y área propia (excepción) por documento
   fastify.patch<{
     Params: { id: string }
-    Body:   { workCenterId?: string | null; tipo?: string | null; categoria?: string | null }
+    Body:   { workCenterId?: string | null; tipo?: string | null; categoria?: string | null; area?: string | null }
   }>('/documents/:id', async (req, reply) => {
-    const { workCenterId, tipo, categoria } = req.body
+    const { workCenterId, tipo, categoria, area } = req.body
     const doc = await fastify.prisma.smartDocument.update({
       where:   { id: req.params.id },
       data:    {
         ...(workCenterId !== undefined ? { workCenterId: workCenterId ?? null } : {}),
         ...(tipo         !== undefined ? { tipo:         tipo ?? null }         : {}),
         ...(categoria    !== undefined ? { categoria:    categoria ?? null }    : {}),
+        ...(area         !== undefined ? { area:         area ?? null }         : {}),
       },
       include: DOC_WC_INCLUDE,
     })

@@ -514,6 +514,7 @@ export interface SmartDocument {
   fechaVencimiento:          string | null
   fechaPago:                 string | null
   clasificacion:             string | null
+  area:                      string | null   // excepción: área propia del documento (si no, la del proveedor)
   tipo:                      string | null
   categoria:                 string | null
   montoExento:               number
@@ -577,6 +578,17 @@ export interface BudgetItem {
   spentByQuarter?: number[]
   // true = fila derivada de un gasto sin partida (no persistida, no editable)
   virtual?:     boolean
+}
+
+// Gasto rendido (caja chica, tarjeta, reembolsos) imputado a una partida
+export interface BudgetRendicion {
+  id:          string
+  itemId:      string
+  description: string
+  amount:      number
+  date:        string
+  notes:       string | null
+  item:        { id: string; name: string; category: { name: string } }
 }
 
 export interface BudgetCategory {

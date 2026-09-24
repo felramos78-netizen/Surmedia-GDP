@@ -137,7 +137,7 @@ export function usePatchDocument() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (
-      { id, ...fields }: { id: string; workCenterId?: string | null; tipo?: string | null; categoria?: string | null },
+      { id, ...fields }: { id: string; workCenterId?: string | null; tipo?: string | null; categoria?: string | null; area?: string | null },
     ) => {
       const { data } = await api.patch(`/smart/documents/${id}`, fields)
       return data as import('@/types').SmartDocument

@@ -17,10 +17,15 @@ function useCategoriesByArea(): Record<string, string[]> {
   return useMemo(() => ({ ...CATEGORIES_BY_AREA, Personas: partidas }), [partidas])
 }
 
+// Valores especiales del selector de área de una compra (excepción por documento)
+const DOC_EXCEPTION   = '___DOC___:'
+const CLEAR_EXCEPTION = '___SIN_EXCEPCION___'
+
 // ── Inline editable cell ──────────────────────────────────────────────────────
 
 function EditableCell({
   value, proveedorId, documentId, field, type = 'text', options, currentArea, extraOptions = [],
+  exceptionDocId, isException = false,
 }: {
   value:         string | null
   proveedorId?:  string
@@ -30,6 +35,9 @@ function EditableCell({
   options?:      { value: string; label: string }[]
   currentArea?:  string | null
   extraOptions?: string[]
+  // Área de una compra: permite crear (exceptionDocId) o quitar (isException) el área propia del documento
+  exceptionDocId?: string
+  isException?:    boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [editingCustom, setEditingCustom] = useState(false)
@@ -43,7 +51,7 @@ function EditableCell({
   const createBudgetItem = useCreateBudgetItem()
   const [segmentId, setSegmentId] = useState('')
   // Una categoría nueva en Personas es una partida nueva del presupuesto: se pide su segmento.
-  const isBudgetCategory = field === 'categoria' && !documentId && currentArea === 'Personas'
+  const isBudgetCategory = field === 'categoria' && currentArea === 'Personas'
 
   useEffect(() => {
     if (editing || editingCustom) {
@@ -77,12 +85,12 @@ function EditableCell({
     } else if (field === 'tipo') {
       base = TIPOS
     } else if (field === 'categoria') {
-      // Documento (honorarios) → Categoría Surmedia; Proveedor (compras) → según área
-      base = documentId ? CATEGORIAS_SURMEDIA : (currentArea ? (categoriesByArea[currentArea] || []) : [])
+      // Honorarios → Categoría Surmedia; compras (proveedor o excepción del documento) → según área
+      base = documentId && !currentArea ? CATEGORIAS_SURMEDIA : (currentArea ? (categoriesByArea[currentArea] || []) : [])
     }
 
     // Personas solo ofrece partidas del presupuesto; el resto suma los valores ya usados en los datos.
-    const extras = field === 'categoria' && !documentId && currentArea === 'Personas' ? [] : extraOptions
+    const extras = field === 'categoria' && currentArea === 'Personas' ? [] : extraOptions
     const all = [...new Set([...base, ...extras])].sort((a, b) =>
       a.localeCompare(b, 'es', { sensitivity: 'base' })
     )
@@ -178,6 +186,12 @@ function EditableCell({
             setEditing(false)
             setEditingCustom(true)
             setVal('')
+          } else if (e.target.value.startsWith(DOC_EXCEPTION) && exceptionDocId) {
+            setEditing(false)
+            patchDoc.mutate({ id: exceptionDocId, area: e.target.value.slice(DOC_EXCEPTION.length), categoria: null })
+          } else if (e.target.value === CLEAR_EXCEPTION && documentId) {
+            setEditing(false)
+            patchDoc.mutate({ id: documentId, area: null, categoria: null })
           } else {
             const newVal = e.target.value
             setVal(newVal)
@@ -191,6 +205,12 @@ function EditableCell({
         <option value="">—</option>
         {opts?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         {isSmart && <option value="___OTRO___">+ Otro...</option>}
+        {exceptionDocId && (
+          <optgroup label="Solo esta factura (excepción)">
+            {AREAS.map(a => <option key={a} value={DOC_EXCEPTION + a}>{a}</option>)}
+          </optgroup>
+        )}
+        {isException && <option value={CLEAR_EXCEPTION}>Quitar excepción (usar la del proveedor)</option>}
       </select>
     )
   }
@@ -271,6 +291,11 @@ function TruncCell({
 export type SortState  = { col: string; dir: 'asc' | 'desc' } | null
 export type ColFilters = Record<string, Set<string>>
 
+// Área y categoría efectivas de una compra: las propias del documento si tiene una excepción,
+// si no las de su proveedor.
+const docArea      = (d: SmartDocument) => d.area ?? d.proveedor.area
+const docCategoria = (d: SmartDocument) => (d.area ? d.categoria : d.proveedor.categoria)
+
 export function getDocVal(d: SmartDocument, col: string): string {
   switch (col) {
     case 'rut':           return d.proveedor.rut ?? ''
@@ -280,8 +305,8 @@ export function getDocVal(d: SmartDocument, col: string): string {
     case 'clasificacion': return d.clasificacion ?? ''
     case 'tipo':          return d.tipo ?? ''
     case 'docCategoria':  return d.categoria ?? ''
-    case 'area':          return d.proveedor.area ?? ''
-    case 'categoria':     return d.proveedor.categoria ?? ''
+    case 'area':          return docArea(d) ?? ''
+    case 'categoria':     return docCategoria(d) ?? ''
     case 'workCenter':    return d.workCenter?.name ?? ''
     case 'documento':     return d.documento ?? ''
     case 'folio':         return d.folio ?? ''
@@ -311,18 +336,19 @@ export function compareDocVal(a: SmartDocument, b: SmartDocument, col: string): 
 }
 
 // ── Column header with Excel-style filter dropdown ────────────────────────────
+// Genérico: lo usan las tablas de Smart y otras tablas (p. ej. Rendiciones del presupuesto).
 
-function ColHeader({
+export function ColHeader<T>({
   label, col, allDocs, colFilters, onFilterChange, sort, onSort, getValue, numeric, sortOnly,
 }: {
   label:          string
   col:            string
-  allDocs:        SmartDocument[]
+  allDocs:        T[]
   colFilters:     ColFilters
   onFilterChange: (col: string, vals: Set<string>) => void
   sort:           SortState
   onSort:         (col: string, dir?: 'asc' | 'desc') => void
-  getValue:       (d: SmartDocument) => string
+  getValue:       (d: T) => string
   numeric?:       boolean
   sortOnly?:      boolean
 }) {
@@ -618,23 +644,36 @@ export function DataTable({
               ) : (
                 <>
                   <td className="px-4 py-2.5">
-                    <EditableCell
-                      value={d.proveedor.area}
-                      proveedorId={d.proveedor.id}
-                      field="area"
-                      type="smart-select"
-                      extraOptions={extraAreas}
-                    />
+                    {d.area ? (
+                      // Excepción: el documento tiene área propia, distinta a la de su proveedor
+                      <div className="flex items-center gap-1" title={`Excepción de esta factura. Proveedor: ${d.proveedor.area ?? 'sin área'}`}>
+                        <EditableCell value={d.area} documentId={d.id} field="area" type="smart-select" isException />
+                        <span className="text-[9px] px-1 py-px rounded bg-violet-100 text-violet-700 font-medium shrink-0">Excepción</span>
+                      </div>
+                    ) : (
+                      <EditableCell
+                        value={d.proveedor.area}
+                        proveedorId={d.proveedor.id}
+                        field="area"
+                        type="smart-select"
+                        extraOptions={extraAreas}
+                        exceptionDocId={d.id}
+                      />
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
-                    <EditableCell
-                      value={d.proveedor.categoria}
-                      proveedorId={d.proveedor.id}
-                      field="categoria"
-                      type="smart-select"
-                      currentArea={d.proveedor.area}
-                      extraOptions={d.proveedor.area ? extraCategoriesByArea[d.proveedor.area] : []}
-                    />
+                    {d.area ? (
+                      <EditableCell value={d.categoria} documentId={d.id} field="categoria" type="smart-select" currentArea={d.area} />
+                    ) : (
+                      <EditableCell
+                        value={d.proveedor.categoria}
+                        proveedorId={d.proveedor.id}
+                        field="categoria"
+                        type="smart-select"
+                        currentArea={d.proveedor.area}
+                        extraOptions={d.proveedor.area ? extraCategoriesByArea[d.proveedor.area] : []}
+                      />
+                    )}
                   </td>
                 </>
               )}

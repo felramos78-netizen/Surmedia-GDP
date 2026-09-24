@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { BudgetCategory, ApiResponse } from '@/types'
+import type { BudgetCategory, BudgetRendicion, ApiResponse } from '@/types'
 
 export function useBudget() {
   return useQuery<BudgetCategory[]>({
@@ -37,5 +37,41 @@ export function useCreateBudgetItem() {
     mutationFn: (v: { categoryId: string; name: string; annualAmount?: number }) =>
       api.post('/budget/items', { annualAmount: 0, ...v }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['budget'] }),
+  })
+}
+
+// ── Rendiciones ──────────────────────────────────────────────────────────────
+
+function useInvalidateBudgetSpend() {
+  const qc = useQueryClient()
+  return () => {
+    qc.invalidateQueries({ queryKey: ['budget'] })
+    qc.invalidateQueries({ queryKey: ['budget-rendiciones'] })
+  }
+}
+
+export function useRendiciones() {
+  return useQuery<BudgetRendicion[]>({
+    queryKey: ['budget-rendiciones'],
+    queryFn: async () => (await api.get<ApiResponse<BudgetRendicion[]>>('/budget/rendiciones')).data.data,
+  })
+}
+
+export type RendicionInput = { itemId: string; description: string; amount: number; date: string; notes?: string | null }
+
+export function useSaveRendicion() {
+  const inv = useInvalidateBudgetSpend()
+  return useMutation({
+    mutationFn: ({ id, ...body }: RendicionInput & { id?: string }) =>
+      id ? api.patch(`/budget/rendiciones/${id}`, body) : api.post('/budget/rendiciones', body),
+    onSuccess: inv,
+  })
+}
+
+export function useDeleteRendicion() {
+  const inv = useInvalidateBudgetSpend()
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/budget/rendiciones/${id}`),
+    onSuccess: inv,
   })
 }
