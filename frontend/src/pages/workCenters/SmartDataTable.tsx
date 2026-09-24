@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { RefreshCw, Check, ChevronDown, ChevronUp, ChevronsUpDown, X, Pencil, Filter, FileText, DollarSign, Scale, Search } from 'lucide-react'
+import { RefreshCw, AlertTriangle, Check, ChevronDown, ChevronUp, ChevronsUpDown, X, Pencil, Filter, FileText, DollarSign, Scale, Search } from 'lucide-react'
 import { usePatchProveedor, usePatchDocument } from '@/hooks/useSmart'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
 import { useBudgetItemNames, useBudgetSegments, useCreateBudgetItem } from '@/hooks/useBudget'
@@ -88,6 +88,11 @@ function EditableCell({
     )
     return all.map(v => ({ value: v, label: v }))
   }, [type, field, currentArea, extraOptions, documentId, categoriesByArea])
+
+  // Categoría de Personas que no es una partida del presupuesto (renombrada o borrada): su gasto
+  // no se imputa a ninguna partida, así que se marca para corregirla.
+  const partidas = categoriesByArea.Personas
+  const orphanPartida = isBudgetCategory && !!value && partidas.length > 0 && !partidas.includes(value)
 
   const display = value
     ? (type === 'select' || type === 'smart-select'
@@ -210,8 +215,10 @@ function EditableCell({
         setVal(value ?? '')
       }}
       className="group flex items-center gap-1 text-left hover:text-brand-600 transition-colors"
+      title={orphanPartida ? `"${value}" no es una partida del Presupuesto DPDO. Elige una partida existente.` : undefined}
     >
-      <span className={display ? 'text-gray-700' : 'text-gray-300'}>
+      {orphanPartida && <AlertTriangle size={12} className="text-amber-500 shrink-0" aria-label="Partida inexistente" />}
+      <span className={orphanPartida ? 'text-amber-700' : display ? 'text-gray-700' : 'text-gray-300'}>
         {display ?? '—'}
       </span>
       <Pencil size={10} className="opacity-0 group-hover:opacity-100 text-gray-400 shrink-0" />
