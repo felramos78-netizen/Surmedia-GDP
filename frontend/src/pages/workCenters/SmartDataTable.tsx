@@ -23,7 +23,7 @@ const CLEAR_EXCEPTION = '___SIN_EXCEPCION___'
 
 // ── Inline editable cell ──────────────────────────────────────────────────────
 
-function EditableCell({
+export function EditableCell({
   value, proveedorId, documentId, field, type = 'text', options, currentArea, extraOptions = [],
   exceptionDocId, isException = false,
 }: {

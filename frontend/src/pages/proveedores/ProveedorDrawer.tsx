@@ -3,6 +3,7 @@ import { X, Save, Check, FileText, ShoppingCart, Pencil } from 'lucide-react'
 import { useSmartProveedor, usePatchProveedor, usePatchDocument } from '@/hooks/useSmart'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { CATEGORIAS_SURMEDIA } from '@/pages/workCenters/SmartShared'
+import { EditableCell } from '@/pages/workCenters/SmartDataTable'
 import type { SmartDocument } from '@/types'
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -49,15 +50,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ── Documento row ─────────────────────────────────────────────────────────────
 
-function DocRow({ d, provArea, onSetCategoria, saving }: {
+function DocRow({ d, provId, provArea, provCategoria, onSetCategoria, saving }: {
   d: SmartDocument
+  provId: string
   provArea: string | null
+  provCategoria: string | null
   onSetCategoria: (id: string, categoria: string | null) => void
   saving: boolean
 }) {
   const isHon = d.category === 'HONORARIO'
-  // Área de la factura/BH: la propia si es una excepción, si no la del proveedor
-  const area = d.area ?? provArea
   return (
     <tr className={`border-b border-gray-100 last:border-0 ${d.vigente ? 'hover:bg-gray-50' : 'bg-red-50/70 hover:bg-red-100/70'}`}>
       <td className="px-3 py-2">
@@ -67,18 +68,24 @@ function DocRow({ d, provArea, onSetCategoria, saving }: {
       </td>
       <td className="px-3 py-2 text-xs text-gray-600">{fmtPeriodo(d.periodoTributario)}</td>
       <td className="px-3 py-2 text-xs text-gray-500 max-w-[120px] truncate">{d.clasificacion || '—'}</td>
-      <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">
-        {area || <span className="text-gray-300">—</span>}
-        {d.area && (
-          <span
-            className="ml-1 text-[9px] px-1 py-px rounded bg-violet-100 text-violet-700 font-medium"
-            title={`Excepción de este documento. Proveedor: ${provArea ?? 'sin área'}`}
-          >
-            Excepción
-          </span>
+      {/* Área: la propia del documento si es una excepción, si no la del proveedor (misma edición que en Compras) */}
+      <td className="px-3 py-2 text-xs whitespace-nowrap">
+        {d.area ? (
+          <div className="flex items-center gap-1" title={`Excepción de este documento. Proveedor: ${provArea ?? 'sin área'}`}>
+            <EditableCell value={d.area} documentId={d.id} field="area" type="smart-select" isException />
+            <span className="text-[9px] px-1 py-px rounded bg-violet-100 text-violet-700 font-medium shrink-0">Excepción</span>
+          </div>
+        ) : (
+          <EditableCell value={provArea} proveedorId={provId} field="area" type="smart-select" exceptionDocId={d.id} />
         )}
       </td>
-      <td className="px-3 py-2">
+      <td className="px-3 py-2 text-xs">
+        {!isHon ? (
+          // Compras: categoría según el área (en Personas, las partidas del presupuesto)
+          d.area
+            ? <EditableCell value={d.categoria} documentId={d.id} field="categoria" type="smart-select" currentArea={d.area} />
+            : <EditableCell value={provCategoria} proveedorId={provId} field="categoria" type="smart-select" currentArea={provArea} />
+        ) : (
         <select
           value={d.categoria ?? ''}
           disabled={saving}
@@ -88,6 +95,7 @@ function DocRow({ d, provArea, onSetCategoria, saving }: {
           <option value="">— Sin categoría</option>
           {CATEGORIAS_SURMEDIA.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
+        )}
       </td>
       <td className="px-3 py-2">
         {d.workCenter
@@ -319,7 +327,7 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                       </tr>
                     ) : (
                       shownDocs.map(d => (
-                        <DocRow key={d.id} d={d} provArea={prov.area} onSetCategoria={setDocCategoria} saving={patchDoc.isPending} />
+                        <DocRow key={d.id} d={d} provId={prov.id} provArea={prov.area} provCategoria={prov.categoria} onSetCategoria={setDocCategoria} saving={patchDoc.isPending} />
                       ))
                     )}
                   </tbody>
