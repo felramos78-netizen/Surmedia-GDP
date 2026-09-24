@@ -4,10 +4,10 @@ import { FastifyInstance } from 'fastify'
 //  - Honorarios (BH):      documentos del centro de trabajo PERSONAS.
 //  - Compras (facturas):   documentos cuyo proveedor pertenece al área "Personas".
 // En ambos casos se agrupan por categoría (categoría del documento o, si viene vacía,
-// la del proveedor). Las boletas anuladas quedan fuera y las notas de crédito restan.
+// la del proveedor). Las boletas anuladas quedan fuera; las notas de crédito restan porque
+// se guardan con monto negativo (ver parseSmartFile en smart.ts).
 const HONORARIOS_WORK_CENTER = 'PERSONAS'
 const COMPRAS_AREA = 'Personas'
-const NOTA_CREDITO = '61' // código SII; en Smart viene con monto positivo
 
 // Determina el trimestre (0..3) y año de un documento a partir del periodo tributario
 // ("YYYYMM") o, en su defecto, de la fecha de emisión. Devuelve null si no se puede.
@@ -74,7 +74,7 @@ export default async function budgetRoutes(app: FastifyInstance) {
     })
 
     const docSelect = {
-      categoria: true, montoTotal: true, codigoTributario: true, periodoTributario: true, fechaEmision: true,
+      categoria: true, montoTotal: true, periodoTributario: true, fechaEmision: true,
       proveedor: { select: { categoria: true } },
     }
     const [honorarios, compras] = await Promise.all([
@@ -97,9 +97,8 @@ export default async function budgetRoutes(app: FastifyInstance) {
       const label = d.categoria?.trim() || d.proveedor.categoria?.trim() || 'Sin categoría'
       const key = normalizeCat(label)
       const cur = spendByCat.get(key) ?? { label, total: 0, quarters: [0, 0, 0, 0] }
-      const amount = d.codigoTributario === NOTA_CREDITO ? -d.montoTotal : d.montoTotal
-      cur.total += amount
-      cur.quarters[yq.q] += amount
+      cur.total += d.montoTotal
+      cur.quarters[yq.q] += d.montoTotal
       spendByCat.set(key, cur)
     }
 

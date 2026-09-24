@@ -80,6 +80,8 @@ interface SmartRow {
   glosa:                     string
 }
 
+const NOTA_CREDITO = '61' // código SII de nota de crédito electrónica
+
 function parseSmartFile(fp: string, entity: LegalEntityKey, category: SmartCat): SmartRow[] {
   const wb   = XLSX.readFile(fp)
   const ws   = wb.Sheets[wb.SheetNames[0]]
@@ -90,6 +92,11 @@ function parseSmartFile(fp: string, entity: LegalEntityKey, category: SmartCat):
     .map(r => {
       const isHon  = category === 'HONORARIO'
       const pagStr = String(r['Pagado'] ?? '').trim().toLowerCase()
+      const codigoTributario = String(r['Código Tributario'] ?? '').trim()
+      // Smart exporta las notas de crédito con montos positivos; se guardan en negativo
+      // para que cualquier suma quede neteada contra la factura que anulan.
+      const isNC  = codigoTributario === NOTA_CREDITO
+      const monto = (v: unknown) => (isNC ? -Math.abs(toInt(v)) : toInt(v))
       return {
         smartId:                   String(r['Id']).trim(),
         category,
@@ -97,7 +104,7 @@ function parseSmartFile(fp: string, entity: LegalEntityKey, category: SmartCat):
         rut:                       String(r['Rut'] ?? '').trim(),
         razonSocial:               String(r['Razón Social'] ?? '').trim(),
         documento:                 String(r['Documento'] ?? '').trim(),
-        codigoTributario:          String(r['Código Tributario'] ?? '').trim(),
+        codigoTributario,
         folio:                     String(r['Folio'] ?? '').trim(),
         recibido:                  String(r['Recibido'] ?? '').trim(),
         vigente:                   String(r['Vigente'] ?? '').toLowerCase() === 'sí',
@@ -105,14 +112,14 @@ function parseSmartFile(fp: string, entity: LegalEntityKey, category: SmartCat):
         fechaVencimiento:          parseDate(r['Fecha Original de Vencimiento']),
         fechaPago:                 parseDate(r['Fecha de pago']),
         clasificacion:             String(r['Clasificación'] ?? '').trim(),
-        montoExento:               toInt(r['Monto Exento']),
-        montoAfecto:               toInt(r['Monto Afecto']),
-        montoNeto:                 toInt(r['Monto Neto']),
+        montoExento:               monto(r['Monto Exento']),
+        montoAfecto:               monto(r['Monto Afecto']),
+        montoNeto:                 monto(r['Monto Neto']),
         retencion:                 isHon ? toInt(r['Retención']) : null,
-        iva:                       !isHon ? toInt(r['IVA']) : null,
-        montoBruto:                toInt(r['Monto Bruto']),
-        ivaFueraDePlazo:           toInt(r['IVA Fuera de Plazo']),
-        montoTotal:                toInt(r['Monto Total']),
+        iva:                       !isHon ? monto(r['IVA']) : null,
+        montoBruto:                monto(r['Monto Bruto']),
+        ivaFueraDePlazo:           monto(r['IVA Fuera de Plazo']),
+        montoTotal:                monto(r['Monto Total']),
         remanente:                 toInt(r['Remanente']),
         pagado:                    pagStr === 'x' || pagStr === 'true' || pagStr === 'sí',
         folioReferencia:           String(r['Folio de Referencia'] ?? '').trim(),
