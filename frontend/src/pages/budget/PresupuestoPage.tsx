@@ -32,11 +32,16 @@ function useBudget() {
 function useBudgetMutations() {
   const qc = useQueryClient()
   const inv = () => qc.invalidateQueries({ queryKey: ['budget'] })
+  // Renombrar una partida o categoría de gasto también cambia la categoría de facturas y BH.
+  const invWithSmart = () => {
+    inv()
+    qc.invalidateQueries({ predicate: q => String(q.queryKey[0]).startsWith('smart-') })
+  }
 
   return {
     updateItem: useMutation({
       mutationFn: (v: { id: string; data: Partial<BudgetItem> }) => axios.patch(`/budget/items/${v.id}`, v.data),
-      onSuccess: inv,
+      onSuccess: (_res, v) => (v.data.name !== undefined ? invWithSmart() : inv()),
     }),
     createItem: useMutation({
       mutationFn: (v: { categoryId: string; name: string; annualAmount: number }) => axios.post('/budget/items', v),
@@ -68,7 +73,7 @@ function useBudgetMutations() {
     }),
     renameExpenseCategory: useMutation({
       mutationFn: (v: { from: string; to: string }) => axios.patch('/budget/expense-category', v),
-      onSuccess: inv,
+      onSuccess: invWithSmart,
     }),
   }
 }

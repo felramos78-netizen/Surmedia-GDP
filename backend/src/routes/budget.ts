@@ -39,6 +39,24 @@ function normalizeCat(s: string): string {
     .replace(/s$/, '')
 }
 
+// Renombra una categoría de gasto en todos los documentos y proveedores que la usan.
+// El emparejamiento es por nombre normalizado, por lo que cubre variantes (p. ej. "EPPs"/"EPPS").
+async function renameExpenseCategory(app: FastifyInstance, from: string, to: string) {
+  const key = normalizeCat(from)
+  const [docs, provs] = await Promise.all([
+    app.prisma.smartDocument.findMany({ where: { categoria: { not: null } }, select: { id: true, categoria: true } }),
+    app.prisma.smartProveedor.findMany({ where: { categoria: { not: null } }, select: { id: true, categoria: true } }),
+  ])
+  const docIds  = docs.filter(d => d.categoria && normalizeCat(d.categoria) === key).map(d => d.id)
+  const provIds = provs.filter(p => p.categoria && normalizeCat(p.categoria) === key).map(p => p.id)
+
+  await app.prisma.$transaction([
+    ...(docIds.length  ? [app.prisma.smartDocument.updateMany({ where: { id: { in: docIds } }, data: { categoria: to } })] : []),
+    ...(provIds.length ? [app.prisma.smartProveedor.updateMany({ where: { id: { in: provIds } }, data: { categoria: to } })] : []),
+  ])
+  return { documents: docIds.length, proveedores: provIds.length }
+}
+
 export default async function budgetRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate)
 
@@ -162,15 +180,27 @@ export default async function budgetRoutes(app: FastifyInstance) {
       spentAmount?: number
       notes?: string
     }
+    const name = body.name?.trim()
+    const before = name ? await app.prisma.budgetItem.findUnique({ where: { id }, select: { name: true } }) : null
     const item = await app.prisma.budgetItem.update({
       where: { id },
       data: {
-        ...(body.name !== undefined && { name: body.name }),
+        ...(name && { name }),
         ...(body.annualAmount !== undefined && { annualAmount: body.annualAmount }),
         ...(body.spentAmount !== undefined && { spentAmount: body.spentAmount }),
         ...(body.notes !== undefined && { notes: body.notes }),
       },
     })
+
+    // Al renombrar la partida, las facturas y BH imputadas a ella la siguen: se renombra
+    // su categoría de gasto. Si otra partida comparte el nombre anterior, no se toca nada.
+    if (before && name && normalizeCat(before.name) !== normalizeCat(name)) {
+      const oldKey = normalizeCat(before.name)
+      const others = await app.prisma.budgetItem.findMany({ where: { id: { not: id } }, select: { name: true } })
+      if (!others.some(o => normalizeCat(o.name) === oldKey)) {
+        await renameExpenseCategory(app, before.name, name)
+      }
+    }
     return reply.send({ data: item })
   })
 
@@ -225,25 +255,10 @@ export default async function budgetRoutes(app: FastifyInstance) {
   })
 
   // Renombra una categoría de gasto en TODOS los documentos y proveedores asociados.
-  // El emparejamiento es por nombre normalizado, por lo que cubre variantes (p. ej. "EPPs"/"EPPS").
   app.patch('/expense-category', async (req, reply) => {
     const { from, to } = req.body as { from?: string; to?: string }
     if (!from?.trim() || !to?.trim()) return reply.status(400).send({ message: 'from y to son requeridos' })
-    const key = normalizeCat(from)
-    const newName = to.trim()
-
-    const [docs, provs] = await Promise.all([
-      app.prisma.smartDocument.findMany({ where: { categoria: { not: null } }, select: { id: true, categoria: true } }),
-      app.prisma.smartProveedor.findMany({ where: { categoria: { not: null } }, select: { id: true, categoria: true } }),
-    ])
-    const docIds  = docs.filter(d => d.categoria && normalizeCat(d.categoria) === key).map(d => d.id)
-    const provIds = provs.filter(p => p.categoria && normalizeCat(p.categoria) === key).map(p => p.id)
-
-    await app.prisma.$transaction([
-      ...(docIds.length  ? [app.prisma.smartDocument.updateMany({ where: { id: { in: docIds } }, data: { categoria: newName } })] : []),
-      ...(provIds.length ? [app.prisma.smartProveedor.updateMany({ where: { id: { in: provIds } }, data: { categoria: newName } })] : []),
-    ])
-    return reply.send({ data: { documents: docIds.length, proveedores: provIds.length } })
+    return reply.send({ data: await renameExpenseCategory(app, from, to.trim()) })
   })
 
   // Reordena las subáreas según el orden de `ids`.
