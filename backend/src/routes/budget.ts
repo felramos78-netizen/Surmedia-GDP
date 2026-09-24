@@ -5,9 +5,11 @@ import { FastifyInstance } from 'fastify'
 //  - Compras (facturas):   documentos cuyo proveedor pertenece al área "Personas".
 // En ambos casos se agrupan por categoría (categoría del documento o, si viene vacía,
 // la del proveedor). Las boletas anuladas quedan fuera; las notas de crédito restan porque
-// se guardan con monto negativo (ver parseSmartFile en smart.ts).
+// se guardan con monto negativo (ver parseSmartFile en smart.ts), salvo las que corrigen
+// una factura que no está en GDP (p. ej. de un año anterior): esas no cuentan.
 const HONORARIOS_WORK_CENTER = 'PERSONAS'
 const COMPRAS_AREA = 'Personas'
+const NOTA_CREDITO = '61' // código SII de nota de crédito electrónica
 
 // Determina el trimestre (0..3) y año de un documento a partir del periodo tributario
 // ("YYYYMM") o, en su defecto, de la fecha de emisión. Devuelve null si no se puede.
@@ -75,6 +77,7 @@ export default async function budgetRoutes(app: FastifyInstance) {
 
     const docSelect = {
       categoria: true, montoTotal: true, periodoTributario: true, fechaEmision: true,
+      codigoTributario: true, folioReferencia: true, proveedorId: true, legalEntity: true,
       proveedor: { select: { categoria: true } },
     }
     const [honorarios, compras] = await Promise.all([
@@ -87,11 +90,25 @@ export default async function budgetRoutes(app: FastifyInstance) {
       }),
     ])
 
+    // Notas de crédito cuya factura de referencia no existe en GDP → se ignoran.
+    const docKey = (proveedorId: string, legalEntity: string, folio: string) => `${proveedorId}|${legalEntity}|${folio}`
+    const notas = compras.filter(d => d.codigoTributario === NOTA_CREDITO)
+    const referenced = notas.length
+      ? await app.prisma.smartDocument.findMany({
+          where: { proveedorId: { in: [...new Set(notas.map(n => n.proveedorId))] }, codigoTributario: { not: NOTA_CREDITO } },
+          select: { proveedorId: true, legalEntity: true, folio: true },
+        })
+      : []
+    const existingDocs = new Set(referenced.map(r => docKey(r.proveedorId, r.legalEntity, r.folio ?? '')))
+    const counts = (d: (typeof compras)[number]) =>
+      d.codigoTributario !== NOTA_CREDITO ||
+      (!!d.folioReferencia && existingDocs.has(docKey(d.proveedorId, d.legalEntity, d.folioReferencia)))
+
     // Gasto acotado al año presupuestario en curso, desglosado por trimestre.
     const budgetYear = new Date().getFullYear()
     // categoríaNormalizada → { label, total, quarters: [Q1,Q2,Q3,Q4] }
     const spendByCat = new Map<string, { label: string; total: number; quarters: number[] }>()
-    for (const d of [...honorarios, ...compras]) {
+    for (const d of [...honorarios, ...compras.filter(counts)]) {
       const yq = docYearQuarter(d.periodoTributario, d.fechaEmision)
       if (!yq || yq.year !== budgetYear) continue
       const label = d.categoria?.trim() || d.proveedor.categoria?.trim() || 'Sin categoría'
