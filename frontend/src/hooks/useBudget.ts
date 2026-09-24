@@ -13,20 +13,22 @@ export function useBudget() {
   })
 }
 
-// Nombres de las partidas del Presupuesto DPDO, en el orden del presupuesto.
-// Son las categorías válidas para el gasto del área Personas.
-export function useBudgetItemNames(): string[] {
+// Segmentos (subáreas) que muestra la página del presupuesto: solo la sección PARTIDAS
+// (BENEFICIOS es un resto de la plantilla inicial que no se muestra) y sin la fila
+// virtual de gastos sin partida.
+export function useBudgetSegments(): BudgetCategory[] {
   const { data } = useBudget()
   return useMemo(
-    () => (data ?? []).flatMap(c => c.items.filter(i => !i.virtual).map(i => i.name)),
+    () => (data ?? []).filter(c => c.section === 'PARTIDAS' && !c.id.startsWith('virtual')),
     [data],
   )
 }
 
-// Segmentos (subáreas) reales del presupuesto, sin la fila virtual de gastos sin partida.
-export function useBudgetSegments(): BudgetCategory[] {
-  const { data } = useBudget()
-  return useMemo(() => (data ?? []).filter(c => !c.id.startsWith('virtual')), [data])
+// Nombres de las partidas del Presupuesto DPDO, en el orden del presupuesto.
+// Son las categorías válidas para el gasto del área Personas.
+export function useBudgetItemNames(): string[] {
+  const segments = useBudgetSegments()
+  return useMemo(() => segments.flatMap(c => c.items.map(i => i.name)), [segments])
 }
 
 export function useCreateBudgetItem() {
