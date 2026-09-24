@@ -1,11 +1,11 @@
 import { useState, Fragment } from 'react'
 import {
-  RefreshCw, X, CheckCircle2, AlertTriangle, Info, Check, Minus,
-  FileSpreadsheet, ChevronRight, ChevronDown,
+  RefreshCw, CheckCircle2, AlertTriangle, Info, Check, Minus,
+  ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { SmartImportTab } from '@/pages/workCenters/SmartTab'
 import {
-  fetchBukPreview,
+  fetchBukPreview, useBukLastSync,
   type BukPreviewData, type BukSueldoNuevo, type BukSueldoCambio,
   type BukDotacionCambio, type BukVacNueva, type BukDotacionNuevo, type BukVacAprobadaNueva,
   type BukSource,
@@ -594,6 +594,8 @@ function BukTab() {
   const [preview,  setPreview]  = useState<BukPreviewData | null>(null)
   const [year,     setYear]     = useState(String(new Date().getFullYear()))
   const [source,   setSource]   = useState<BukSource>('api')
+  const { data: lastSync } = useBukLastSync()
+  const isApi = source === 'api'
 
   async function load() {
     setLoading(true); setError(null); setPreview(null)
@@ -602,39 +604,40 @@ function BukTab() {
       if ((result as any)._debug) console.warn('[BUK debug]', (result as any)._debug)
       setPreview(result)
     }
-    catch (e: any) { setError(e?.response?.data?.message ?? e?.message ?? (source === 'api' ? 'Error al consultar BUK' : 'Error al leer archivos')) }
+    catch (e: any) { setError(e?.response?.data?.message ?? e?.message ?? (isApi ? 'Error al consultar BUK' : 'Error al leer archivos')) }
     finally { setLoading(false) }
   }
+
+  function switchSource(next: BukSource) {
+    setSource(next); setPreview(null); setError(null)
+  }
+
+  const lastSyncLabel = lastSync
+    ? `${new Date(lastSync.at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}${lastSync.email ? ` · ${lastSync.email}` : ''}${lastSync.source === 'excel' ? ' · desde Excel' : ''}`
+    : 'Nunca'
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          {source === 'api' ? (
+          {isApi ? (
             <>
-              <p className="text-sm text-gray-500">Consulta en vivo la API de BUK de ambas razones sociales</p>
+              <p className="text-sm text-gray-500">Trae los cambios de BUK (ambas razones sociales) para revisarlos y aceptarlos</p>
               <p className="text-xs text-gray-400 mt-0.5">Dotación, sueldos (meses cerrados), vacaciones aprobadas y saldo de vacaciones del mes · toma ~40 s</p>
             </>
           ) : (
             <>
-              <p className="text-sm text-gray-500">Lee automáticamente los archivos Excel de la carpeta <code className="text-xs bg-gray-100 px-1 rounded">reportes/</code></p>
+              <p className="text-sm text-gray-500">Respaldo: lee los archivos Excel de la carpeta <code className="text-xs bg-gray-100 px-1 rounded">reportes/</code></p>
               <p className="text-xs text-gray-400 mt-0.5">Comunicaciones y Consultoría · Dotación, Sueldos, Vacaciones tomadas, Vacaciones y licencia, Vacación (aprobadas)</p>
             </>
           )}
+          <p className="text-xs text-gray-400 mt-1.5">Última sincronización: <span className="text-gray-600">{lastSyncLabel}</span></p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="flex rounded-lg border border-gray-200 p-0.5" role="group" aria-label="Fuente de datos">
-            {([['api', 'API BUK'], ['excel', 'Excel']] as [BukSource, string][]).map(([id, label]) => (
-              <button key={id} onClick={() => { setSource(id); setPreview(null) }} disabled={loading} aria-pressed={source === id}
-                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${source === id ? 'bg-brand-600 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
           <div className="flex items-center gap-1.5">
-            <label className="text-xs text-gray-500 whitespace-nowrap">Año sueldos</label>
+            <label htmlFor="buk-year" className="text-xs text-gray-500 whitespace-nowrap">Año sueldos</label>
             <input
-              type="number" value={year} onChange={e => setYear(e.target.value)}
+              id="buk-year" type="number" value={year} onChange={e => setYear(e.target.value)}
               min={2020} max={2099} step={1}
               className="w-20 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-400 text-center"
             />
@@ -644,7 +647,9 @@ function BukTab() {
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            {loading ? (source === 'api' ? 'Consultando BUK…' : 'Leyendo archivos…') : preview ? 'Recargar' : 'Cargar y previsualizar'}
+            {loading
+              ? (isApi ? 'Sincronizando con BUK…' : 'Leyendo archivos…')
+              : isApi ? (preview ? 'Volver a sincronizar' : 'Sincronizar con BUK') : (preview ? 'Recargar Excel' : 'Leer Excel')}
           </button>
         </div>
       </div>
@@ -656,6 +661,13 @@ function BukTab() {
       {preview && (
         <BukPreview data={preview} year={year} source={source} onDone={() => setPreview(null)} />
       )}
+
+      <div className="pt-2 border-t border-gray-100 text-right">
+        <button onClick={() => switchSource(isApi ? 'excel' : 'api')} disabled={loading}
+          className="text-[11px] text-gray-400 hover:text-gray-600 underline underline-offset-2 disabled:opacity-50">
+          {isApi ? '¿Problemas con la API de BUK? Usar reportes Excel' : 'Volver a sincronizar con la API de BUK'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -670,7 +682,7 @@ export default function ImportablesPage() {
   return (
     <div className="p-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Importables Excel</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Importables</h1>
         <p className="text-sm text-gray-500 mt-1">Sincronización de datos desde plataformas externas.</p>
       </div>
 

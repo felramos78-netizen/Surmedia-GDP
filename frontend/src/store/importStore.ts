@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import api from '@/lib/api'
+import { queryClient } from '@/lib/queryClient'
 import type { BukApplyPayload } from '@/hooks/useBuk'
 
 export type ImportStatus = 'idle' | 'running' | 'success' | 'error'
@@ -33,6 +34,7 @@ export const useImportStore = create<ImportStore>()((set) => ({
           r.vacLicencia  > 0 ? `${r.vacLicencia} saldos vac.` : '',
         ].filter(Boolean).join(' · ')
         set({ status: 'success', label: 'Importación completada', detail, result: r })
+        queryClient.invalidateQueries({ queryKey: ['bukLastSync'] })
       })
       .catch((e: any) => {
         const detail = e?.response?.data?.message ?? e?.message ?? 'Error desconocido'

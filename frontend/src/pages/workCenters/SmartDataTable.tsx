@@ -466,7 +466,7 @@ export function DataTable({
   if (allDocs.length === 0) {
     return (
       <div className="py-12 text-center text-sm text-gray-400">
-        Sin registros. Ve a <strong>Importables Excel → Smart CTO</strong> para cargar datos.
+        Sin registros. Ve a <strong>Importables → Smart CTO</strong> para cargar datos.
       </div>
     )
   }

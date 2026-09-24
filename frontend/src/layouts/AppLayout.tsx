@@ -19,7 +19,7 @@ const navItems = [
   { to: '/calendario',       icon: CalendarDays,     label: 'Calendario' },
   { to: '/onboarding',       icon: Building2,        label: 'Onboarding' },
   { to: '/perfiles',         icon: Contact,          label: 'Perfiles' },
-  { to: '/buk',              icon: FileSpreadsheet,  label: 'Importables Excel' },
+  { to: '/buk',              icon: FileSpreadsheet,  label: 'Importables' },
   { to: '/documents',        icon: FileText,         label: 'Documentos' },
 ]
 

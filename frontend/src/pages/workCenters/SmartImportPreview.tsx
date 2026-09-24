@@ -163,7 +163,7 @@ function CategoryPreview({
   )
 }
 
-// ── SmartImportTab — for BukPage (Importables Excel > Smart CTO) ──────────────
+// ── SmartImportTab — for BukPage (Importables > Smart CTO) ──────────────
 
 export function SmartImportTab() {
   const [loading, setLoading] = useState(false)

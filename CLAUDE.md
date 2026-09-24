@@ -527,7 +527,7 @@ Módulo para sincronizar GDP con BUK. Dos fuentes, elegibles con un selector en 
 
 **Saldo de vacaciones:** el saldo de la API **ya descuenta las vacaciones aprobadas a futuro**; el del Excel no. `VacationBalance.source` (`API` / `EXCEL`) lo indica y el reporte de saldos (`GET /api/reports/vacaciones`) solo resta las vacaciones futuras cuando el saldo es `EXCEL`. La API solo entrega el saldo actual (no historial): el historial mensual se arma con cada sincronización.
 
-**Flujo:** Preview (diff contra DB) → Selección de registros a aplicar → Apply.
+**Flujo:** botón "Sincronizar con BUK" (preview: diff contra DB) → selección de registros a aceptar → "Importar" (apply). Cada apply queda registrado en `AuditLog` (`action = 'BUK_SYNC'`, con usuario y conteos); `GET /api/buk/last-sync` devuelve la última y se muestra en la página. El Excel se activa con un enlace secundario ("¿Problemas con la API de BUK? Usar reportes Excel").
 
 Con la fuente Excel, los archivos deben ubicarse en `reportes/Comunicaciones/` y `reportes/Consultoría/`. El sistema selecciona automáticamente el archivo más reciente que contenga la keyword correspondiente en el nombre.
 

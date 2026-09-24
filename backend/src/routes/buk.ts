@@ -44,6 +44,8 @@ async function loadRows(source: BukSource, year: number | undefined, fresh: bool
 
 const parseSource = (raw: unknown): BukSource => (raw === 'excel' ? 'excel' : 'api')
 
+const SYNC_ACTION = 'BUK_SYNC'
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 const bukRoutes: FastifyPluginAsync = async (fastify) => {
@@ -551,7 +553,27 @@ const bukRoutes: FastifyPluginAsync = async (fastify) => {
       }
     }
 
+    // Registro de la sincronización (fecha, quién y cuánto se aplicó)
+    const source = parseSource(req.body.source)
+    await fastify.prisma.auditLog.create({
+      data: {
+        userId: req.user.userId, action: SYNC_ACTION, entity: 'buk', entityId: source,
+        newValues: { ...applied, source, email: req.user.email },
+      },
+    })
+
     return reply.send({ ok: true, applied })
+  })
+
+  // GET /api/buk/last-sync — última sincronización aplicada
+  fastify.get('/last-sync', async (_req, reply) => {
+    const last = await fastify.prisma.auditLog.findFirst({
+      where: { action: SYNC_ACTION }, orderBy: { createdAt: 'desc' },
+    })
+    const values = (last?.newValues ?? {}) as { email?: string; source?: string }
+    return reply.send({
+      data: last ? { at: last.createdAt, email: values.email ?? null, source: values.source ?? last.entityId } : null,
+    })
   })
 }
 

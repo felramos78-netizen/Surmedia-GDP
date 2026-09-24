@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
 
 export interface BukSueldoNuevo {
@@ -79,5 +79,14 @@ export function useBukApply() {
       qc.invalidateQueries({ queryKey: ['employees'] })
       qc.invalidateQueries({ queryKey: ['employeeStats'] })
     },
+  })
+}
+
+export interface BukLastSync { at: string; email: string | null; source: string }
+
+export function useBukLastSync() {
+  return useQuery({
+    queryKey: ['bukLastSync'],
+    queryFn: async () => (await api.get<{ data: BukLastSync | null }>('/buk/last-sync')).data.data,
   })
 }

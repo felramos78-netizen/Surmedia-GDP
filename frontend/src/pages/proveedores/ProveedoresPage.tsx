@@ -193,7 +193,7 @@ export default function ProveedoresPage() {
           <p className="text-sm text-gray-400">
             {search || area || categoria
               ? 'Sin resultados para los filtros aplicados.'
-              : 'Sin proveedores. Importa datos desde Importables Excel → Smart CTO.'}
+              : 'Sin proveedores. Importa datos desde Importables → Smart CTO.'}
           </p>
         </div>
       ) : view === 'table' ? (
