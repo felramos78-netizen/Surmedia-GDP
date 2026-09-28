@@ -3,7 +3,8 @@ import { X, Save, Check, FileText, ShoppingCart, Pencil } from 'lucide-react'
 import { useSmartProveedor, usePatchProveedor, usePatchDocument } from '@/hooks/useSmart'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { CATEGORIAS_SURMEDIA } from '@/pages/workCenters/SmartShared'
-import { EditableCell } from '@/pages/workCenters/SmartDataTable'
+import { PartidaCell } from '@/pages/workCenters/SmartDataTable'
+import { useBudgetSegments, useBudgetItemNameById } from '@/hooks/useBudget'
 import type { SmartDocument } from '@/types'
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -50,11 +51,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 // ── Documento row ─────────────────────────────────────────────────────────────
 
-function DocRow({ d, provId, provArea, provCategoria, onSetCategoria, saving }: {
+function DocRow({ d, onSetCategoria, saving }: {
   d: SmartDocument
-  provId: string
-  provArea: string | null
-  provCategoria: string | null
   onSetCategoria: (id: string, categoria: string | null) => void
   saving: boolean
 }) {
@@ -68,34 +66,21 @@ function DocRow({ d, provId, provArea, provCategoria, onSetCategoria, saving }: 
       </td>
       <td className="px-3 py-2 text-xs text-gray-600">{fmtPeriodo(d.periodoTributario)}</td>
       <td className="px-3 py-2 text-xs text-gray-500 max-w-[120px] truncate">{d.clasificacion || '—'}</td>
-      {/* Área: la propia del documento si es una excepción, si no la del proveedor (misma edición que en Compras) */}
-      <td className="px-3 py-2 text-xs whitespace-nowrap">
-        {d.area ? (
-          <div className="flex items-center gap-1" title={`Excepción de este documento. Proveedor: ${provArea ?? 'sin área'}`}>
-            <EditableCell value={d.area} documentId={d.id} field="area" type="smart-select" isException />
-            <span className="text-[9px] px-1 py-px rounded bg-violet-100 text-violet-700 font-medium shrink-0">Excepción</span>
-          </div>
-        ) : (
-          <EditableCell value={provArea} proveedorId={provId} field="area" type="smart-select" exceptionDocId={d.id} />
-        )}
-      </td>
+      {isHon && (
       <td className="px-3 py-2 text-xs">
-        {!isHon ? (
-          // Compras: categoría según el área (en Personas, las partidas del presupuesto)
-          d.area
-            ? <EditableCell value={d.categoria} documentId={d.id} field="categoria" type="smart-select" currentArea={d.area} />
-            : <EditableCell value={provCategoria} proveedorId={provId} field="categoria" type="smart-select" currentArea={provArea} />
-        ) : (
-        <select
-          value={d.categoria ?? ''}
-          disabled={saving}
-          onChange={e => onSetCategoria(d.id, e.target.value || null)}
-          className="text-[11px] border border-gray-200 rounded-md px-1.5 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-50 max-w-[150px]"
-        >
-          <option value="">— Sin categoría</option>
-          {CATEGORIAS_SURMEDIA.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-        )}
+          <select
+            value={d.categoria ?? ''}
+            disabled={saving}
+            onChange={e => onSetCategoria(d.id, e.target.value || null)}
+            className="text-[11px] border border-gray-200 rounded-md px-1.5 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-50 max-w-[150px]"
+          >
+            <option value="">— Sin categoría</option>
+            {CATEGORIAS_SURMEDIA.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+      </td>
+      )}
+      <td className="px-3 py-2 text-xs whitespace-nowrap">
+        <PartidaCell doc={d} />
       </td>
       <td className="px-3 py-2">
         {d.workCenter
@@ -137,35 +122,33 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
   }
 
   const [editing, setEditing] = useState(false)
-  const [form,    setForm]    = useState({ area: '', notes: '' })
-  const [docTab,  setDocTab]  = useState<'todos' | 'honorarios' | 'compras'>('todos')
+  const [form,    setForm]    = useState({ budgetItemId: '', notes: '' })
+  const segments    = useBudgetSegments()
+  const partidaName = useBudgetItemNameById()
 
   function startEdit() {
     if (!prov) return
-    setForm({ area: prov.area ?? '', notes: prov.notes ?? '' })
+    setForm({ budgetItemId: prov.budgetItemId ?? '', notes: prov.notes ?? '' })
     setEditing(true)
   }
 
   async function save() {
     if (!prov) return
     await patch.mutateAsync({
-      id:    prov.id,
-      area:  form.area  || null,
-      notes: form.notes || null,
+      id:           prov.id,
+      budgetItemId: form.budgetItemId || null,
+      notes:        form.notes || null,
     })
     setEditing(false)
   }
 
+  // Cada proveedor emite solo BH o solo facturas (ningún RUT tiene ambos), así que la ficha
+  // muestra un solo tipo de documento, sin pestañas.
   const docs     = prov?.documents ?? []
-  const honDocs  = docs.filter(d => d.category === 'HONORARIO')
-  const cmpDocs  = docs.filter(d => d.category === 'COMPRA')
-  const shownDocs = docTab === 'honorarios' ? honDocs : docTab === 'compras' ? cmpDocs : docs
-
+  const isHon    = docs.some(d => d.category === 'HONORARIO')
   // Los totales excluyen los documentos anulados (igual que reportes y presupuesto)
-  const totalHon = honDocs.reduce((s, d) => s + (d.vigente ? d.montoTotal : 0), 0)
-  const totalCmp = cmpDocs.reduce((s, d) => s + (d.vigente ? d.montoTotal : 0), 0)
+  const total    = docs.reduce((s, d) => s + (d.vigente ? d.montoTotal : 0), 0)
   const anuladas = docs.filter(d => !d.vigente).length
-  const totalAll = totalHon + totalCmp
 
   // Categoría y centro de trabajo son criterios de cada BH: el proveedor puede tener
   // múltiples y variados. Se muestran como la suma de valores distintos separados por "; ".
@@ -232,10 +215,17 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
               {editing ? (
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Área</label>
-                    <input value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))}
-                      placeholder="Administración, Personas, Operaciones…"
-                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                    <label htmlFor="prov-partida" className="block text-xs text-gray-500 mb-1">Partida DPDO</label>
+                    <select id="prov-partida" value={form.budgetItemId} onChange={e => setForm(f => ({ ...f, budgetItemId: e.target.value }))}
+                      className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400">
+                      <option value="">Sin partida (no es gasto DPDO)</option>
+                      {segments.map(s => (
+                        <optgroup key={s.id} label={s.name}>
+                          {s.items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-gray-400 mt-1">Se aplica a sus documentos que seguían la partida anterior y a los que se importen.</p>
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Notas</label>
@@ -246,11 +236,15 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                 </div>
               ) : (
                 <div className="grid grid-cols-4 gap-4">
-                  <Field label="Área">{prov.area || <span className="text-gray-300">—</span>}</Field>
-                  <Field label="Categorías (BH)">
-                    {docCategorias.length ? docCategorias.join('; ') : <span className="text-gray-300">—</span>}
+                  <Field label="Partida DPDO">
+                    {prov.budgetItemId ? partidaName.get(prov.budgetItemId) ?? '—' : <span className="text-gray-300">—</span>}
                   </Field>
-                  <Field label="Centros de Trabajo (BH)">
+                  {isHon && (
+                    <Field label="Categorías">
+                      {docCategorias.length ? docCategorias.join('; ') : <span className="text-gray-300">—</span>}
+                    </Field>
+                  )}
+                  <Field label="Centros de Trabajo">
                     {docCentros.length ? docCentros.join('; ') : <span className="text-gray-300">—</span>}
                   </Field>
                   <Field label="Notas">{prov.notes || <span className="text-gray-300">—</span>}</Field>
@@ -258,46 +252,22 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
               )}
             </div>
 
-            {/* Summary cards */}
-            <div className="px-6 py-4 grid grid-cols-3 gap-3 border-b border-gray-100">
-              <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
-                <p className="text-[11px] text-gray-400 mb-0.5">Honorarios</p>
-                <p className="text-sm font-semibold text-gray-800 tabular-nums">{CLP.format(totalHon)}</p>
-                <p className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
-                  <FileText size={10} className="text-amber-500" /> {honDocs.length} documentos
-                </p>
-              </div>
-              <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
-                <p className="text-[11px] text-gray-400 mb-0.5">Compras</p>
-                <p className="text-sm font-semibold text-gray-800 tabular-nums">{CLP.format(totalCmp)}</p>
-                <p className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
-                  <ShoppingCart size={10} className="text-brand-500" /> {cmpDocs.length} documentos
-                </p>
-              </div>
-              <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-3">
-                <p className="text-[11px] text-brand-500 mb-0.5">Total</p>
-                <p className="text-sm font-semibold text-brand-700 tabular-nums">{CLP.format(totalAll)}</p>
-                <p className="text-[10px] text-brand-400 mt-0.5">
-                  {docs.length} documentos{anuladas > 0 && ` · ${anuladas} anulado${anuladas > 1 ? 's' : ''} (no suman)`}
-                </p>
+            {/* Resumen */}
+            <div className="px-6 py-4 border-b border-gray-100">
+              <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 inline-flex items-center gap-3">
+                {isHon ? <FileText size={16} className="text-amber-500" /> : <ShoppingCart size={16} className="text-brand-500" />}
+                <div>
+                  <p className="text-[11px] text-brand-500">{isHon ? 'Honorarios' : 'Compras'}</p>
+                  <p className="text-sm font-semibold text-brand-700 tabular-nums">{CLP.format(total)}</p>
+                  <p className="text-[10px] text-brand-400">
+                    {docs.length} documentos{anuladas > 0 && ` · ${anuladas} anulado${anuladas > 1 ? 's' : ''} (no suman)`}
+                  </p>
+                </div>
               </div>
             </div>
 
             {/* Documents */}
             <div className="px-6 pt-4">
-              <div className="flex border-b border-gray-200 mb-3">
-                {([
-                  ['todos',       `Todos (${docs.length})`],
-                  ['honorarios',  `Honorarios (${honDocs.length})`],
-                  ['compras',     `Compras (${cmpDocs.length})`],
-                ] as const).map(([key, label]) => (
-                  <button key={key} onClick={() => setDocTab(key)}
-                    className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${docTab === key ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-
               <div className="overflow-x-auto rounded-lg border border-gray-200 mb-6">
                 <table className="w-full">
                   <thead>
@@ -305,29 +275,29 @@ export default function ProveedorDrawer({ proveedorId, onClose }: Props) {
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Empresa</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Período</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Clasificación</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Área</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Categoría</th>
+                      {isHon && <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Categoría</th>}
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Partida DPDO</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Centro de Trabajo</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Documento</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Emisión</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Pago</th>
                       <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Neto</th>
-                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Imp.</th>
+                      <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">{isHon ? 'Retención' : 'IVA'}</th>
                       <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Total</th>
                       <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Pag.</th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Estado</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {shownDocs.length === 0 ? (
+                    {docs.length === 0 ? (
                       <tr>
-                        <td colSpan={14} className="px-3 py-8 text-center text-sm text-gray-400">
+                        <td colSpan={isHon ? 14 : 13} className="px-3 py-8 text-center text-sm text-gray-400">
                           Sin documentos
                         </td>
                       </tr>
                     ) : (
-                      shownDocs.map(d => (
-                        <DocRow key={d.id} d={d} provId={prov.id} provArea={prov.area} provCategoria={prov.categoria} onSetCategoria={setDocCategoria} saving={patchDoc.isPending} />
+                      docs.map(d => (
+                        <DocRow key={d.id} d={d} onSetCategoria={setDocCategoria} saving={patchDoc.isPending} />
                       ))
                     )}
                   </tbody>

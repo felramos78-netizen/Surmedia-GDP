@@ -1,57 +1,33 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { RefreshCw, AlertTriangle, Check, ChevronDown, ChevronUp, ChevronsUpDown, X, Pencil, Filter, FileText, DollarSign, Scale, Search } from 'lucide-react'
+import { RefreshCw, Check, ChevronDown, ChevronUp, ChevronsUpDown, X, Pencil, Filter, FileText, DollarSign, Scale, Search } from 'lucide-react'
 import { usePatchProveedor, usePatchDocument } from '@/hooks/useSmart'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
-import { useBudgetItemNames, useBudgetSegments, useCreateBudgetItem } from '@/hooks/useBudget'
+import { useBudgetSegments, useBudgetItemNameById } from '@/hooks/useBudget'
 import type { SmartDocument, LegalEntity } from '@/types'
 import {
   ENTITY_LABEL, ENTITY_COLOR, fmt, fmtN, fmtDate, fmtPeriodo,
-  AREAS, CATEGORIES_BY_AREA, TIPOS, CATEGORIAS_SURMEDIA, type SmartCategory,
+  TIPOS, CATEGORIAS_SURMEDIA, type SmartCategory,
 } from './SmartShared'
-
-// Categorías por área. Las de Personas son las partidas del Presupuesto DPDO: así una
-// partida nueva queda disponible de inmediato y el gasto calza con el presupuesto.
-function useCategoriesByArea(): Record<string, string[]> {
-  const partidas = useBudgetItemNames()
-  return useMemo(() => ({ ...CATEGORIES_BY_AREA, Personas: partidas }), [partidas])
-}
-
-// Valores especiales del selector de área de una compra (excepción por documento)
-const DOC_EXCEPTION   = '___DOC___:'
-const CLEAR_EXCEPTION = '___SIN_EXCEPCION___'
 
 // ── Inline editable cell ──────────────────────────────────────────────────────
 
 export function EditableCell({
-  value, proveedorId, documentId, field, type = 'text', options, currentArea, extraOptions = [],
-  exceptionDocId, isException = false,
+  value, proveedorId, documentId, field, type = 'text', options,
 }: {
   value:         string | null
   proveedorId?:  string
   documentId?:   string
-  field:         'area' | 'categoria' | 'workCenterId' | 'tipo'
+  field:         'categoria' | 'workCenterId' | 'tipo'
   type?:         'text' | 'select' | 'smart-select'
   options?:      { value: string; label: string }[]
-  currentArea?:  string | null
-  extraOptions?: string[]
-  // Área de una compra: permite crear (exceptionDocId) o quitar (isException) el área propia del documento
-  exceptionDocId?: string
-  isException?:    boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [editingCustom, setEditingCustom] = useState(false)
   const [val, setVal] = useState(value ?? '')
   const patchProv = usePatchProveedor()
   const patchDoc  = usePatchDocument()
-  const patch      = documentId ? patchDoc : patchProv
   const inputRef  = useRef<HTMLInputElement>(null)
-  const categoriesByArea = useCategoriesByArea()
-  const segments = useBudgetSegments()
-  const createBudgetItem = useCreateBudgetItem()
-  const [segmentId, setSegmentId] = useState('')
-  // Una categoría nueva en Personas es una partida nueva del presupuesto: se pide su segmento.
-  const isBudgetCategory = field === 'categoria' && currentArea === 'Personas'
 
   useEffect(() => {
     if (editing || editingCustom) {
@@ -75,86 +51,18 @@ export function EditableCell({
     }
   }
 
-  // Generate options for smart-select (Area or Categoria)
+  // smart-select: tipo (Reembolsable / No Reembolsable) o categoría Surmedia de la BH
   const smartOptions = useMemo(() => {
     if (type !== 'smart-select') return []
-
-    let base: string[] = []
-    if (field === 'area') {
-      base = AREAS
-    } else if (field === 'tipo') {
-      base = TIPOS
-    } else if (field === 'categoria') {
-      // Honorarios → Categoría Surmedia; compras (proveedor o excepción del documento) → según área
-      base = documentId && !currentArea ? CATEGORIAS_SURMEDIA : (currentArea ? (categoriesByArea[currentArea] || []) : [])
-    }
-
-    // Personas solo ofrece partidas del presupuesto; el resto suma los valores ya usados en los datos.
-    const extras = field === 'categoria' && currentArea === 'Personas' ? [] : extraOptions
-    const all = [...new Set([...base, ...extras])].sort((a, b) =>
-      a.localeCompare(b, 'es', { sensitivity: 'base' })
-    )
-    return all.map(v => ({ value: v, label: v }))
-  }, [type, field, currentArea, extraOptions, documentId, categoriesByArea])
-
-  // Categoría de Personas que no es una partida del presupuesto (renombrada o borrada): su gasto
-  // no se imputa a ninguna partida, así que se marca para corregirla.
-  const partidas = categoriesByArea.Personas
-  const orphanPartida = isBudgetCategory && !!value && partidas.length > 0 && !partidas.includes(value)
+    const base = field === 'tipo' ? TIPOS : field === 'categoria' ? CATEGORIAS_SURMEDIA : []
+    return [...base].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })).map(v => ({ value: v, label: v }))
+  }, [type, field])
 
   const display = value
     ? (type === 'select' || type === 'smart-select'
         ? (options?.find(o => o.value === value)?.label || smartOptions.find(o => o.value === value)?.label || value)
         : value)
     : null
-
-  async function saveNewPartida() {
-    const name = val.trim()
-    if (!name || !segmentId) return
-    await createBudgetItem.mutateAsync({ categoryId: segmentId, name })
-    save(name)
-  }
-
-  // "Otro" en Personas: nombre de la partida + segmento del presupuesto donde se crea.
-  if (editingCustom && isBudgetCategory) {
-    const cancel = () => { setEditingCustom(false); setVal(value ?? '') }
-    const onKey = (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter') saveNewPartida()
-      if (e.key === 'Escape') cancel()
-    }
-    return (
-      <div className="flex flex-col gap-1 w-44">
-        <input
-          ref={inputRef}
-          value={val}
-          onChange={e => setVal(e.target.value)}
-          onKeyDown={onKey}
-          placeholder="Nueva partida..."
-          className="text-xs border border-brand-400 rounded px-1.5 py-0.5 bg-white focus:outline-none"
-        />
-        <select
-          value={segmentId}
-          onChange={e => setSegmentId(e.target.value)}
-          onKeyDown={onKey}
-          aria-label="Segmento del presupuesto"
-          className="text-xs border border-brand-400 rounded px-1.5 py-0.5 bg-white focus:outline-none"
-        >
-          <option value="">Segmento del presupuesto…</option>
-          {segments.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={saveNewPartida}
-            disabled={!val.trim() || !segmentId || createBudgetItem.isPending}
-            className="flex items-center gap-1 text-xs text-green-700 hover:text-green-800 disabled:text-gray-300"
-          >
-            <Check size={12} /> Crear
-          </button>
-          <button onClick={cancel} className="text-xs text-gray-400 hover:text-gray-600"><X size={12} /></button>
-        </div>
-      </div>
-    )
-  }
 
   // Manual entry mode for "Otro"
   if (editingCustom) {
@@ -186,12 +94,6 @@ export function EditableCell({
             setEditing(false)
             setEditingCustom(true)
             setVal('')
-          } else if (e.target.value.startsWith(DOC_EXCEPTION) && exceptionDocId) {
-            setEditing(false)
-            patchDoc.mutate({ id: exceptionDocId, area: e.target.value.slice(DOC_EXCEPTION.length), categoria: null })
-          } else if (e.target.value === CLEAR_EXCEPTION && documentId) {
-            setEditing(false)
-            patchDoc.mutate({ id: documentId, area: null, categoria: null })
           } else {
             const newVal = e.target.value
             setVal(newVal)
@@ -205,12 +107,6 @@ export function EditableCell({
         <option value="">—</option>
         {opts?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         {isSmart && <option value="___OTRO___">+ Otro...</option>}
-        {exceptionDocId && (
-          <optgroup label="Solo esta factura (excepción)">
-            {AREAS.map(a => <option key={a} value={DOC_EXCEPTION + a}>{a}</option>)}
-          </optgroup>
-        )}
-        {isException && <option value={CLEAR_EXCEPTION}>Quitar excepción (usar la del proveedor)</option>}
       </select>
     )
   }
@@ -235,12 +131,74 @@ export function EditableCell({
         setVal(value ?? '')
       }}
       className="group flex items-center gap-1 text-left hover:text-brand-600 transition-colors"
-      title={orphanPartida ? `"${value}" no es una partida del Presupuesto DPDO. Elige una partida existente.` : undefined}
     >
-      {orphanPartida && <AlertTriangle size={12} className="text-amber-500 shrink-0" aria-label="Partida inexistente" />}
-      <span className={orphanPartida ? 'text-amber-700' : display ? 'text-gray-700' : 'text-gray-300'}>
+      <span className={display ? 'text-gray-700' : 'text-gray-300'}>
         {display ?? '—'}
       </span>
+      <Pencil size={10} className="opacity-0 group-hover:opacity-100 text-gray-400 shrink-0" />
+    </button>
+  )
+}
+
+// ── Partida DPDO de un documento ──────────────────────────────────────────────
+// Un documento con partida es gasto del Presupuesto DPDO. Por defecto sigue la partida de su
+// proveedor (que se cambia para todos sus documentos); también puede tener una propia.
+
+const PROV_PREFIX = 'prov:'
+const DOC_PREFIX  = 'doc:'
+
+export function PartidaCell({ doc }: { doc: SmartDocument }) {
+  const [editing, setEditing] = useState(false)
+  const segments  = useBudgetSegments()
+  const names     = useBudgetItemNameById()
+  const patchProv = usePatchProveedor()
+  const patchDoc  = usePatchDocument()
+
+  const value     = doc.budgetItemId
+  const provValue = doc.proveedor.budgetItemId ?? null
+  const own       = value !== provValue   // partida propia, distinta a la del proveedor
+
+  function onChange(v: string) {
+    setEditing(false)
+    if (v.startsWith(PROV_PREFIX)) patchProv.mutate({ id: doc.proveedor.id, budgetItemId: v.slice(PROV_PREFIX.length) || null })
+    else if (v.startsWith(DOC_PREFIX)) patchDoc.mutate({ id: doc.id, budgetItemId: v.slice(DOC_PREFIX.length) || null })
+  }
+
+  if (editing) {
+    const partidas = (prefix: string) => segments.flatMap(s =>
+      s.items.map(i => <option key={prefix + i.id} value={prefix + i.id}>{s.name} · {i.name}</option>),
+    )
+    return (
+      <select
+        value=""
+        onChange={e => onChange(e.target.value)}
+        onBlur={() => setEditing(false)}
+        autoFocus
+        className="text-xs border border-brand-400 rounded px-1.5 py-0.5 bg-white focus:outline-none w-44"
+      >
+        <option value="" disabled>Elegir…</option>
+        <optgroup label="Proveedor (todos sus documentos)">
+          <option value={PROV_PREFIX}>Sin partida</option>
+          {partidas(PROV_PREFIX)}
+        </optgroup>
+        <optgroup label="Solo este documento">
+          <option value={DOC_PREFIX}>Sin partida</option>
+          {partidas(DOC_PREFIX)}
+          {own && <option value={DOC_PREFIX + (provValue ?? '')}>Usar la del proveedor</option>}
+        </optgroup>
+      </select>
+    )
+  }
+
+  const name = value ? names.get(value) ?? '(partida no encontrada)' : null
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="group flex items-center gap-1 text-left hover:text-brand-600 transition-colors"
+      title={own ? `Partida propia de este documento. Proveedor: ${provValue ? names.get(provValue) ?? '—' : 'sin partida'}` : undefined}
+    >
+      <span className={name ? 'text-gray-700' : 'text-gray-300'}>{name ?? '—'}</span>
+      {own && <span className="text-[9px] px-1 py-px rounded bg-violet-100 text-violet-700 font-medium shrink-0">Solo este doc.</span>}
       <Pencil size={10} className="opacity-0 group-hover:opacity-100 text-gray-400 shrink-0" />
     </button>
   )
@@ -291,11 +249,6 @@ function TruncCell({
 export type SortState  = { col: string; dir: 'asc' | 'desc' } | null
 export type ColFilters = Record<string, Set<string>>
 
-// Área y categoría efectivas de una compra: las propias del documento si tiene una excepción,
-// si no las de su proveedor.
-const docArea      = (d: SmartDocument) => d.area ?? d.proveedor.area
-const docCategoria = (d: SmartDocument) => (d.area ? d.categoria : d.proveedor.categoria)
-
 export function getDocVal(d: SmartDocument, col: string): string {
   switch (col) {
     case 'rut':           return d.proveedor.rut ?? ''
@@ -305,9 +258,8 @@ export function getDocVal(d: SmartDocument, col: string): string {
     case 'clasificacion': return d.clasificacion ?? ''
     case 'tipo':          return d.tipo ?? ''
     case 'docCategoria':  return d.categoria ?? ''
-    case 'area':          return docArea(d) ?? ''
-    case 'categoria':     return docCategoria(d) ?? ''
     case 'workCenter':    return d.workCenter?.name ?? ''
+    case 'partida':       return d.budgetItem?.name ?? ''
     case 'documento':     return d.documento ?? ''
     case 'folio':         return d.folio ?? ''
     case 'glosa':         return d.glosa ?? ''
@@ -530,28 +482,6 @@ export function DataTable({
   const { data: centers = [] } = useWorkCenters()
   const wcOptions = centers.map(c => ({ value: c.id, label: c.name }))
 
-  // Calculate unique areas and categories already in data that are NOT in base constants
-  const extraAreas = useMemo(() => {
-    const unique = new Set(allDocs.map(d => d.proveedor.area).filter(Boolean) as string[])
-    return [...unique].filter(a => !AREAS.includes(a))
-  }, [allDocs])
-
-  const extraCategoriesByArea = useMemo(() => {
-    const map: Record<string, string[]> = {}
-    allDocs.forEach(d => {
-      const a = d.proveedor.area
-      const c = d.proveedor.categoria
-      if (a && c) {
-        if (!map[a]) map[a] = []
-        const base = CATEGORIES_BY_AREA[a] || []
-        if (!base.includes(c) && !map[a].includes(c)) {
-          map[a].push(c)
-        }
-      }
-    })
-    return map
-  }, [allDocs])
-
   if (isLoading) {
     return (
       <div className="py-12 text-center">
@@ -581,17 +511,13 @@ export function DataTable({
             <ColHeader {...ch('Empresa', 'empresa')} />
             <ColHeader {...ch('Período', 'periodo')} />
             <ColHeader {...ch('Clasificación', 'clasificacion')} />
-            {category === 'honorarios' ? (
+            {category === 'honorarios' && (
               <>
                 <ColHeader {...ch('Tipo', 'tipo')} />
                 <ColHeader {...ch('Categoría', 'docCategoria')} />
               </>
-            ) : (
-              <>
-                <ColHeader {...ch('Área', 'area')} />
-                <ColHeader {...ch('Categoría', 'categoria')} />
-              </>
             )}
+            <ColHeader {...ch('Partida DPDO', 'partida')} />
             <ColHeader {...ch('Centro de Trabajo', 'workCenter')} />
             <ColHeader {...ch('Documento', 'documento')} />
             <ColHeader {...ch('Folio', 'folio')} />
@@ -621,7 +547,7 @@ export function DataTable({
               <td className="px-4 py-2.5 max-w-[120px]">
                 <TruncCell value={d.clasificacion || null} className="text-gray-600" />
               </td>
-              {category === 'honorarios' ? (
+              {category === 'honorarios' && (
                 <>
                   <td className="px-4 py-2.5">
                     <EditableCell
@@ -641,42 +567,10 @@ export function DataTable({
                     />
                   </td>
                 </>
-              ) : (
-                <>
-                  <td className="px-4 py-2.5">
-                    {d.area ? (
-                      // Excepción: el documento tiene área propia, distinta a la de su proveedor
-                      <div className="flex items-center gap-1" title={`Excepción de esta factura. Proveedor: ${d.proveedor.area ?? 'sin área'}`}>
-                        <EditableCell value={d.area} documentId={d.id} field="area" type="smart-select" isException />
-                        <span className="text-[9px] px-1 py-px rounded bg-violet-100 text-violet-700 font-medium shrink-0">Excepción</span>
-                      </div>
-                    ) : (
-                      <EditableCell
-                        value={d.proveedor.area}
-                        proveedorId={d.proveedor.id}
-                        field="area"
-                        type="smart-select"
-                        extraOptions={extraAreas}
-                        exceptionDocId={d.id}
-                      />
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {d.area ? (
-                      <EditableCell value={d.categoria} documentId={d.id} field="categoria" type="smart-select" currentArea={d.area} />
-                    ) : (
-                      <EditableCell
-                        value={d.proveedor.categoria}
-                        proveedorId={d.proveedor.id}
-                        field="categoria"
-                        type="smart-select"
-                        currentArea={d.proveedor.area}
-                        extraOptions={d.proveedor.area ? extraCategoriesByArea[d.proveedor.area] : []}
-                      />
-                    )}
-                  </td>
-                </>
               )}
+              <td className="px-4 py-2.5 whitespace-nowrap">
+                <PartidaCell doc={d} />
+              </td>
               <td className="px-4 py-2.5">
                 <EditableCell
                   value={d.workCenterId}

@@ -119,6 +119,7 @@ export function usePatchProveedor() {
       workCenterId?: string | null
       notes?: string | null
       clasificacion?: string | null
+      budgetItemId?: string | null
     }) => {
       const { data } = await api.patch(`/smart/proveedores/${id}`, body)
       return data as import('@/types').SmartProveedor
@@ -137,7 +138,7 @@ export function usePatchDocument() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (
-      { id, ...fields }: { id: string; workCenterId?: string | null; tipo?: string | null; categoria?: string | null; area?: string | null },
+      { id, ...fields }: { id: string; workCenterId?: string | null; tipo?: string | null; categoria?: string | null; area?: string | null; budgetItemId?: string | null },
     ) => {
       const { data } = await api.patch(`/smart/documents/${id}`, fields)
       return data as import('@/types').SmartDocument
@@ -146,7 +147,7 @@ export function usePatchDocument() {
       qc.invalidateQueries({ queryKey: ['smart-honorarios'] })
       qc.invalidateQueries({ queryKey: ['smart-compras'] })
       qc.invalidateQueries({ queryKey: ['smart-proveedores'] })
-      qc.invalidateQueries({ queryKey: ['budget'] }) // el gasto del Presupuesto DPDO depende de área, categoría y centro
+      qc.invalidateQueries({ queryKey: ['budget'] }) // el gasto del Presupuesto DPDO depende de la partida
       qc.invalidateQueries({ queryKey: ['smart-proveedor'] })
     },
   })

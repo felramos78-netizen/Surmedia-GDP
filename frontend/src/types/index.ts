@@ -492,6 +492,7 @@ export interface SmartProveedor {
   notes:         string | null
   area:          string | null
   categoria:     string | null
+  budgetItemId:  string | null   // partida DPDO por defecto (la heredan sus documentos nuevos)
   workCenterId:  string | null
   workCenter:    { id: string; name: string } | null
   documents?:    SmartDocument[]
@@ -505,6 +506,8 @@ export interface SmartDocument {
   proveedor:                 SmartProveedor
   workCenterId:              string | null
   workCenter:                { id: string; name: string } | null
+  budgetItemId:              string | null   // partida del Presupuesto DPDO (null = no es gasto DPDO)
+  budgetItem?:               { id: string; name: string } | null
   documento:                 string
   codigoTributario:          string | null
   folio:                     string | null

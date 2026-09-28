@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowUpDown, ArrowUp, ArrowDown, FileText, ShoppingCart } from 'lucide-react'
 import type { SmartProveedor } from '@/types'
+import { useBudgetItemNameById } from '@/hooks/useBudget'
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
@@ -11,14 +12,11 @@ function initials(s: string) {
   return s.split(' ').slice(0, 2).map(w => w[0] ?? '').join('').toUpperCase()
 }
 
-// Normaliza el área quitando sufijos entre paréntesis: "Administración (NCEN)" → "Administración".
-// Solo deben existir Administración, Personas y Operaciones.
-export const cleanArea = (a?: string | null) => (a ?? '').replace(/\s*\(.*$/, '').trim()
-
 // ── Derived row stats ─────────────────────────────────────────────────────────
 
 interface Row {
   prov:       SmartProveedor
+  partida:    string          // partida DPDO por defecto del proveedor ('' = no es gasto DPDO)
   honCount:   number
   cmpCount:   number
   totalHon:   number
@@ -28,7 +26,7 @@ interface Row {
   centers:    string[]
 }
 
-function buildRow(prov: SmartProveedor): Row {
+function buildRow(prov: SmartProveedor, partidas: Map<string, string>): Row {
   const docs = prov.documents ?? []
   let honCount = 0, cmpCount = 0, totalHon = 0, totalCmp = 0
   const centerSet = new Map<string, string>()
@@ -43,6 +41,7 @@ function buildRow(prov: SmartProveedor): Row {
   // el proveedor per se no tiene categoría ni centro de trabajo.
   return {
     prov, honCount, cmpCount, totalHon, totalCmp,
+    partida:    prov.budgetItemId ? partidas.get(prov.budgetItemId) ?? '' : '',
     total:      totalHon + totalCmp,
     categorias: [...catSet].sort(),
     centers:    [...centerSet.values()].sort(),
@@ -51,7 +50,7 @@ function buildRow(prov: SmartProveedor): Row {
 
 // ── Sorting ───────────────────────────────────────────────────────────────────
 
-type SortKey = 'nombre' | 'area' | 'categoria' | 'honCount' | 'cmpCount' | 'totalHon' | 'totalCmp' | 'total' | 'centers'
+type SortKey = 'nombre' | 'partida' | 'categoria' | 'honCount' | 'cmpCount' | 'totalHon' | 'totalCmp' | 'total' | 'centers'
 type SortDir = 'asc' | 'desc'
 
 function sortRows(rows: Row[], key: SortKey, dir: SortDir): Row[] {
@@ -60,7 +59,7 @@ function sortRows(rows: Row[], key: SortKey, dir: SortDir): Row[] {
     let cmp = 0
     switch (key) {
       case 'nombre':    cmp = a.prov.razonSocial.localeCompare(b.prov.razonSocial); break
-      case 'area':      cmp = cleanArea(a.prov.area).localeCompare(cleanArea(b.prov.area)); break
+      case 'partida':   cmp = a.partida.localeCompare(b.partida); break
       case 'categoria': cmp = a.categorias.length - b.categorias.length; break
       case 'centers':   cmp = a.centers.length - b.centers.length; break
       default:          cmp = (a[key] as number) - (b[key] as number)
@@ -107,12 +106,13 @@ export default function ProveedoresTable({
 
   function onSort(k: SortKey) {
     if (k === sortKey) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortKey(k); setSortDir(k === 'nombre' || k === 'area' ? 'asc' : 'desc') }
+    else { setSortKey(k); setSortDir(k === 'nombre' || k === 'partida' ? 'asc' : 'desc') }
   }
 
+  const partidas = useBudgetItemNameById()
   const rows = useMemo(
-    () => sortRows(proveedores.map(buildRow), sortKey, sortDir),
-    [proveedores, sortKey, sortDir],
+    () => sortRows(proveedores.map(p => buildRow(p, partidas)), sortKey, sortDir),
+    [proveedores, partidas, sortKey, sortDir],
   )
 
   const totals = useMemo(() => rows.reduce(
@@ -130,7 +130,7 @@ export default function ProveedoresTable({
         <thead className="sticky top-0 z-10">
           <tr className="bg-gray-50 border-b border-gray-200">
             <Th label="Proveedor"  sortKey="nombre"    activeKey={sortKey} dir={sortDir} onSort={onSort} />
-            <Th label="Área"       sortKey="area"      activeKey={sortKey} dir={sortDir} onSort={onSort} />
+            <Th label="Partida DPDO" sortKey="partida" activeKey={sortKey} dir={sortDir} onSort={onSort} />
             <Th label="Categoría"  sortKey="categoria" activeKey={sortKey} dir={sortDir} onSort={onSort} />
             <Th label="Centros de Trabajo" sortKey="centers" activeKey={sortKey} dir={sortDir} onSort={onSort} />
             <Th label="BH"         sortKey="honCount"  activeKey={sortKey} dir={sortDir} onSort={onSort} align="right" />
@@ -141,7 +141,7 @@ export default function ProveedoresTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ prov, honCount, cmpCount, totalHon, totalCmp, total, categorias, centers }) => (
+          {rows.map(({ prov, partida, honCount, cmpCount, totalHon, totalCmp, total, categorias, centers }) => (
             <tr
               key={prov.id}
               onClick={() => onSelect(prov)}
@@ -159,10 +159,10 @@ export default function ProveedoresTable({
                   </div>
                 </div>
               </td>
-              {/* Área */}
+              {/* Partida DPDO */}
               <td className="px-3 py-2.5">
-                {cleanArea(prov.area)
-                  ? <span className="text-[10px] bg-brand-50 text-brand-700 border border-brand-100 rounded-full px-2 py-0.5 whitespace-nowrap">{cleanArea(prov.area)}</span>
+                {partida
+                  ? <span className="text-[10px] bg-brand-50 text-brand-700 border border-brand-100 rounded-full px-2 py-0.5 whitespace-nowrap">{partida}</span>
                   : <span className="text-gray-300 text-xs">—</span>}
               </td>
               {/* Categoría */}

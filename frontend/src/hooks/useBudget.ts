@@ -24,20 +24,10 @@ export function useBudgetSegments(): BudgetCategory[] {
   )
 }
 
-// Nombres de las partidas del Presupuesto DPDO, en el orden del presupuesto.
-// Son las categorías válidas para el gasto del área Personas.
-export function useBudgetItemNames(): string[] {
+// Nombre de cada partida del Presupuesto DPDO por id (para mostrar la partida de un documento o proveedor).
+export function useBudgetItemNameById(): Map<string, string> {
   const segments = useBudgetSegments()
-  return useMemo(() => segments.flatMap(c => c.items.map(i => i.name)), [segments])
-}
-
-export function useCreateBudgetItem() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (v: { categoryId: string; name: string; annualAmount?: number }) =>
-      api.post('/budget/items', { annualAmount: 0, ...v }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['budget'] }),
-  })
+  return useMemo(() => new Map(segments.flatMap(c => c.items.map(i => [i.id, i.name] as const))), [segments])
 }
 
 // ── Rendiciones ──────────────────────────────────────────────────────────────

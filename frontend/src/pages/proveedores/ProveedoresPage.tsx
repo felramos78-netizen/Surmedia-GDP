@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Search, X, Building2, FileText, ShoppingCart, LayoutGrid, Table2 } from 'lucide-react'
 import { useSmartProveedores } from '@/hooks/useSmart'
+import { useBudgetSegments, useBudgetItemNameById } from '@/hooks/useBudget'
 import type { SmartProveedor } from '@/types'
 import ProveedorDrawer from './ProveedorDrawer'
-import ProveedoresTable, { cleanArea } from './ProveedoresTable'
+import ProveedoresTable from './ProveedoresTable'
 import { CATEGORIAS_SURMEDIA } from '@/pages/workCenters/SmartShared'
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -17,7 +18,7 @@ function initials(s: string) {
 
 // ── Proveedor card ────────────────────────────────────────────────────────────
 
-function ProveedorCard({ prov, onClick }: { prov: SmartProveedor; onClick: () => void }) {
+function ProveedorCard({ prov, partida, onClick }: { prov: SmartProveedor; partida: string | null; onClick: () => void }) {
   const docs     = prov.documents ?? []
   const honCount = docs.filter(d => d.category === 'HONORARIO').length
   const cmpCount = docs.filter(d => d.category === 'COMPRA').length
@@ -46,9 +47,9 @@ function ProveedorCard({ prov, onClick }: { prov: SmartProveedor; onClick: () =>
 
       {/* Tags */}
       <div className="flex flex-wrap gap-1 mb-3">
-        {prov.area && (
-          <span className="text-[10px] bg-brand-50 text-brand-700 border border-brand-100 rounded-full px-2 py-0.5">
-            {prov.area}
+        {partida && (
+          <span className="text-[10px] bg-brand-50 text-brand-700 border border-brand-100 rounded-full px-2 py-0.5" title="Partida DPDO">
+            {partida}
           </span>
         )}
         {cats.slice(0, 2).map(c => (
@@ -95,19 +96,21 @@ function ProveedorCard({ prov, onClick }: { prov: SmartProveedor; onClick: () =>
 
 export default function ProveedoresPage() {
   const [search,   setSearch]   = useState('')
-  const [area,     setArea]     = useState('')
+  // Partida DPDO: '' = todas, '__dpdo__' = cualquier partida, o el id de una partida
+  const [partida,  setPartida]  = useState('')
   const [categoria, setCategoria] = useState('')
   const [selected, setSelected] = useState<SmartProveedor | null>(null)
   const [view,     setView]     = useState<'cards' | 'table'>('cards')
 
-  const { data: proveedores = [], isLoading } = useSmartProveedores({
+  const { data: fetched = [], isLoading } = useSmartProveedores({
     search:    search    || undefined,
-    area:      area      || undefined,
     categoria: categoria || undefined,
   })
+  const proveedores = partida === '' ? fetched
+    : fetched.filter(p => partida === '__dpdo__' ? !!p.budgetItemId : p.budgetItemId === partida)
 
-  const { data: allProvs = [] } = useSmartProveedores({})
-  const areas       = [...new Set(allProvs.map(p => cleanArea(p.area)).filter(Boolean))].sort() as string[]
+  const segments    = useBudgetSegments()
+  const partidaName = useBudgetItemNameById()
   const categorias  = CATEGORIAS_SURMEDIA   // categoría es propiedad de la BH; lista fija Surmedia
 
   const total    = proveedores.reduce((s, p) => s + (p.documents?.reduce((ss, d) => ss + d.montoTotal, 0) ?? 0), 0)
@@ -147,13 +150,16 @@ export default function ProveedoresPage() {
           )}
         </div>
 
-        {areas.length > 0 && (
-          <select value={area} onChange={e => setArea(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400">
-            <option value="">Todas las áreas</option>
-            {areas.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-        )}
+        <select value={partida} onChange={e => setPartida(e.target.value)} aria-label="Partida DPDO"
+          className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400">
+          <option value="">Todos los proveedores</option>
+          <option value="__dpdo__">Con partida DPDO</option>
+          {segments.map(s => (
+            <optgroup key={s.id} label={s.name}>
+              {s.items.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+            </optgroup>
+          ))}
+        </select>
 
         {categorias.length > 0 && (
           <select value={categoria} onChange={e => setCategoria(e.target.value)}
@@ -191,7 +197,7 @@ export default function ProveedoresPage() {
         <div className="py-16 text-center">
           <Building2 size={40} className="text-gray-200 mx-auto mb-3" />
           <p className="text-sm text-gray-400">
-            {search || area || categoria
+            {search || partida || categoria
               ? 'Sin resultados para los filtros aplicados.'
               : 'Sin proveedores. Importa datos desde Importables → Smart CTO.'}
           </p>
@@ -201,7 +207,7 @@ export default function ProveedoresPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {proveedores.map(p => (
-            <ProveedorCard key={p.id} prov={p} onClick={() => setSelected(p)} />
+            <ProveedorCard key={p.id} prov={p} partida={p.budgetItemId ? partidaName.get(p.budgetItemId) ?? null : null} onClick={() => setSelected(p)} />
           ))}
         </div>
       )}

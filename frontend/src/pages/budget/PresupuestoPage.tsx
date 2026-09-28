@@ -24,7 +24,7 @@ const VIRTUAL_CATEGORY_ID = 'virtual-unbudgeted'
 function useBudgetMutations() {
   const qc = useQueryClient()
   const inv = () => qc.invalidateQueries({ queryKey: ['budget'] })
-  // Renombrar una partida o categoría de gasto también cambia la categoría de facturas y BH.
+  // Borrar una partida deja sin partida a sus facturas y BH (las tablas de Smart la muestran).
   const invWithSmart = () => {
     inv()
     qc.invalidateQueries({ predicate: q => String(q.queryKey[0]).startsWith('smart-') })
@@ -33,7 +33,7 @@ function useBudgetMutations() {
   return {
     updateItem: useMutation({
       mutationFn: (v: { id: string; data: Partial<BudgetItem> }) => axios.patch(`/budget/items/${v.id}`, v.data),
-      onSuccess: (_res, v) => (v.data.name !== undefined ? invWithSmart() : inv()),
+      onSuccess: inv,
     }),
     createItem: useMutation({
       mutationFn: (v: { categoryId: string; name: string; annualAmount: number }) => axios.post('/budget/items', v),
@@ -41,7 +41,7 @@ function useBudgetMutations() {
     }),
     deleteItem: useMutation({
       mutationFn: (id: string) => axios.delete(`/budget/items/${id}`),
-      onSuccess: inv,
+      onSuccess: invWithSmart,
     }),
     createCategory: useMutation({
       mutationFn: (name: string) => axios.post('/budget/categories', { name, section: 'PARTIDAS' }),
@@ -53,7 +53,7 @@ function useBudgetMutations() {
     }),
     deleteCategory: useMutation({
       mutationFn: (id: string) => axios.delete(`/budget/categories/${id}`),
-      onSuccess: inv,
+      onSuccess: invWithSmart,
     }),
     reorderCategories: useMutation({
       mutationFn: (ids: string[]) => axios.patch('/budget/categories/reorder', { ids }),
@@ -62,10 +62,6 @@ function useBudgetMutations() {
     reorderItems: useMutation({
       mutationFn: (v: { categoryId: string; ids: string[] }) => axios.patch('/budget/items/reorder', v),
       onSuccess: inv,
-    }),
-    renameExpenseCategory: useMutation({
-      mutationFn: (v: { from: string; to: string }) => axios.patch('/budget/expense-category', v),
-      onSuccess: invWithSmart,
     }),
   }
 }
@@ -154,48 +150,6 @@ function NameCell({ item }: { item: BudgetItem }) {
     <button
       onClick={() => { setValue(item.name); setEditing(true) }}
       className="group flex items-center gap-1.5 text-left hover:text-brand-700 transition-colors"
-    >
-      <span>{item.name}</span>
-      <Pencil size={11} className="opacity-0 group-hover:opacity-40 transition-opacity" />
-    </button>
-  )
-}
-
-// ─── Nombre de una fila "gasto sin partida" (renombra la categoría en todos los docs) ──
-function VirtualNameCell({ item }: { item: BudgetItem }) {
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(item.name)
-  const { renameExpenseCategory } = useBudgetMutations()
-
-  const commit = async () => {
-    const to = value.trim()
-    if (to && to !== item.name) await renameExpenseCategory.mutateAsync({ from: item.name, to })
-    setEditing(false)
-  }
-  const cancel = () => { setValue(item.name); setEditing(false) }
-
-  if (editing) {
-    return (
-      <div className="flex items-center gap-1">
-        <input
-          type="text"
-          className="flex-1 px-2 py-0.5 border border-brand-400 rounded text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel() }}
-          autoFocus
-        />
-        <button onClick={commit} className="text-green-600 hover:text-green-700"><Check size={14} /></button>
-        <button onClick={cancel} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
-      </div>
-    )
-  }
-
-  return (
-    <button
-      onClick={() => { setValue(item.name); setEditing(true) }}
-      className="group flex items-center gap-1.5 text-left text-gray-700 hover:text-brand-700 transition-colors"
-      title="Renombrar la categoría en todos los gastos asociados"
     >
       <span>{item.name}</span>
       <Pencil size={11} className="opacity-0 group-hover:opacity-40 transition-opacity" />
@@ -441,7 +395,7 @@ function PartidasTable({ categories, expanded }: { categories: BudgetCategory[];
   )
 
   const onDeleteItem = (item: BudgetItem) => {
-    if (window.confirm(`¿Eliminar la partida "${item.name}"?`)) deleteItem.mutate(item.id)
+    if (window.confirm(`¿Eliminar la partida "${item.name}"? Las facturas y BH imputadas a ella quedarán sin partida.`)) deleteItem.mutate(item.id)
   }
   const onDeleteCategory = (cat: BudgetCategory) => {
     if (window.confirm(`¿Eliminar la subárea "${cat.name}" y todas sus partidas?`)) deleteCategory.mutate(cat.id)
@@ -586,7 +540,7 @@ function PartidasTable({ categories, expanded }: { categories: BudgetCategory[];
                         >
                           <GripVertical size={13} />
                         </span>
-                        {item.virtual ? <VirtualNameCell item={item} /> : <NameCell item={item} />}
+                        {item.virtual ? <span>{item.name}</span> : <NameCell item={item} />}
                         {!item.virtual && (
                           <button
                             onClick={() => onDeleteItem(item)}

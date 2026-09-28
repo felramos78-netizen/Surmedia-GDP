@@ -202,15 +202,17 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
 
     // 1. Upsert todos los proveedores primero (fuera de transacción, son pocos)
     const rutMap = new Map<string, string>()
+    const provBudgetItem = new Map<string, string | null>() // partida DPDO por defecto de cada proveedor
     const uniqueProvs = [...new Map(rows.map(r => [r.rut, r])).values()]
     for (const r of uniqueProvs) {
       const prov = await fastify.prisma.smartProveedor.upsert({
         where:  { rut: r.rut },
         create: { rut: r.rut, razonSocial: r.razonSocial },
         update: { razonSocial: r.razonSocial },
-        select: { id: true, rut: true },
+        select: { id: true, rut: true, budgetItemId: true },
       })
       rutMap.set(r.rut, prov.id)
+      provBudgetItem.set(prov.id, prov.budgetItemId)
     }
 
     // 2. Upsert documentos en chunks para evitar timeout
@@ -232,9 +234,11 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
             codigoUnico: r.codigoUnico, periodoTributario: r.periodoTributario,
             periodoTributarioOriginal: r.periodoTributarioOriginal, glosa: r.glosa,
           }
+          // Un documento nuevo hereda la partida DPDO de su proveedor; los existentes conservan la suya
+          const budgetItemId = provBudgetItem.get(proveedorId) ?? null
           await tx.smartDocument.upsert({
             where:  { smartId: r.smartId },
-            create: data,
+            create: { ...data, budgetItemId },
             update: {
               proveedorId, legalEntity: r.legalEntity, documento: r.documento,
               recibido: r.recibido, vigente: r.vigente,
@@ -255,12 +259,13 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
   // ── Shared proveedor select ───────────────────────────────────────────────────
   const PROV_SELECT = {
     id: true, rut: true, razonSocial: true, clasificacion: true,
-    area: true, categoria: true,
+    area: true, categoria: true, budgetItemId: true,
   }
 
   const DOC_WC_INCLUDE = {
     proveedor:  { select: PROV_SELECT },
     workCenter: { select: { id: true, name: true } },
+    budgetItem: { select: { id: true, name: true } }, // nombre de la partida DPDO, para ordenar y filtrar
   }
 
   // ── Shared doc filter builder ─────────────────────────────────────────────────
@@ -340,7 +345,7 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
         documents: {
           select: {
             id: true, category: true, montoTotal: true, legalEntity: true, periodoTributario: true,
-            categoria: true,
+            categoria: true, budgetItemId: true,
             workCenter: { select: { id: true, name: true } },
           },
         },
@@ -369,12 +374,12 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send(prov)
   })
 
-  // PATCH /api/smart/documents/:id — actualiza centro, tipo, categoría y área propia (excepción) por documento
+  // PATCH /api/smart/documents/:id — actualiza centro, tipo, categoría, área propia y partida DPDO del documento
   fastify.patch<{
     Params: { id: string }
-    Body:   { workCenterId?: string | null; tipo?: string | null; categoria?: string | null; area?: string | null }
+    Body:   { workCenterId?: string | null; tipo?: string | null; categoria?: string | null; area?: string | null; budgetItemId?: string | null }
   }>('/documents/:id', async (req, reply) => {
-    const { workCenterId, tipo, categoria, area } = req.body
+    const { workCenterId, tipo, categoria, area, budgetItemId } = req.body
     const doc = await fastify.prisma.smartDocument.update({
       where:   { id: req.params.id },
       data:    {
@@ -382,18 +387,33 @@ const smartRoutes: FastifyPluginAsync = async (fastify) => {
         ...(tipo         !== undefined ? { tipo:         tipo ?? null }         : {}),
         ...(categoria    !== undefined ? { categoria:    categoria ?? null }    : {}),
         ...(area         !== undefined ? { area:         area ?? null }         : {}),
+        ...(budgetItemId !== undefined ? { budgetItemId: budgetItemId ?? null } : {}),
       },
       include: DOC_WC_INCLUDE,
     })
     return reply.send(doc)
   })
 
-  // PATCH /api/smart/proveedores/:id — actualiza area, categoria, notes
+  // PATCH /api/smart/proveedores/:id — actualiza area, categoria, notes y partida DPDO por defecto
   fastify.patch<{
     Params: { id: string }
-    Body:   { area?: string | null; categoria?: string | null; notes?: string | null; clasificacion?: string | null }
+    Body:   { area?: string | null; categoria?: string | null; notes?: string | null; clasificacion?: string | null; budgetItemId?: string | null }
   }>('/proveedores/:id', async (req, reply) => {
-    const { area, categoria, notes, clasificacion } = req.body
+    const { area, categoria, notes, clasificacion, budgetItemId } = req.body
+    if (budgetItemId !== undefined) {
+      // Los documentos que seguían la partida anterior del proveedor pasan a la nueva;
+      // los que tienen una partida propia distinta (excepciones) no se tocan.
+      const before = await fastify.prisma.smartProveedor.findUniqueOrThrow({ where: { id: req.params.id }, select: { budgetItemId: true } })
+      if (before.budgetItemId !== (budgetItemId ?? null)) {
+        await fastify.prisma.$transaction([
+          fastify.prisma.smartDocument.updateMany({
+            where: { proveedorId: req.params.id, budgetItemId: before.budgetItemId },
+            data:  { budgetItemId: budgetItemId ?? null },
+          }),
+          fastify.prisma.smartProveedor.update({ where: { id: req.params.id }, data: { budgetItemId: budgetItemId ?? null } }),
+        ])
+      }
+    }
     const prov = await fastify.prisma.smartProveedor.update({
       where:  { id: req.params.id },
       data:   {
