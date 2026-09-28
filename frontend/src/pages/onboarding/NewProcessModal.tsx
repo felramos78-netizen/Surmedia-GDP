@@ -8,9 +8,9 @@ import {
 import { useCreateOnboarding, useTemplateTasks } from '@/hooks/useOnboarding'
 import { useJobTitles, useJobFamilies, useWorkSchedules, useEmployees, useCreateEmployee } from '@/hooks/useDotacion'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
-import { useProfiles } from '@/hooks/useProfiles'
+import { EmailChipsInput } from '@/components/ui/EmailChipsInput'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
-import type { OnboardingProcess, OnboardingDbTemplateTask, OnboardingPeriod, TaskAutomationType, Profile } from '@/types'
+import type { OnboardingProcess, OnboardingDbTemplateTask, OnboardingPeriod, TaskAutomationType } from '@/types'
 import EditableCombobox from './EditableCombobox'
 import {
   WEEKDAYS, formatDays, buildJornada, parseDays,
@@ -62,7 +62,7 @@ type Draft = {
   acreditacion: boolean
   modalidades: string[]
   showCalendar: boolean
-  eventExtraProfileIds: Record<string, string[]>
+  eventAttendeeEmails: Record<string, string[]>
   eventTimes: Record<string, string>
 }
 
@@ -84,7 +84,7 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
   const [positionMode,       setPositionMode]       = useState<'select' | 'custom'>(() => initialDraft?.positionMode ?? 'select')
   const [selected,           setSelected]           = useState<Set<string>>(() => new Set(initialDraft?.selected ?? []))
   const [showCalendar,         setShowCalendar]         = useState(() => initialDraft?.showCalendar ?? false)
-  const [eventExtraProfileIds, setEventExtraProfileIds] = useState<Record<string, string[]>>(() => initialDraft?.eventExtraProfileIds ?? {})
+  const [eventAttendeeEmails, setEventAttendeeEmails]   = useState<Record<string, string[]>>(() => initialDraft?.eventAttendeeEmails ?? {})
   const [eventTimes,           setEventTimes]           = useState<Record<string, string>>(() => initialDraft?.eventTimes ?? {})
   const [expandedEventId,      setExpandedEventId]      = useState<string | null>(null)
   const [supervisorSearch,     setSupervisorSearch]     = useState('')
@@ -124,7 +124,6 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
   const { data: jobFamilies  = [] } = useJobFamilies()
   const { data: workSchedules = [] } = useWorkSchedules()
   const { data: workCenters  = [] } = useWorkCenters()
-  const { data: profiles     = [] } = useProfiles()
   const { data: empData, isFetching: searchFetching } = useEmployees(
     rutSearch.length >= 2 ? { search: rutSearch, status: ['ACTIVE', 'INACTIVE'] } : {}
   )
@@ -298,13 +297,13 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
     const draft: Draft = {
       form, beneficios, selected: Array.from(selected), matchedEmployee, creatingNew,
       positionMode, jornadaDias, teletrabajoDias, acreditacion, modalidades,
-      showCalendar, eventExtraProfileIds, eventTimes,
+      showCalendar, eventAttendeeEmails, eventTimes,
     }
     try { localStorage.setItem(ONBOARDING_DRAFT_KEY, JSON.stringify(draft)) } catch {}
   }, [
     form, beneficios, selected, matchedEmployee, creatingNew, positionMode,
     jornadaDias, teletrabajoDias, acreditacion, modalidades, showCalendar,
-    eventExtraProfileIds, eventTimes,
+    eventAttendeeEmails, eventTimes,
   ])
 
   const discardDraft = () => {
@@ -321,7 +320,7 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
     setAcreditacion(false)
     setModalidades([])
     setShowCalendar(false)
-    setEventExtraProfileIds({})
+    setEventAttendeeEmails({})
     setEventTimes({})
   }
 
@@ -439,13 +438,9 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
     const periodStarts: Record<string, number> = {
       PRE_INGRESO: -7, DIA_1: 0, SEMANA_1: 1, MES_1: 8, EVALUACION: 60,
     }
-    const resolveEmailsLocal = (profileIds: string[], itemId: string): string[] => {
-      // If user has customized this event's invitees, use their full selection; otherwise use template defaults
-      const overrideIds = eventExtraProfileIds[itemId]
-      const allIds = overrideIds !== undefined ? overrideIds : (profileIds ?? [])
-      const emails: string[] = allIds
-        .map((id: string) => (profiles as Profile[]).find(p => p.id === id)?.email)
-        .filter((e): e is string => !!e)
+    const resolveEmailsLocal = (templateEmails: string[], itemId: string): string[] => {
+      // Si se editaron los invitados de este evento se usa esa lista; si no, la de la plantilla
+      const emails = [...(eventAttendeeEmails[itemId] ?? templateEmails)]
       const colEmail = form.collaboratorEmail.trim()
       if (colEmail && !emails.includes(colEmail)) emails.push(colEmail)
       return emails
@@ -458,7 +453,7 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
           ? (t.period === 'PRE_INGRESO' ? -cfg.daysFromStart : cfg.daysFromStart)
           : (periodStarts[t.period] ?? 0)
         const s = new Date(startDate); s.setDate(s.getDate() + rawOffset); s.setHours(9, 0, 0, 0)
-        items.push({ id: t.id, name: t.name, parentName: null, dayOffset: rawOffset, start: s, durationMinutes: cfg.durationMinutes ?? 60, attendeeEmails: resolveEmailsLocal(cfg.attendeeProfileIds ?? [], t.id), attendeeProfileIds: cfg.attendeeProfileIds ?? [] })
+        items.push({ id: t.id, name: t.name, parentName: null, dayOffset: rawOffset, start: s, durationMinutes: cfg.durationMinutes ?? 60, attendeeEmails: resolveEmailsLocal(cfg.attendeeEmails ?? [], t.id), templateAttendeeEmails: cfg.attendeeEmails ?? [] })
       }
       t.subTasks.forEach((st, si) => {
         if (st.tool === 'CALENDAR' && st.plantilla) {
@@ -469,13 +464,13 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
               : (periodStarts[t.period] ?? 0)
             const s = new Date(startDate); s.setDate(s.getDate() + rawOffset); s.setHours(9, 0, 0, 0)
             const id = `${t.id}-st-${si}`
-            items.push({ id, name: st.name, parentName: t.name, dayOffset: rawOffset, start: s, durationMinutes: cfg.durationMinutes ?? 60, attendeeEmails: resolveEmailsLocal(cfg.attendeeProfileIds ?? [], id), attendeeProfileIds: cfg.attendeeProfileIds ?? [] })
+            items.push({ id, name: st.name, parentName: t.name, dayOffset: rawOffset, start: s, durationMinutes: cfg.durationMinutes ?? 60, attendeeEmails: resolveEmailsLocal(cfg.attendeeEmails ?? [], id), templateAttendeeEmails: cfg.attendeeEmails ?? [] })
           } catch {}
         }
       })
     })
     return items.sort((a, b) => a.start.getTime() - b.start.getTime())
-  }, [template, selected, form.startDate, form.collaboratorEmail, profiles, eventExtraProfileIds])
+  }, [template, selected, form.startDate, form.collaboratorEmail, eventAttendeeEmails])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -592,35 +587,19 @@ export function NewProcessModal({ onClose, onCreated, processes }: {
                             )}
 
                             {isOpen && (() => {
-                              const checkedIds = eventExtraProfileIds[item.id] ?? item.attendeeProfileIds
+                              const emails = eventAttendeeEmails[item.id] ?? item.templateAttendeeEmails
+                              const colEmail = form.collaboratorEmail.trim()
                               return (
                                 <div className="px-3 py-3 border-t border-purple-100 bg-white">
                                   <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                                     Invitados
-                                    <span className="ml-1 normal-case font-normal text-purple-500">({checkedIds.length} seleccionados)</span>
+                                    <span className="ml-1 normal-case font-normal text-purple-500">({item.attendeeEmails.length})</span>
                                   </p>
-                                  <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-lg bg-gray-50 py-0.5 px-1">
-                                    {(profiles as Profile[]).map(pr => {
-                                      const checked = checkedIds.includes(pr.id)
-                                      return (
-                                        <label key={pr.id} className="flex items-center gap-2 px-1.5 py-0.5 rounded hover:bg-purple-50 cursor-pointer">
-                                          <input
-                                            type="checkbox"
-                                            checked={checked}
-                                            onChange={e => {
-                                              const newIds = e.target.checked
-                                                ? [...checkedIds, pr.id]
-                                                : checkedIds.filter(id => id !== pr.id)
-                                              setEventExtraProfileIds(prev => ({ ...prev, [item.id]: newIds }))
-                                            }}
-                                            className="w-3 h-3 rounded accent-purple-600 flex-shrink-0"
-                                          />
-                                          <span className="text-[10px] text-gray-700 flex-1">{pr.name}</span>
-                                          <span className="text-[10px] text-gray-400 truncate max-w-[160px]">{pr.email}</span>
-                                        </label>
-                                      )
-                                    })}
-                                  </div>
+                                  <EmailChipsInput
+                                    value={emails.filter(e => e !== colEmail)}
+                                    lockedEmails={colEmail ? [colEmail] : []}
+                                    onChange={next => setEventAttendeeEmails(prev => ({ ...prev, [item.id]: next }))}
+                                  />
                                 </div>
                               )
                             })()}

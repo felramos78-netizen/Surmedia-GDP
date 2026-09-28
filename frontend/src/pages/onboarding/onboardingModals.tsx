@@ -1,9 +1,9 @@
 // Modales del módulo Onboarding: verificación de Google Sheet, previsualización
 // de correo y creación de evento de Google Calendar. Extraído de OnboardingDrawer.tsx.
-import React, { useState, useRef } from 'react'
+import React, { useState } from 'react'
 import { X, AlertTriangle, Loader2, Check, CheckCircle2, ExternalLink, Mail, ChevronUp, ChevronDown, FileText, Paperclip, Download, Calendar, Pencil, Save, RotateCcw, Trash2 } from 'lucide-react'
 import { useVerifySheet, useApplySheetData, useUpdateTask, useEmailTemplates, useDocuments, useSendProcessEmail, useCreateProcessDraft, useDocumentParagraphs, useSaveEmailVersions } from '@/hooks/useOnboarding'
-import { useProfiles } from '@/hooks/useProfiles'
+import { EmailChipsInput } from '@/components/ui/EmailChipsInput'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import type { OnboardingTask, OnboardingProcess, EmailVersion, EmailVersionDoc } from '@/types'
 import { buildProcessVars, applyVars, humanizeFieldValue, EMPLOYEE_FIELD_LABELS } from './onboardingShared'
@@ -220,7 +220,6 @@ export function EmailPreviewModal({
   useEscapeKey(onClose)
   const { data: templates = [] } = useEmailTemplates()
   const { data: allDocs = [] }   = useDocuments()
-  const { data: profiles = [] }  = useProfiles()
   const cfg = task.automationConfig as Record<string, any> | null
   const templateKey = cfg?.templateKey ?? cfg?.template ?? ''
   const dbTemplate  = templates.find(t => t.key === templateKey)
@@ -294,8 +293,6 @@ export function EmailPreviewModal({
 
   const [from,      setFrom]    = useState(initFrom)
   const [to,        setTo]      = useState(initTo)
-  const [toOpen,    setToOpen]  = useState(false)
-  const toRef = useRef<HTMLDivElement>(null)
   const [cc,        setCc]      = useState(initCc)
   const [subject,   setSubject] = useState(initSubject)
   const [body,      setBody]    = useState(initBody)
@@ -304,21 +301,6 @@ export function EmailPreviewModal({
   const [sendError,   setSendError]   = useState('')
   const [sent,        setSent]        = useState(false)
   const [draftOpened, setDraftOpened] = useState(false)
-
-  React.useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (toRef.current && !toRef.current.contains(e.target as Node)) setToOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  const profileSuggestions = (profiles as any[]).filter(p =>
-    p.email && (
-      p.name.toLowerCase().includes(to.toLowerCase()) ||
-      p.email.toLowerCase().includes(to.toLowerCase())
-    )
-  )
 
   // Carga una versión guardada (o el original) en el formulario.
   const loadVersion = (id: string) => {
@@ -465,35 +447,13 @@ export function EmailPreviewModal({
             <input value={from} onChange={e => setFrom(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500" />
           </div>
-          <div ref={toRef} className="relative">
+          <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Para</label>
             <input
               value={to}
-              onChange={e => { setTo(e.target.value); setToOpen(true) }}
-              onFocus={() => setToOpen(true)}
+              onChange={e => setTo(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
-            {toOpen && profileSuggestions.length > 0 && (
-              <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white rounded-lg border border-gray-200 shadow-lg py-1 max-h-48 overflow-y-auto">
-                {profileSuggestions.map((p: any) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={() => { setTo(p.email); setToOpen(false) }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 text-left"
-                  >
-                    <div className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-[10px] font-semibold flex items-center justify-center flex-shrink-0">
-                      {p.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-gray-800 truncate">{p.name}</div>
-                      <div className="text-[10px] text-gray-400 truncate">{p.email}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">CC (opcional)</label>
@@ -759,33 +719,29 @@ function DocumentEditorModal({
 // ─── Modal de evento de Google Calendar ──────────────────────────────────────
 
 export function CalendarEventModal({
-  title: initialTitle, parentName, date, durationMinutes, defaultAttendeeIds, process: proc, onClose,
+  title: initialTitle, parentName, date, durationMinutes, defaultAttendeeEmails, process: proc, onClose,
 }: {
   title: string
   parentName?: string | null
   date: Date
   durationMinutes: number
-  defaultAttendeeIds: string[]
+  defaultAttendeeEmails: string[]
   process: OnboardingProcess
   onClose: () => void
 }) {
   useEscapeKey(onClose)
-  const { data: profiles = [] } = useProfiles()
   const [title, setTitle]       = useState(initialTitle)
   const [description, setDesc]  = useState(`Onboarding ${proc.collaboratorName}`)
   const [time, setTime]         = useState('')
-  const [extraIds, setExtraIds] = useState<string[]>([])
+  const colEmail = proc.collaboratorEmail?.trim().toLowerCase() ?? ''
+  const [guests, setGuests]     = useState<string[]>(() => defaultAttendeeEmails.filter(e => e !== colEmail))
   const [eventDate, setEventDate] = useState(() => {
     const p = (n: number) => String(n).padStart(2, '0')
     return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}`
   })
   const allDay = durationMinutes === 0
 
-  const attendeeEmails = [...new Set([...defaultAttendeeIds, ...extraIds])]
-    .map(id => (profiles as any[]).find(p => p.id === id)?.email)
-    .filter((e): e is string => !!e)
-  if (proc.collaboratorEmail && !attendeeEmails.includes(proc.collaboratorEmail))
-    attendeeEmails.push(proc.collaboratorEmail)
+  const attendeeEmails = colEmail ? [...guests, colEmail] : guests
 
   const buildUrl = () => {
     const p2 = (n: number) => String(n).padStart(2, '0')
@@ -848,24 +804,13 @@ export function CalendarEventModal({
 
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">
-              Invitados <span className="font-normal text-gray-400">({attendeeEmails.length} seleccionados)</span>
+              Invitados <span className="font-normal text-gray-400">({attendeeEmails.length})</span>
             </label>
-            <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg bg-gray-50 py-0.5 px-1">
-              {(profiles as any[]).map((pr: any) => {
-                const isDefault = defaultAttendeeIds.includes(pr.id)
-                const isExtra   = extraIds.includes(pr.id)
-                return (
-                  <label key={pr.id} className="flex items-center gap-2 px-1.5 py-0.5 rounded cursor-pointer hover:bg-purple-50">
-                    <input type="checkbox" checked={isDefault || isExtra} disabled={isDefault}
-                      onChange={e => { if (isDefault) return; setExtraIds(prev => e.target.checked ? [...prev, pr.id] : prev.filter(id => id !== pr.id)) }}
-                      className="w-3 h-3 rounded accent-purple-600 flex-shrink-0" />
-                    <span className="text-[10px] text-gray-700 flex-1 truncate">{pr.name}</span>
-                    <span className="text-[10px] text-gray-400 truncate max-w-[140px]">{pr.email}</span>
-                    {isDefault && <span className="text-[9px] text-purple-400 flex-shrink-0">por defecto</span>}
-                  </label>
-                )
-              })}
-            </div>
+            <EmailChipsInput
+              value={guests}
+              onChange={setGuests}
+              lockedEmails={colEmail ? [colEmail] : []}
+            />
           </div>
         </div>
 

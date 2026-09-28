@@ -494,7 +494,7 @@ const normSub = (s: any) => ({
   name:                 s?.name ?? '',
   tool:                 s?.tool ?? null,
   plantilla:            s?.plantilla ?? null,
-  responsableProfileId: s?.responsableProfileId ?? null,
+  responsableName: s?.responsableName ?? null,
   sortOrder:            s?.sortOrder ?? 0,
 })
 
@@ -517,7 +517,7 @@ const tplContent = (t: any): HitoContent => ({
   automationConfig: t.automationConfig ?? null,
   subTasks: (t.subTasks ?? []).map((st: any) => ({
     id: st.id, name: st.name, tool: st.tool ?? null, plantilla: st.plantilla ?? null,
-    responsableProfileId: st.responsableProfileId ?? null, sortOrder: st.sortOrder,
+    responsableName: st.responsableName ?? null, sortOrder: st.sortOrder,
   })),
 })
 
@@ -625,8 +625,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       let tasks = await prisma.onboardingTemplateTask.findMany({
         orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
         include: {
-          subTasks:   { orderBy: { sortOrder: 'asc' }, include: { responsable: { select: { id: true, name: true } } } },
-          responsable: { select: { id: true, name: true, position: true } },
+          subTasks:   { orderBy: { sortOrder: 'asc' } },
         },
       })
       if (tasks.length === 0) {
@@ -642,8 +641,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
         tasks = await prisma.onboardingTemplateTask.findMany({
           orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
           include: {
-            subTasks:    { orderBy: { sortOrder: 'asc' }, include: { responsable: { select: { id: true, name: true } } } },
-            responsable: { select: { id: true, name: true, position: true } },
+            subTasks:    { orderBy: { sortOrder: 'asc' } },
           },
         })
       }
@@ -658,11 +656,11 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     Body: {
       name: string; period: string; taskType?: string; tool?: string; automationType?: string
       automationConfig?: Record<string, any> | null
-      responsableProfileId?: string | null; appliesTo?: string[]; appliesWhen?: string | null
-      subTasks?: Array<{ name: string; responsableProfileId?: string | null; tool?: string | null; plantilla?: string | null; sortOrder?: number }>
+      responsableName?: string | null; appliesTo?: string[]; appliesWhen?: string | null
+      subTasks?: Array<{ name: string; responsableName?: string | null; tool?: string | null; plantilla?: string | null; sortOrder?: number }>
     }
   }>('/template-tasks', async (req, reply) => {
-    const { name, period, taskType = 'PLAZO', tool, automationType, automationConfig, responsableProfileId, appliesTo = [], appliesWhen, subTasks = [] } = req.body
+    const { name, period, taskType = 'PLAZO', tool, automationType, automationConfig, responsableName, appliesTo = [], appliesWhen, subTasks = [] } = req.body
     if (!name?.trim()) return reply.status(400).send({ message: 'El nombre es requerido' })
 
     // Generar key único
@@ -682,21 +680,20 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
         tool:                tool?.trim() || null,
         automationType:      automationType as any ?? 'MANUAL',
         automationConfig:    automationConfig ?? null,
-        responsableProfileId: responsableProfileId || null,
+        responsableName: responsableName || null,
         appliesTo:           appliesTo,
         appliesWhen:         appliesWhen || null,
         sortOrder:           (last?.sortOrder ?? 0) + 1,
         subTasks: {
           create: subTasks.map((st, i) => ({
             name: st.name.trim(), tool: st.tool || null, plantilla: st.plantilla || null,
-            responsableProfileId: st.responsableProfileId || null,
+            responsableName: st.responsableName || null,
             sortOrder: st.sortOrder ?? i,
           })),
         },
       },
       include: {
-        subTasks:    { orderBy: { sortOrder: 'asc' }, include: { responsable: { select: { id: true, name: true } } } },
-        responsable: { select: { id: true, name: true, position: true } },
+        subTasks:    { orderBy: { sortOrder: 'asc' } },
       },
     })
     return reply.status(201).send({ data: task })
@@ -707,19 +704,19 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     Params: { key: string }
     Body: {
       name?: string; isActive?: boolean; appliesWhen?: string | null; period?: string
-      taskType?: string; responsableProfileId?: string | null; appliesTo?: string[]
+      taskType?: string; responsableName?: string | null; appliesTo?: string[]
       tool?: string | null; automationType?: string; automationConfig?: Record<string, any> | null
-      subTasks?: Array<{ id?: string; name: string; responsableProfileId?: string | null; tool?: string | null; plantilla?: string | null; sortOrder?: number }>
+      subTasks?: Array<{ id?: string; name: string; responsableName?: string | null; tool?: string | null; plantilla?: string | null; sortOrder?: number }>
     }
   }>('/template-tasks/:key', async (req, reply) => {
-    const { name, isActive, appliesWhen, period, taskType, responsableProfileId, appliesTo, tool, automationType, automationConfig, subTasks } = req.body
+    const { name, isActive, appliesWhen, period, taskType, responsableName, appliesTo, tool, automationType, automationConfig, subTasks } = req.body
     const data: Record<string, any> = {}
     if (name                !== undefined) data.name                = name.trim()
     if (isActive            !== undefined) data.isActive            = isActive
     if (appliesWhen         !== undefined) data.appliesWhen         = appliesWhen
     if (period              !== undefined) data.period              = period
     if (taskType            !== undefined) data.taskType            = taskType
-    if (responsableProfileId !== undefined) data.responsableProfileId = responsableProfileId || null
+    if (responsableName !== undefined) data.responsableName = responsableName || null
     if (appliesTo           !== undefined) data.appliesTo           = appliesTo
     if (tool                !== undefined) data.tool                = tool || null
     if (automationType      !== undefined) data.automationType      = automationType
@@ -744,7 +741,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
             name:                st.name.trim(),
             tool:                st.tool || null,
             plantilla:           st.plantilla || null,
-            responsableProfileId: st.responsableProfileId || null,
+            responsableName: st.responsableName || null,
             sortOrder:           st.sortOrder ?? i,
           })),
         })
@@ -755,8 +752,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
       where: { key: req.params.key },
       data,
       include: {
-        subTasks:    { orderBy: { sortOrder: 'asc' }, include: { responsable: { select: { id: true, name: true } } } },
-        responsable: { select: { id: true, name: true, position: true } },
+        subTasks:    { orderBy: { sortOrder: 'asc' } },
       },
     })
 
@@ -1455,7 +1451,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
         subTasks:         (t.subTasks ?? []).map((st: any) => ({
           id:                   st.id,
           name:                 st.name,
-          responsableProfileId: st.responsableProfileId,
+          responsableName: st.responsableName,
           tool:                 st.tool,
           plantilla:            st.plantilla,
           sortOrder:            st.sortOrder,
@@ -1520,12 +1516,6 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
         employee: { include: { position: true, department: true } },
         tasks: {
           orderBy: [{ period: 'asc' }, { sortOrder: 'asc' }],
-          include: {
-            assignments: {
-              include: { profile: { select: { id: true, name: true, position: true, email: true } } },
-              orderBy: { createdAt: 'asc' },
-            },
-          },
         },
       },
     })
@@ -1647,7 +1637,7 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
           subTasks: (dbTemplate.subTasks ?? []).map((st: any) => ({
             id:                   st.id,
             name:                 st.name,
-            responsableProfileId: st.responsableProfileId,
+            responsableName: st.responsableName,
             tool:                 st.tool,
             plantilla:            st.plantilla,
             sortOrder:            st.sortOrder,
@@ -1681,30 +1671,6 @@ const onboardingRoutes: FastifyPluginAsync = async (fastify) => {
     const task = await prisma.onboardingTask.create({ data })
 
     return reply.status(201).send({ data: task })
-  })
-
-  // POST /:id/tasks/:taskId/assignments — asignar perfil a hito
-  fastify.post<{
-    Params: { id: string; taskId: string }
-    Body: { profileId: string; roleType: string }
-  }>('/:id/tasks/:taskId/assignments', async (req, reply) => {
-    const { profileId, roleType } = req.body
-    try {
-      const assignment = await prisma.onboardingTaskAssignment.create({
-        data: { taskId: req.params.taskId, profileId, roleType },
-        include: { profile: { select: { id: true, name: true, position: true, email: true } } },
-      })
-      return reply.status(201).send({ data: assignment })
-    } catch (err: any) {
-      if (err.code === 'P2002') return reply.status(409).send({ message: 'Este perfil ya está asignado con ese rol' })
-      throw err
-    }
-  })
-
-  // DELETE /:id/tasks/:taskId/assignments/:assignmentId — quitar perfil de hito
-  fastify.delete<{ Params: { id: string; taskId: string; assignmentId: string } }>('/:id/tasks/:taskId/assignments/:assignmentId', async (req, reply) => {
-    await prisma.onboardingTaskAssignment.delete({ where: { id: req.params.assignmentId } })
-    return reply.status(204).send()
   })
 
   // DELETE /:id/tasks/:taskId — eliminar hito del proceso

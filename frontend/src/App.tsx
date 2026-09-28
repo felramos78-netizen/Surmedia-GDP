@@ -7,7 +7,6 @@ import LoginPage from '@/pages/auth/LoginPage'
 import AuthCallback from '@/pages/auth/AuthCallback'
 import OnboardingPage from '@/pages/onboarding/OnboardingPage'
 import FormPublicPage from '@/pages/onboarding/FormPublicPage'
-import ProfilesPage from '@/pages/profiles/ProfilesPage'
 import WorkCentersPage from '@/pages/workCenters/WorkCentersPage'
 import ImportablesPage from '@/pages/buk/BukPage'
 import ColaboradoresPage from '@/pages/colaboradores/ColaboradoresPage'
@@ -34,7 +33,6 @@ export default function App() {
               <Route path="/colaboradores"       element={<ColaboradoresPage />} />
               <Route path="/colaboradores/:id"   element={<ColaboradorDetallePage />} />
               <Route path="/onboarding"          element={<OnboardingPage />} />
-              <Route path="/perfiles"            element={<ProfilesPage />} />
               <Route path="/centros-trabajo"     element={<WorkCentersPage />} />
               <Route path="/buk"                 element={<ImportablesPage />} />
               <Route path="/calendario"          element={<CalendarioPage />} />

@@ -15,15 +15,13 @@ interface EmailRule {
   id: string
   name: string
   eventType: EventType
-  fromProfileId: string | null
-  fromProfile?: { id: string; name: string; email: string } | null
+  fromName: string | null
   subject: string
   bodyHtml: string
   daysBeforeEvent: number
   sendTime: string
   toColaborador: boolean
   toDirectEmails: string[]
-  ccProfileIds: string[]
   ccCustomEmails: string[]
   isActive: boolean
   createdAt: string
@@ -45,13 +43,6 @@ interface UpcomingItem {
   ccEmails: string[]
   alreadySent: boolean
   years?: number
-}
-
-interface Profile {
-  id: string
-  name: string
-  email: string
-  position: string
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -100,14 +91,14 @@ const TEMPLATES: Record<EventType, Pick<EmailRule, 'subject' | 'bodyHtml'>> = {
   },
 }
 
-const EMPTY_RULE: Omit<EmailRule, 'id' | 'createdAt' | 'fromProfile'> = {
+const EMPTY_RULE: Omit<EmailRule, 'id' | 'createdAt'> = {
   name: '', eventType: 'CUMPLEANOS',
-  fromProfileId: null,
+  fromName: null,
   subject: TEMPLATES.CUMPLEANOS.subject,
   bodyHtml: TEMPLATES.CUMPLEANOS.bodyHtml,
   daysBeforeEvent: 0, sendTime: '09:00',
   toColaborador: true, toDirectEmails: [],
-  ccProfileIds: [], ccCustomEmails: [],
+  ccCustomEmails: [],
   isActive: false,
 }
 
@@ -135,11 +126,10 @@ function openGmail(to: string, subject: string, body: string, cc?: string) {
 // ── RuleForm ──────────────────────────────────────────────────────────────────
 
 function RuleForm({
-  initial, profiles, onSave, onCancel,
+  initial, onSave, onCancel,
 }: {
-  initial: Omit<EmailRule, 'id' | 'createdAt' | 'fromProfile'>
-  profiles: Profile[]
-  onSave: (data: Omit<EmailRule, 'id' | 'createdAt' | 'fromProfile'>) => void
+  initial: Omit<EmailRule, 'id' | 'createdAt'>
+  onSave: (data: Omit<EmailRule, 'id' | 'createdAt'>) => void
   onCancel: () => void
 }) {
   const [form, setForm]                   = useState(initial)
@@ -178,11 +168,6 @@ function RuleForm({
     if (!email || form.ccCustomEmails.includes(email)) return
     set('ccCustomEmails', [...form.ccCustomEmails, email])
     setCcCustomInput('')
-  }
-
-  const toggleCcProfile = (id: string) => {
-    const ids = form.ccProfileIds ?? []
-    set('ccProfileIds', ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id])
   }
 
   const isReconocimiento = form.eventType === 'RECONOCIMIENTO'
@@ -233,17 +218,13 @@ function RuleForm({
       {/* De */}
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">De</label>
-        <select
-          value={form.fromProfileId ?? ''}
-          onChange={e => set('fromProfileId', e.target.value || null)}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-        >
-          <option value="">— Seleccionar perfil —</option>
-          {profiles.map(p => (
-            <option key={p.id} value={p.id}>{p.name} — {p.email}</option>
-          ))}
-        </select>
-        <p className="text-[10px] text-gray-400 mt-0.5">El nombre del perfil aparece como remitente en el correo.</p>
+        <input
+          value={form.fromName ?? ''}
+          onChange={e => set('fromName', e.target.value || null)}
+          placeholder="Ej: Equipo de Personas Surmedia"
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <p className="text-[10px] text-gray-400 mt-0.5">Nombre que aparece como remitente en el correo.</p>
       </div>
 
       {/* Asunto */}
@@ -342,26 +323,8 @@ function RuleForm({
       <div className="border border-gray-100 rounded-xl p-3.5 space-y-2.5">
         <p className="text-xs font-semibold text-gray-600">CC</p>
 
-        {profiles.length > 0 && (
-          <div>
-            <p className="text-xs text-gray-500 mb-1.5">Perfiles del sistema</p>
-            <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
-              {profiles.map(p => (
-                <label key={p.id} className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox"
-                    checked={(form.ccProfileIds ?? []).includes(p.id)}
-                    onChange={() => toggleCcProfile(p.id)}
-                    className="w-3.5 h-3.5 rounded accent-brand-600"
-                  />
-                  <span className="text-xs text-gray-700">{p.name} <span className="text-gray-400">— {p.email}</span></span>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
         <div>
-          <p className="text-xs text-gray-500 mb-1">Correos adicionales (CC)</p>
+          <p className="text-xs text-gray-500 mb-1">Correos en copia</p>
           <div className="flex gap-2">
             <input
               value={ccCustomInput}
@@ -635,16 +598,10 @@ export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
     staleTime: 5 * 60 * 1000,
   })
 
-  const { data: profiles = [] } = useQuery<Profile[]>({
-    queryKey: ['profiles'],
-    queryFn: () => api.get('/profiles').then(r => r.data),
-    staleTime: 5 * 60 * 1000,
-  })
-
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const createMutation = useMutation({
-    mutationFn: (data: Omit<EmailRule, 'id' | 'createdAt' | 'fromProfile'>) =>
+    mutationFn: (data: Omit<EmailRule, 'id' | 'createdAt'>) =>
       api.post('/calendar/email-rules', data).then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['calendar-email-rules'] })
@@ -658,7 +615,7 @@ export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Omit<EmailRule, 'id' | 'createdAt' | 'fromProfile'> }) =>
+    mutationFn: ({ id, data }: { id: string; data: Omit<EmailRule, 'id' | 'createdAt'> }) =>
       api.put(`/calendar/email-rules/${id}`, data).then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['calendar-email-rules'] })
@@ -757,17 +714,15 @@ export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
                   <RuleForm
                     initial={editing ? {
                       name: editing.name, eventType: editing.eventType,
-                      fromProfileId: editing.fromProfileId,
+                      fromName: editing.fromName,
                       subject: editing.subject, bodyHtml: editing.bodyHtml,
                       daysBeforeEvent: editing.daysBeforeEvent,
                       sendTime: editing.sendTime,
                       toColaborador: editing.toColaborador,
                       toDirectEmails: editing.toDirectEmails,
-                      ccProfileIds: editing.ccProfileIds,
                       ccCustomEmails: editing.ccCustomEmails,
                       isActive: editing.isActive,
                     } : EMPTY_RULE}
-                    profiles={profiles}
                     onSave={data => {
                       setSaveError(null)
                       if (editing) updateMutation.mutate({ id: editing.id, data })
@@ -819,7 +774,7 @@ export default function EmailRulesDrawer({ onClose }: { onClose: () => void }) {
                                     }
                                   </div>
                                   <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gray-400">
-                                    {rule.fromProfile && <span>De: {rule.fromProfile.name}</span>}
+                                    {rule.fromName && <span>De: {rule.fromName}</span>}
                                     {rule.isActive && rule.eventType !== 'RECONOCIMIENTO' && (
                                       <span className="flex items-center gap-0.5"><Clock size={9} />{rule.sendTime}</span>
                                     )}

@@ -9,7 +9,7 @@ import {
 } from './calendarUtils'
 import { MonthView, WeekView, DayView } from './CalendarViews'
 import { EventDetailModal } from './EventDetailModal'
-import { ProfileCalendarModal } from './ProfileCalendarModal'
+import { CalendarExportModal } from './CalendarExportModal'
 import { FilterPanel, type OnboardingProcessSummary } from './FilterPanel'
 
 // ── Página principal ──────────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ export default function CalendarioPage() {
     () => new Set(FILTER_GROUPS.map(g => g.key).filter(k => k !== 'onboarding' && k !== 'aniversarios')),
   )
   const [selectedEvent, setSelectedEvent]       = useState<CalEvent | null>(null)
-  const [showProfileModal, setShowProfileModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
   const [showEmailRules, setShowEmailRules]     = useState(false)
   const [hiddenProcessIds, setHiddenProcessIds] = useState<Set<string>>(new Set())
 
@@ -136,7 +136,7 @@ export default function CalendarioPage() {
         </button>
 
         <button
-          onClick={() => setShowProfileModal(true)}
+          onClick={() => setShowExportModal(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600"
           title="Cargar eventos filtrados a Google Calendar de un perfil"
         >
@@ -197,10 +197,10 @@ export default function CalendarioPage() {
       )}
 
       {/* ── Modal de carga a Calendar de perfil ── */}
-      {showProfileModal && (
-        <ProfileCalendarModal
+      {showExportModal && (
+        <CalendarExportModal
           activeTypes={activeTypes}
-          onClose={() => setShowProfileModal(false)}
+          onClose={() => setShowExportModal(false)}
         />
       )}
 

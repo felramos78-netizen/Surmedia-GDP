@@ -4,7 +4,7 @@ import {
   useTemplateTasks, useUpdateTemplateTask, useCreateTemplateTask, useDeleteTemplateTask,
   useOnboardingProcesses, useEmailTemplates, useSheetTemplates,
 } from '@/hooks/useOnboarding'
-import { useProfiles } from '@/hooks/useProfiles'
+import { EmailChipsInput } from '@/components/ui/EmailChipsInput'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import type { OnboardingDbTemplateTask, OnboardingTemplateSubTask, OnboardingPeriod, TaskAutomationType } from '@/types'
 
@@ -66,22 +66,21 @@ function ToolBadge({ type }: { type: string }) {
 interface SubTaskForm {
   id?: string
   name: string
-  responsableProfileId: string
+  responsableName: string
   tool: string
   plantilla: string
   // Calendar-specific
-  calendarAttendeeIds: string[]
+  calendarAttendeeEmails: string[]
   calendarDaysFromStart: string
   calendarDurationMinutes: string
   calendarAllDay: boolean
 }
 
 function SubTaskRow({
-  st, index, profiles, emailTemplates, sheetTemplates, onChange, onDelete,
+  st, index, emailTemplates, sheetTemplates, onChange, onDelete,
 }: {
   st: SubTaskForm
   index: number
-  profiles: { id: string; name: string; email: string }[]
   emailTemplates: { key: string; name: string }[]
   sheetTemplates: { key: string; name: string }[]
   onChange: (i: number, f: Partial<SubTaskForm>) => void
@@ -99,17 +98,16 @@ function SubTaskRow({
             placeholder="Acción..."
             className={inputCls}
           />
-          <select
-            value={st.responsableProfileId}
-            onChange={e => onChange(index, { responsableProfileId: e.target.value })}
+          <input
+            value={st.responsableName}
+            onChange={e => onChange(index, { responsableName: e.target.value })}
+            placeholder="Responsable…"
+            aria-label="Responsable"
             className={inputCls}
-          >
-            <option value="">Responsable…</option>
-            {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          />
           <select
             value={st.tool}
-            onChange={e => onChange(index, { tool: e.target.value, plantilla: '', calendarAttendeeIds: [], calendarDaysFromStart: '0', calendarDurationMinutes: '60' })}
+            onChange={e => onChange(index, { tool: e.target.value, plantilla: '', calendarAttendeeEmails: [], calendarDaysFromStart: '0', calendarDurationMinutes: '60' })}
             className={inputCls}
           >
             <option value="">Herramienta…</option>
@@ -122,24 +120,11 @@ function SubTaskRow({
         <div className="flex items-start gap-2 pl-1">
           <div className="flex-1 min-w-0">
             <p className="text-[9px] font-semibold text-purple-400 uppercase tracking-wide mb-1">Invitados</p>
-            <div className="max-h-[72px] overflow-y-auto border border-purple-200 rounded-lg bg-white py-0.5 px-1">
-              {profiles.map(p => (
-                <label key={p.id} className="flex items-center gap-1.5 px-1 py-0.5 rounded hover:bg-purple-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={st.calendarAttendeeIds.includes(p.id)}
-                    onChange={e => {
-                      const ids = e.target.checked
-                        ? [...st.calendarAttendeeIds, p.id]
-                        : st.calendarAttendeeIds.filter(id => id !== p.id)
-                      onChange(index, { calendarAttendeeIds: ids })
-                    }}
-                    className="w-3 h-3 rounded accent-purple-600 flex-shrink-0"
-                  />
-                  <span className="text-[10px] text-gray-700 truncate">{p.name}</span>
-                </label>
-              ))}
-            </div>
+            <EmailChipsInput
+              value={st.calendarAttendeeEmails}
+              onChange={emails => onChange(index, { calendarAttendeeEmails: emails })}
+              className="border-purple-200"
+            />
           </div>
           <div className="flex-shrink-0">
             <p className="text-[9px] font-semibold text-purple-400 uppercase tracking-wide mb-1">Día</p>
@@ -230,14 +215,13 @@ function SubTaskRow({
         placeholder="Acción..."
         className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
       />
-      <select
-        value={st.responsableProfileId}
-        onChange={e => onChange(index, { responsableProfileId: e.target.value })}
-        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
-      >
-        <option value="">Responsable…</option>
-        {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-      </select>
+      <input
+        value={st.responsableName}
+        onChange={e => onChange(index, { responsableName: e.target.value })}
+        placeholder="Responsable…"
+        aria-label="Responsable"
+        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-500"
+      />
       <select
         value={st.tool}
         onChange={e => onChange(index, { tool: e.target.value, plantilla: '' })}
@@ -262,12 +246,12 @@ interface HitoForm {
   taskType: string
   tool: string
   plantilla: string
-  responsableProfileId: string
+  responsableName: string
   appliesTo: string
   daysFromStart: string
   subTasks: SubTaskForm[]
   // Calendar-specific (FECHA_ESPECIFICA hito with tool=CALENDAR)
-  calendarAttendeeIds: string[]
+  calendarAttendeeEmails: string[]
   calendarDurationMinutes: string
   calendarAllDay: boolean
 }
@@ -275,8 +259,8 @@ interface HitoForm {
 function emptyForm(): HitoForm {
   return {
     name: '', period: 'PRE_INGRESO', taskType: 'PLAZO', tool: '', plantilla: '',
-    responsableProfileId: '', appliesTo: '', daysFromStart: '', subTasks: [],
-    calendarAttendeeIds: [], calendarDurationMinutes: '60', calendarAllDay: false,
+    responsableName: '', appliesTo: '', daysFromStart: '', subTasks: [],
+    calendarAttendeeEmails: [], calendarDurationMinutes: '60', calendarAllDay: false,
   }
 }
 
@@ -288,14 +272,14 @@ function taskToForm(t: OnboardingDbTemplateTask): HitoForm {
     taskType:            t.taskType ?? 'PLAZO',
     tool:                t.tool ?? '',
     plantilla:           cfg.templateKey ?? '',
-    responsableProfileId: t.responsableProfileId ?? '',
+    responsableName:     t.responsableName ?? '',
     appliesTo:           (t.appliesTo ?? []).join(', '),
     daysFromStart:       cfg.daysFromStart?.toString() ?? '',
-    calendarAttendeeIds:     cfg.attendeeProfileIds ?? [],
+    calendarAttendeeEmails:  cfg.attendeeEmails ?? [],
     calendarDurationMinutes: cfg.durationMinutes === 0 ? '60' : (cfg.durationMinutes?.toString() ?? '60'),
     calendarAllDay:          cfg.durationMinutes === 0,
     subTasks: (t.subTasks ?? []).map(st => {
-      let calendarAttendeeIds: string[]  = []
+      let calendarAttendeeEmails: string[] = []
       let calendarDaysFromStart          = ''
       let calendarDurationMinutes        = '60'
       let calendarAllDay                 = false
@@ -303,7 +287,7 @@ function taskToForm(t: OnboardingDbTemplateTask): HitoForm {
       if (st.tool === 'CALENDAR' && st.plantilla) {
         try {
           const c = JSON.parse(st.plantilla)
-          calendarAttendeeIds     = c.attendeeProfileIds ?? []
+          calendarAttendeeEmails  = c.attendeeEmails ?? []
           calendarDaysFromStart   = c.daysFromStart?.toString() ?? '0'
           calendarAllDay          = c.durationMinutes === 0
           calendarDurationMinutes = c.durationMinutes === 0 ? '60' : (c.durationMinutes?.toString() ?? '60')
@@ -313,10 +297,10 @@ function taskToForm(t: OnboardingDbTemplateTask): HitoForm {
       return {
         id:                   st.id,
         name:                 st.name,
-        responsableProfileId: st.responsableProfileId ?? '',
+        responsableName:      st.responsableName ?? '',
         tool:                 st.tool ?? '',
         plantilla,
-        calendarAttendeeIds,
+        calendarAttendeeEmails,
         calendarDaysFromStart,
         calendarDurationMinutes,
         calendarAllDay,
@@ -326,11 +310,10 @@ function taskToForm(t: OnboardingDbTemplateTask): HitoForm {
 }
 
 function HitoFormFields({
-  form, setForm, profiles, jobTitles,
+  form, setForm, jobTitles,
 }: {
   form: HitoForm
   setForm: React.Dispatch<React.SetStateAction<HitoForm>>
-  profiles: { id: string; name: string; email: string }[]
   jobTitles: string[]
 }) {
   const { data: emailTemplates  = [] } = useEmailTemplates()
@@ -340,8 +323,8 @@ function HitoFormFields({
   const addSubTask = () => setForm(prev => ({
     ...prev,
     subTasks: [...prev.subTasks, {
-      name: '', responsableProfileId: '', tool: '', plantilla: '',
-      calendarAttendeeIds: [], calendarDaysFromStart: '0', calendarDurationMinutes: '60', calendarAllDay: false,
+      name: '', responsableName: '', tool: '', plantilla: '',
+      calendarAttendeeEmails: [], calendarDaysFromStart: '0', calendarDurationMinutes: '60', calendarAllDay: false,
     }],
   }))
 
@@ -420,14 +403,12 @@ function HitoFormFields({
       {/* Responsable */}
       <div>
         <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Responsable</label>
-        <select
-          value={form.responsableProfileId}
-          onChange={e => f('responsableProfileId', e.target.value)}
-          className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-        >
-          <option value="">Sin responsable</option>
-          {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        <input
+          value={form.responsableName}
+          onChange={e => f('responsableName', e.target.value)}
+          placeholder="Sin responsable"
+          className="w-full px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
       </div>
 
       {/* Cargos que aplica */}
@@ -501,25 +482,10 @@ function HitoFormFields({
                 <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
                   Invitados al evento
                 </label>
-                <div className="max-h-28 overflow-y-auto border border-gray-200 rounded-lg bg-white py-1 px-1.5">
-                  {profiles.map(p => (
-                    <label key={p.id} className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-purple-50 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={form.calendarAttendeeIds.includes(p.id)}
-                        onChange={e => {
-                          const ids = e.target.checked
-                            ? [...form.calendarAttendeeIds, p.id]
-                            : form.calendarAttendeeIds.filter(id => id !== p.id)
-                          f('calendarAttendeeIds', ids)
-                        }}
-                        className="w-3.5 h-3.5 rounded accent-purple-600 flex-shrink-0"
-                      />
-                      <span className="text-sm text-gray-700">{p.name}</span>
-                      <span className="text-xs text-gray-400 ml-auto truncate">{p.email}</span>
-                    </label>
-                  ))}
-                </div>
+                <EmailChipsInput
+                  value={form.calendarAttendeeEmails}
+                  onChange={emails => f('calendarAttendeeEmails', emails)}
+                />
               </div>
               <div>
                 <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
@@ -586,7 +552,6 @@ function HitoFormFields({
                   key={i}
                   st={st}
                   index={i}
-                  profiles={profiles}
                   emailTemplates={emailTemplates}
                   sheetTemplates={sheetTemplates}
                   onChange={updateSubTask}
@@ -618,7 +583,6 @@ function HitoModal({
 }) {
   useEscapeKey(onClose)
   const [form, setForm]     = useState<HitoForm>(initial)
-  const { data: profiles = [] } = useProfiles()
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-16">
@@ -630,7 +594,7 @@ function HitoModal({
         </div>
 
         <div className="overflow-y-auto px-5 py-4">
-          <HitoFormFields form={form} setForm={setForm} profiles={profiles} jobTitles={jobTitles} />
+          <HitoFormFields form={form} setForm={setForm} jobTitles={jobTitles} />
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-100">
@@ -665,15 +629,13 @@ function HitoCard({
   isDragging: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  const { data: profiles = [] }  = useProfiles()
   const updateTask = useUpdateTemplateTask()
 
   const toggleActive = () => {
     updateTask.mutate({ key: task.key, isActive: !task.isActive })
   }
 
-  const responsableName = task.responsable?.name
-    ?? profiles.find(p => p.id === task.responsableProfileId)?.name
+  const responsableName = task.responsableName
 
   const appliesTo: string[] = task.appliesTo ?? []
 
@@ -795,8 +757,8 @@ function HitoCard({
                     <span className="flex-1 text-gray-700">{st.name}</span>
                     {st.tool && <ToolBadge type={st.tool} />}
                     {st.plantilla && <span className="text-gray-400 text-[10px] truncate max-w-[80px]">{st.plantilla}</span>}
-                    {st.responsable && (
-                      <span className="text-[10px] text-gray-400">{st.responsable.name.split(' ')[0]}</span>
+                    {st.responsableName && (
+                      <span className="text-[10px] text-gray-400">{st.responsableName.split(' ')[0]}</span>
                     )}
                   </div>
                 ))}
@@ -863,7 +825,7 @@ function PlantillaTab() {
     if (daysFromStartNum !== null && !isNaN(daysFromStartNum)) configEntries.daysFromStart = daysFromStartNum
     if (form.taskType === 'FECHA_ESPECIFICA') {
       if (form.tool === 'CALENDAR') {
-        if (form.calendarAttendeeIds.length > 0) configEntries.attendeeProfileIds = form.calendarAttendeeIds
+        if (form.calendarAttendeeEmails.length > 0) configEntries.attendeeEmails = form.calendarAttendeeEmails
         configEntries.durationMinutes = form.calendarAllDay ? 0 : (parseInt(form.calendarDurationMinutes || '60', 10) || 60)
       } else if (form.plantilla) {
         configEntries.templateKey = form.plantilla
@@ -875,14 +837,14 @@ function PlantillaTab() {
           let plantilla: string | null = st.plantilla || null
           if (st.tool === 'CALENDAR') {
             plantilla = JSON.stringify({
-              attendeeProfileIds: st.calendarAttendeeIds,
+              attendeeEmails: st.calendarAttendeeEmails,
               daysFromStart: st.calendarDaysFromStart !== '' ? parseInt(st.calendarDaysFromStart, 10) : 0,
               durationMinutes: st.calendarAllDay ? 0 : parseInt(st.calendarDurationMinutes || '60', 10),
             })
           }
           return {
             name:                st.name.trim(),
-            responsableProfileId: st.responsableProfileId || null,
+            responsableName:     st.responsableName.trim() || null,
             tool:                st.tool || null,
             plantilla,
             sortOrder:           i,
@@ -897,7 +859,7 @@ function PlantillaTab() {
       tool:                 form.taskType === 'FECHA_ESPECIFICA' ? (form.tool || null) : null,
       automationType:       form.taskType === 'FECHA_ESPECIFICA' ? (form.tool || 'MANUAL') : 'MANUAL',
       automationConfig,
-      responsableProfileId: form.responsableProfileId || null,
+      responsableName:      form.responsableName.trim() || null,
       appliesTo:            appliesToArr,
       subTasks:             subTasksPayload,
     }

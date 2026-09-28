@@ -212,19 +212,10 @@ export type OnboardingStatus    = 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
 export type TaskAutomationType  = 'MANUAL' | 'EMAIL' | 'CALENDAR' | 'BUK_CHECK' | 'EXTERNAL' | 'SHEET_VERIFY'
 export type AutomationStatus    = 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILED' | 'SKIPPED'
 
-export interface TaskAssignment {
-  id:        string
-  taskId:    string
-  profileId: string
-  profile:   { id: string; name: string; position: string; email: string }
-  roleType:  string
-  createdAt: string
-}
-
 export interface SubTaskInstance {
   id:                  string
   name:                string
-  responsableProfileId?: string | null
+  responsableName?:    string | null
   tool?:               string | null
   plantilla?:          string | null
   sortOrder:           number
@@ -249,7 +240,6 @@ export interface OnboardingTask {
   completedBy?:     string | null
   completedNote?:   string | null
   subTasks?:        SubTaskInstance[]
-  assignments?:     TaskAssignment[]
   emailVersions?:   EmailVersion[] | null
 }
 
@@ -308,24 +298,6 @@ export interface OnboardingSheetTemplate {
   isActive:       boolean
   createdAt:      string
   updatedAt:      string
-}
-
-export interface ProfileRole {
-  id:       string
-  area:     string
-  roleType: string
-}
-
-export interface Profile {
-  id:        string
-  name:      string
-  position:  string
-  email:     string
-  phone?:    string | null
-  notes?:    string | null
-  roles:     ProfileRole[]
-  createdAt: string
-  updatedAt: string
 }
 
 export interface OnboardingTemplateTask {
@@ -405,8 +377,7 @@ export interface OnboardingTemplateSubTask {
   id:                  string
   templateTaskId:      string
   name:                string
-  responsableProfileId?: string | null
-  responsable?:        { id: string; name: string } | null
+  responsableName?:    string | null
   tool?:               string | null
   plantilla?:          string | null
   sortOrder:           number
@@ -424,8 +395,7 @@ export interface OnboardingDbTemplateTask {
   sortOrder:       number
   isActive:        boolean
   taskType:        string
-  responsableProfileId?: string | null
-  responsable?:    { id: string; name: string; position?: string } | null
+  responsableName?: string | null
   appliesTo:       string[]
   subTasks:        OnboardingTemplateSubTask[]
   createdAt:       string

@@ -1,7 +1,7 @@
 // Fila de tarea (pestaña Progreso) y formulario para agregar hitos.
 // Extraído de OnboardingDrawer.tsx.
 import React, { useState, useRef, useMemo } from 'react'
-import { CheckCircle2, Circle, ChevronUp, ChevronDown, Pencil, Check, X, Trash2, Loader2, Users, Play, Plus } from 'lucide-react'
+import { CheckCircle2, Circle, ChevronUp, ChevronDown, Pencil, Check, X, Trash2, Loader2, Play, Plus } from 'lucide-react'
 import { useUpdateTask, useDeleteTask, useRunAutomation, useAddTask, useTemplateTasks } from '@/hooks/useOnboarding'
 import type { OnboardingPeriod, OnboardingTask, AutomationStatus, OnboardingProcess, SubTaskInstance } from '@/types'
 import { parseDateLocal, computeTaskDate, PERIOD_OFFSETS, AutoBadge, STATUS_META, AUTO_META, fmtShort } from './onboardingShared'
@@ -136,12 +136,6 @@ export function TaskRow({
                 {STATUS_META[autoStatus]?.label}
                 {showResult ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
               </button>
-            )}
-            {/* Profile assignments pill */}
-            {!!task.assignments?.length && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] text-gray-400">
-                <Users size={10} />{task.assignments.length}
-              </span>
             )}
           </div>
 
@@ -279,7 +273,7 @@ export function TaskRow({
           title={task.name}
           date={taskDate}
           durationMinutes={(task.automationConfig as Record<string, any>)?.durationMinutes ?? 0}
-          defaultAttendeeIds={(task.assignments ?? []).map(a => a.profileId)}
+          defaultAttendeeEmails={(task.automationConfig as Record<string, any>)?.attendeeEmails ?? []}
           process={process}
           onClose={() => setCalendarModal(false)}
         />
@@ -296,7 +290,7 @@ export function TaskRow({
             parentName={task.name}
             date={d}
             durationMinutes={subAction.cfg.durationMinutes ?? 0}
-            defaultAttendeeIds={(task.assignments ?? []).map(a => a.profileId)}
+            defaultAttendeeEmails={subAction.cfg.attendeeEmails ?? []}
             process={process}
             onClose={() => setSubAction(null)}
           />

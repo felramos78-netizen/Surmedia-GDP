@@ -159,7 +159,8 @@ export interface CalItem {
   start: Date
   durationMinutes: number
   attendeeEmails: string[]
-  attendeeProfileIds: string[]
+  /** Invitados definidos en la plantilla (sin el colaborador) */
+  templateAttendeeEmails: string[]
 }
 
 export interface CalItemWithTime extends CalItem { resolvedStart: Date }

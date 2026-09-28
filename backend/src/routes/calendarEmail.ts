@@ -67,18 +67,9 @@ function buildVars(emp: {
   }
 }
 
-// Resuelve emails CC de una plantilla (perfiles + custom)
-async function resolveCcEmails(app: FastifyInstance, rule: any): Promise<string[]> {
-  const cc: string[] = [...((rule.ccCustomEmails as string[]) ?? [])]
-  const profileIds   = (rule.ccProfileIds as string[]) ?? []
-  if (profileIds.length) {
-    const profiles = await app.prisma.profile.findMany({
-      where: { id: { in: profileIds } },
-      select: { email: true },
-    })
-    for (const p of profiles) cc.push(p.email)
-  }
-  return cc
+// Emails CC de una plantilla
+function resolveCcEmails(rule: any): string[] {
+  return [...((rule.ccCustomEmails as string[]) ?? [])]
 }
 
 // ── Upcoming helpers ──────────────────────────────────────────────────────────
@@ -114,7 +105,7 @@ async function upcomingBirthdays(app: FastifyInstance, rules: any[], daysAhead: 
         const subject = interpolate(birthRule.subject, vars)
         const body    = interpolate(birthRule.bodyHtml, vars)
         const toList  = [...(birthRule.toColaborador ? [emp.email] : []), ...(birthRule.toDirectEmails as string[])]
-        const ccList  = await resolveCcEmails(app, birthRule)
+        const ccList  = resolveCcEmails(birthRule)
 
         const triggerStr  = toDS(trigger)
         const alreadySent = birthRule.isActive
@@ -177,7 +168,7 @@ async function upcomingAnniversaries(app: FastifyInstance, rules: any[], daysAhe
         const subject = interpolate(annivRule.subject, vars)
         const body    = interpolate(annivRule.bodyHtml, vars)
         const toList  = [...(annivRule.toColaborador ? [emp.email] : []), ...(annivRule.toDirectEmails as string[])]
-        const ccList  = await resolveCcEmails(app, annivRule)
+        const ccList  = resolveCcEmails(annivRule)
 
         const alreadySent = annivRule.isActive
           ? !!(await app.prisma.emailLog.findFirst({
@@ -215,18 +206,7 @@ export default async function calendarEmailRoutes(app: FastifyInstance) {
     const rules = await app.prisma.calendarEmailRule.findMany({
       orderBy: [{ eventType: 'asc' }, { createdAt: 'asc' }],
     })
-    // Enriquecer con datos del perfil remitente
-    const rulesAny   = rules as any[]
-    const profileIds = rulesAny.map(r => r.fromProfileId).filter(Boolean) as string[]
-    const profiles   = profileIds.length
-      ? await app.prisma.profile.findMany({ where: { id: { in: profileIds } }, select: { id: true, name: true, email: true } })
-      : []
-    const profileMap = Object.fromEntries(profiles.map(p => [p.id, p]))
-    const enriched   = rulesAny.map(r => ({
-      ...r,
-      fromProfile: r.fromProfileId ? (profileMap[r.fromProfileId] ?? null) : null,
-    }))
-    return reply.send(enriched)
+    return reply.send(rules)
   })
 
   app.post('/', auth, async (req, reply) => {
@@ -235,14 +215,13 @@ export default async function calendarEmailRoutes(app: FastifyInstance) {
       data: {
         name:            body.name,
         eventType:       body.eventType,
-        fromProfileId:   body.fromProfileId || null,
+        fromName:        body.fromName?.trim() || null,
         subject:         body.subject,
         bodyHtml:        body.bodyHtml,
         daysBeforeEvent: body.daysBeforeEvent ?? 0,
         sendTime:        body.sendTime ?? '09:00',
         toColaborador:   body.toColaborador ?? true,
         toDirectEmails:  body.toDirectEmails ?? [],
-        ccProfileIds:    body.ccProfileIds ?? [],
         ccCustomEmails:  body.ccCustomEmails ?? [],
         isActive:        body.isActive ?? false,
       },
@@ -259,14 +238,13 @@ export default async function calendarEmailRoutes(app: FastifyInstance) {
         data: {
           name:            body.name,
           eventType:       body.eventType,
-          fromProfileId:   body.fromProfileId || null,
+          fromName:        body.fromName?.trim() || null,
           subject:         body.subject,
           bodyHtml:        body.bodyHtml,
           daysBeforeEvent: body.daysBeforeEvent ?? 0,
           sendTime:        body.sendTime ?? '09:00',
           toColaborador:   body.toColaborador ?? true,
           toDirectEmails:  body.toDirectEmails ?? [],
-          ccProfileIds:    body.ccProfileIds ?? [],
           ccCustomEmails:  body.ccCustomEmails ?? [],
           isActive:        body.isActive ?? false,
         },

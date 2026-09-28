@@ -70,7 +70,6 @@ surmedia-gdp/
   /api/auth          → src/routes/auth.ts       (login, Google OAuth, /me)
   /api/employees     → src/routes/employees.ts
   /api/onboarding    → src/routes/onboarding.ts
-  /api/profiles      → src/routes/profiles.ts
   /api/payroll       → src/routes/payroll.ts
   /api/work-centers  → src/routes/workCenters.ts
   /api/buk           → src/routes/buk.ts        (sincronización BUK: API o Excel)
@@ -98,7 +97,6 @@ surmedia-gdp/
   - `/proveedores` — Gestión de proveedores Smart (honorarios y compras)
   - `/calendario` — Vista de fechas relevantes de la organización
   - `/onboarding` — Procesos de onboarding
-  - `/perfiles` — Perfiles del equipo RRHH
   - `/buk` — Sincronización con BUK (API por defecto, Excel como respaldo)
   - `/recruitment` — Reclutamiento (en sidebar; página no implementada aún)
   - `/documents` — Documentos de cada colaborador leídos en vivo desde la API de BUK (solo ADMIN)
@@ -138,7 +136,6 @@ El esquema vive en `backend/prisma/schema.prisma`. Entidades núcleo:
 - `VacationBalance` — Saldo de vacaciones por colaborador × razón social × mes. Campos: `saldoLegal`, `saldoProgresivas`, `saldoAdministrativos`, `diasLicencias`, `vacacionesTomadas`. Importado desde Excel "Vacaciones y licencia". Unique por `(employeeId, legalEntity, year, month)`.
 - `BukDocument` + `DocumentCategory` + `BukDocumentSync` — Metadata de los documentos BUK de cada colaborador, clasificada por palabras clave (ver módulo Documentos).
 - `OnboardingProcess` + `OnboardingTask` — Proceso de onboarding con hitos por período (`PRE_INGRESO`, `DIA_1`, `SEMANA_1`, `MES_1`, `EVALUACION`) y automatizaciones.
-- `Profile` + `ProfileRole` — Perfiles del equipo RRHH con roles por área (BUK, SMART, ADMINISTRACION, etc.) y tipo (RESPONSABLE_HITO, ENVIA_CORREOS, etc.).
 
 ---
 
@@ -428,7 +425,7 @@ El proceso se organiza en **4 segmentos temporales**. En el esquema Prisma se mo
 - Muestra un grid de calendario mensual (`CalendarPreview`) con los eventos de tipo `CALENDAR` posicionados.
 - Lista de eventos bajo el calendario. Cada evento muestra: **nombre del hito padre (nombre de la tarea)**, fecha, número de día (`Día -7`, `Día 0`, `Día +30`, etc.), duración e invitados.
 - Para eventos con `durationMinutes > 0`: input de hora **obligatorio** y visible siempre — el botón "Crear proceso" permanece deshabilitado hasta llenar todos los horarios.
-- Botón "Editar" por evento para agregar invitados adicionales (perfiles del sistema).
+- Botón "Editar" por evento para editar los invitados (emails escritos a mano; el email del colaborador va siempre).
 - Botón "Abrir" genera link a Google Calendar con los datos del evento.
 - Botón "Volver" regresa al paso 1 sin crear nada.
 - Botón **"Crear proceso"** llama al backend y cierra el modal; abre el drawer del proceso creado.
@@ -439,7 +436,7 @@ Tipos de automatización: `MANUAL`, `EMAIL`, `CALENDAR`, `BUK_CHECK`, `EXTERNAL`
 
 La tab **Herramientas** es un placeholder, pendiente de implementar.
 
-Los perfiles (ver módulo Perfiles) se asignan a los hitos para indicar quién es responsable, quién envía correos, quién recibe copia, etc.
+El responsable de cada hito/subtarea es texto libre (`responsableName`) y los invitados de Calendar son emails libres (`attendeeEmails`). El módulo Perfiles se eliminó el 2026-09-28 (migración `20260928_remove_profiles`, script `prisma/migrate-remove-profiles.ts`); sus datos se convirtieron a texto libre.
 
 #### Lógica de fechas — `computeTaskDate` y offsets
 
@@ -467,22 +464,7 @@ La misma lógica aplica a las subtareas Calendar (campo `plantilla` en JSON). Si
 
 #### Plantilla de hitos (`OnboardingTemplateTask` / `OnboardingTemplateSubTask`)
 
-Seed base en `backend/prisma/seed-onboarding.ts`. Las subtareas se crean/editan desde la UI (tab Hitos). El campo `plantilla` de cada subtarea es un JSON con: `{ daysFromStart, durationMinutes, attendeeProfileIds, ... }`. El campo `automationConfig` del hito padre tiene la misma estructura.
-
----
-
-### Perfiles (`/perfiles`)
-
-Directorio de personas que participan en cualquier proceso interno de RRHH (no exclusivo del equipo RRHH). Incluye jefaturas, TI, administración, mentores, y cualquier persona con rol en el proceso de onboarding.
-
-Cada perfil tiene: nombre, cargo, email, teléfono, notas.
-
-Se les asignan roles cruzando **ÁREA** × **TIPO DE ROL**:
-
-- **Áreas:** `BUK`, `SMART`, `ADMINISTRACION`, `ACREDITACION`, `INGRESANTE`, `JEFATURA`, `MENTORIA`, `CHECKPOINTS`, `GENERAL`
-- **Tipos de rol:** `ENVIA_CORREOS`, `RECIBE_CORREOS`, `COPIA_CORREOS`, `PREPARA_ADM_FISICA`, `RESPONSABLE_HITO`
-
-Un perfil puede tener múltiples combinaciones área+rol. Estas combinaciones se usan para asignar automáticamente responsabilidades cuando se crea un proceso de onboarding.
+Seed base en `backend/prisma/seed-onboarding.ts`. Las subtareas se crean/editan desde la UI (tab Hitos). El campo `plantilla` de cada subtarea es un JSON con: `{ daysFromStart, durationMinutes, attendeeEmails, ... }`. El campo `automationConfig` del hito padre tiene la misma estructura.
 
 ---
 
@@ -508,11 +490,12 @@ Módulo transversal de vista de fechas relevantes de toda la organización. Cent
 
 **Filtros** (panel derecho): 8 categorías con checkbox coloreado, independientes entre sí. Todos activos por defecto.
 
-**Carga a Google Calendar por perfil:** botón "Cargar a Calendar" en el header. Abre un modal donde:
-1. Se selecciona un `Profile` existente (dropdown con todos los perfiles)
-2. Se muestran los eventos filtrados del rango actual con checkboxes (todos marcados por defecto)
-3. Cada evento tiene un link individual a Google Calendar (visible al hover) con el email del perfil como invitado
-4. "Abrir en Google Calendar" abre todos los seleccionados como eventos new-tab usando la URL de GCal con `add=profile.email`
+**Exportar a Google Calendar:** botón "Cargar a Calendar" en el header. Abre `CalendarExportModal`, donde:
+1. Se elige el rango y se escribe el email destinatario
+2. Se muestran los eventos filtrados del rango con checkboxes (los ya exportados a ese email quedan desmarcados)
+3. "Descargar .ics" genera el archivo con el email como invitado, para importarlo en Google Calendar
+
+**Reglas de correo** (cumpleaños/aniversarios): el remitente es un nombre libre (`fromName`, el email sale de `SMTP_USER`) y las copias son emails libres (`ccCustomEmails`).
 
 > **Fechas relevantes:** para agregar o modificar las fechas recurrentes hardcodeadas, editar `RECURRING` en `backend/src/routes/calendar.ts`. Cuando se implemente CRUD de fechas relevantes, se requerirá un nuevo modelo Prisma `CalendarEvent`.
 

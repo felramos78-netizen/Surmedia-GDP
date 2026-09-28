@@ -3,11 +3,11 @@ import { CalendarDays, X, CalendarPlus, Check } from 'lucide-react'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import {
   type CalEvent, type RangeOption, RANGE_OPTIONS, TYPE_LABELS,
-  parseDate, toDateStr, addDays, getPresetRange, useCalendarEvents, useProfiles,
-  loadExportedIds, saveExportedIds, downloadICS, EMPTY_EVENTS, EMPTY_PROFILES,
+  parseDate, toDateStr, addDays, getPresetRange, useCalendarEvents,
+  loadExportedIds, saveExportedIds, downloadICS, EMPTY_EVENTS,
 } from './calendarUtils'
 
-export function ProfileCalendarModal({ activeTypes, onClose }: {
+export function CalendarExportModal({ activeTypes, onClose }: {
   activeTypes: Set<string>
   onClose: () => void
 }) {
@@ -17,12 +17,10 @@ export function ProfileCalendarModal({ activeTypes, onClose }: {
   const [rangeOption, setRangeOption]   = useState<RangeOption>('desde-hoy')
   const [customStart, setCustomStart]   = useState(toDateStr(today))
   const [customEnd, setCustomEnd]       = useState(toDateStr(addDays(today, 30)))
-  const [profileId, setProfileId]       = useState('')
+  const [emailInput, setEmailInput]     = useState('')
   const [checked, setChecked]           = useState<Set<string>>(new Set())
   const [exportedIds, setExportedIds]   = useState<Set<string>>(new Set())
   const [justDownloaded, setJustDownloaded] = useState(false)
-
-  const { data: profiles = EMPTY_PROFILES, isLoading: loadingProfiles } = useProfiles()
 
   const queryRange = useMemo(() => {
     if (rangeOption === 'personalizado') {
@@ -38,15 +36,16 @@ export function ProfileCalendarModal({ activeTypes, onClose }: {
     [rawEvents, activeTypes],
   )
 
-  const profile = profiles.find(p => p.id === profileId)
+  const trimmed = emailInput.trim().toLowerCase()
+  const email   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : ''
 
-  // Cuando cambia el perfil: cargar IDs ya exportados y desmarcarlos por defecto
+  // Cuando cambia el destinatario: cargar IDs ya exportados y desmarcarlos por defecto
   useEffect(() => {
-    const exported = profile ? loadExportedIds(profile.email) : new Set<string>()
+    const exported = email ? loadExportedIds(email) : new Set<string>()
     setExportedIds(exported)
     setChecked(new Set(events.filter(e => !exported.has(e.id)).map(e => e.id)))
     setJustDownloaded(false)
-  }, [profileId])
+  }, [email])
 
   // Cuando cambian los eventos (rango): resetear selección respetando exportados
   useEffect(() => {
@@ -60,10 +59,10 @@ export function ProfileCalendarModal({ activeTypes, onClose }: {
     setChecked(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const handleDownload = () => {
-    if (!profile || selected.length === 0) return
+    if (!email || selected.length === 0) return
     const date = toDateStr(today)
-    downloadICS(selected, profile.email, `gdp-${profile.name.toLowerCase().replace(/\s+/g, '-')}-${date}.ics`)
-    saveExportedIds(profile.email, selected.map(e => e.id))
+    downloadICS(selected, email, `gdp-${email.split('@')[0]}-${date}.ics`)
+    saveExportedIds(email, selected.map(e => e.id))
     setExportedIds(prev => { const n = new Set(prev); selected.forEach(e => n.add(e.id)); return n })
     setJustDownloaded(true)
   }
@@ -125,26 +124,20 @@ export function ProfileCalendarModal({ activeTypes, onClose }: {
           )}
         </div>
 
-        {/* Selector de perfil */}
+        {/* Destinatario */}
         <div className="px-5 py-3 border-b border-gray-100 flex-shrink-0">
-          <label className="block text-xs font-medium text-gray-600 mb-1.5">Perfil destinatario</label>
-          {loadingProfiles ? (
-            <div className="h-9 bg-gray-100 rounded-lg animate-pulse" />
-          ) : (
-            <select
-              value={profileId}
-              onChange={e => setProfileId(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-            >
-              <option value="">Seleccionar perfil...</option>
-              {profiles.map(p => (
-                <option key={p.id} value={p.id}>{p.name} — {p.email}</option>
-              ))}
-            </select>
-          )}
-          {profile && (
+          <label htmlFor="export-email" className="block text-xs font-medium text-gray-600 mb-1.5">Email destinatario</label>
+          <input
+            id="export-email"
+            type="email"
+            value={emailInput}
+            onChange={e => setEmailInput(e.target.value)}
+            placeholder="correo@surmedia.cl"
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          {email && (
             <p className="mt-1 text-xs text-gray-400">
-              {profile.position} · se incluirá <span className="font-medium text-gray-600">{profile.email}</span> como invitado
+              Se incluirá <span className="font-medium text-gray-600">{email}</span> como invitado
             </p>
           )}
         </div>
@@ -240,13 +233,13 @@ export function ProfileCalendarModal({ activeTypes, onClose }: {
         {/* Footer */}
         <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between flex-shrink-0">
           <p className="text-xs text-gray-400">
-            {!profile
-              ? 'Selecciona un perfil para continuar'
+            {!email
+              ? 'Ingresa un email para continuar'
               : `${selected.length} evento${selected.length !== 1 ? 's' : ''} en el archivo`}
           </p>
           <button
             onClick={handleDownload}
-            disabled={!profile || selected.length === 0}
+            disabled={!email || selected.length === 0}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <CalendarPlus size={14} />

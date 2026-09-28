@@ -121,31 +121,6 @@ export function useUpdateTask() {
   })
 }
 
-export function useAddTaskAssignment() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ processId, taskId, profileId, roleType }: { processId: string; taskId: string; profileId: string; roleType: string }) => {
-      const { data } = await api.post(`/onboarding/${processId}/tasks/${taskId}/assignments`, { profileId, roleType })
-      return data
-    },
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['onboarding', vars.processId] })
-    },
-  })
-}
-
-export function useDeleteTaskAssignment() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ processId, taskId, assignmentId }: { processId: string; taskId: string; assignmentId: string }) => {
-      await api.delete(`/onboarding/${processId}/tasks/${taskId}/assignments/${assignmentId}`)
-    },
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['onboarding', vars.processId] })
-    },
-  })
-}
-
 export function useAddTask() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -452,8 +427,8 @@ export function useUpdateTemplateTask() {
       key: string; name?: string; isActive?: boolean; appliesWhen?: string | null
       period?: string; taskType?: string; tool?: string | null; automationType?: string
       automationConfig?: Record<string, any> | null
-      responsableProfileId?: string | null; appliesTo?: string[]
-      subTasks?: Array<{ name: string; responsableProfileId?: string | null; tool?: string | null; plantilla?: string | null; sortOrder?: number }>
+      responsableName?: string | null; appliesTo?: string[]
+      subTasks?: Array<{ name: string; responsableName?: string | null; tool?: string | null; plantilla?: string | null; sortOrder?: number }>
     }) => {
       const { data } = await api.patch<ApiResponse<OnboardingDbTemplateTask>>(`/onboarding/template-tasks/${key}`, body)
       return data.data
@@ -473,8 +448,8 @@ export function useCreateTemplateTask() {
     mutationFn: async (body: {
       name: string; period: string; taskType?: string; tool?: string | null; automationType?: string
       automationConfig?: Record<string, any> | null
-      responsableProfileId?: string | null; appliesTo?: string[]; appliesWhen?: string | null
-      subTasks?: Array<{ name: string; responsableProfileId?: string | null; tool?: string | null; plantilla?: string | null }>
+      responsableName?: string | null; appliesTo?: string[]; appliesWhen?: string | null
+      subTasks?: Array<{ name: string; responsableName?: string | null; tool?: string | null; plantilla?: string | null }>
     }) => {
       const { data } = await api.post<ApiResponse<OnboardingDbTemplateTask>>('/onboarding/template-tasks', body)
       return data.data

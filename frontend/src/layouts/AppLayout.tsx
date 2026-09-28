@@ -3,7 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Users, FileText, UserPlus,
-  Settings, Building2, Contact, Landmark, FileSpreadsheet, UserCircle2,
+  Settings, Building2, Landmark, FileSpreadsheet, UserCircle2,
   RefreshCw, CheckCircle2, AlertTriangle, X, CalendarDays, Truck, Wallet,
   BarChart3,
 } from 'lucide-react'
@@ -18,7 +18,6 @@ const navItems = [
   { to: '/recruitment',      icon: UserPlus,         label: 'Reclutamiento' },
   { to: '/calendario',       icon: CalendarDays,     label: 'Calendario' },
   { to: '/onboarding',       icon: Building2,        label: 'Onboarding' },
-  { to: '/perfiles',         icon: Contact,          label: 'Perfiles' },
   { to: '/buk',              icon: FileSpreadsheet,  label: 'Importables' },
   { to: '/documents',        icon: FileText,         label: 'Documentos' },
 ]

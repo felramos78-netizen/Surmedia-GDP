@@ -563,7 +563,6 @@ model OnboardingTask {
   templateSnapshot Json?
   // Versiones editadas del correo de este hito (cuerpo + adjuntos editados + formato)
   emailVersions    Json?
-  assignments      OnboardingTaskAssignment[]
   createdAt        DateTime                   @default(now())
   updatedAt        DateTime                   @updatedAt
 
@@ -573,46 +572,6 @@ model OnboardingTask {
 // ─────────────────────────────────────────────
 // Perfiles — roles en el ecosistema de onboarding
 // ─────────────────────────────────────────────
-
-model Profile {
-  id                       String                      @id @default(uuid())
-  name                     String
-  position                 String
-  email                    String                      @unique
-  phone                    String?
-  notes                    String?
-  roles                    ProfileRole[]
-  taskAssignments          OnboardingTaskAssignment[]
-  templateTasksResponsable OnboardingTemplateTask[]    @relation("TemplateTaskResponsable")
-  subTasksResponsable      OnboardingTemplateSubTask[] @relation("SubTaskResponsable")
-  createdAt                DateTime                    @default(now())
-  updatedAt                DateTime                    @updatedAt
-
-  @@map("profiles")
-}
-
-model OnboardingTaskAssignment {
-  id        String         @id @default(uuid())
-  task      OnboardingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  taskId    String
-  profile   Profile        @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  profileId String
-  roleType  String // RESPONSABLE_HITO | COPIA_CORREOS | ENVIA_CORREOS | RECIBE_CORREOS | PREPARA_ADM_FISICA
-  createdAt DateTime       @default(now())
-
-  @@unique([taskId, profileId, roleType])
-  @@map("onboarding_task_assignments")
-}
-
-model ProfileRole {
-  id        String  @id @default(uuid())
-  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  profileId String
-  area      String // BUK | SMART | ADMINISTRACION | ACREDITACION | INGRESANTE | JEFATURA | MENTORIA | CHECKPOINTS | GENERAL
-  roleType  String // ENVIA_CORREOS | RECIBE_CORREOS | COPIA_CORREOS | PREPARA_ADM_FISICA | RESPONSABLE_HITO
-
-  @@map("profile_roles")
-}
 
 // ─────────────────────────────────────────────
 // Onboarding: Plantilla de hitos (editable)
@@ -631,8 +590,7 @@ model OnboardingTemplateTask {
   isActive             Boolean                     @default(true)
   // Nuevos campos para gestión de hitos
   taskType             String                      @default("PLAZO") // FECHA_ESPECIFICA | PLAZO
-  responsableProfileId String?
-  responsable          Profile?                    @relation("TemplateTaskResponsable", fields: [responsableProfileId], references: [id], onDelete: SetNull)
+  responsableName      String? // Texto libre
   appliesTo            Json                        @default("[]") // string[] de jobTitles; vacío = Todos
   subTasks             OnboardingTemplateSubTask[]
   createdAt            DateTime                    @default(now())
@@ -646,8 +604,7 @@ model OnboardingTemplateSubTask {
   templateTask         OnboardingTemplateTask @relation(fields: [templateTaskId], references: [id], onDelete: Cascade)
   templateTaskId       String
   name                 String
-  responsableProfileId String?
-  responsable          Profile?               @relation("SubTaskResponsable", fields: [responsableProfileId], references: [id], onDelete: SetNull)
+  responsableName      String? // Texto libre
   tool                 String?
   plantilla            String?
   sortOrder            Int                    @default(0)
@@ -756,15 +713,14 @@ model CalendarEmailRule {
   id              String                 @id @default(uuid())
   name            String
   eventType       CalendarEmailEventType
-  fromProfileId   String? // Perfil remitente ("De:")
+  fromName        String? // Nombre del remitente ("De:"); el email es SMTP_USER
   subject         String
   bodyHtml        String                 @db.Text
   daysBeforeEvent Int                    @default(0)
   sendTime        String                 @default("09:00") // HH:MM hora Chile
   toColaborador   Boolean                @default(true)
   toDirectEmails  Json                   @default("[]") // Para: emails directos adicionales
-  ccProfileIds    Json                   @default("[]") // CC: perfiles del sistema
-  ccCustomEmails  Json                   @default("[]") // CC: emails adicionales
+  ccCustomEmails  Json                   @default("[]") // CC: emails
   isActive        Boolean                @default(false) // true = envío automático por SMTP
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt

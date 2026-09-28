@@ -65,3 +65,6 @@ uploads/
 
 # Excel de trabajo sueltos en la raíz (datos sensibles de RRHH — no commitear)
 /*.xlsx
+
+# Respaldos locales de migraciones de datos
+backend/prisma/backups/

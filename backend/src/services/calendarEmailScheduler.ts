@@ -128,13 +128,6 @@ async function processBirthdayRule(
 
     // CC
     const ccEmails: string[] = [...(rule.ccCustomEmails as string[])]
-    if ((rule.ccProfileIds as string[]).length > 0) {
-      const profiles = await prisma.profile.findMany({
-        where: { id: { in: rule.ccProfileIds as string[] } },
-        select: { email: true },
-      })
-      for (const p of profiles) ccEmails.push(p.email)
-    }
 
     for (const to of toList) {
       try {
@@ -203,13 +196,6 @@ async function processAnniversaryRule(
     for (const direct of (rule.toDirectEmails as string[])) toList.push(direct)
 
     const ccEmails: string[] = [...(rule.ccCustomEmails as string[])]
-    if ((rule.ccProfileIds as string[]).length > 0) {
-      const profiles = await prisma.profile.findMany({
-        where: { id: { in: rule.ccProfileIds as string[] } },
-        select: { email: true },
-      })
-      for (const p of profiles) ccEmails.push(p.email)
-    }
 
     for (const to of toList) {
       try {
@@ -251,14 +237,8 @@ async function tick(prisma: PrismaClient) {
 
   for (const rule of rules) {
     let fromDisplay = process.env.EMAIL_FROM ?? process.env.SMTP_USER ?? ''
-    if (rule.fromProfileId) {
-      const profile = await prisma.profile.findUnique({
-        where: { id: rule.fromProfileId },
-        select: { name: true, email: true },
-      })
-      if (profile) {
-        fromDisplay = `"${profile.name}" <${process.env.SMTP_USER ?? profile.email}>`
-      }
+    if (rule.fromName && process.env.SMTP_USER) {
+      fromDisplay = `"${rule.fromName}" <${process.env.SMTP_USER}>`
     }
 
     if (rule.eventType === 'CUMPLEANOS') {

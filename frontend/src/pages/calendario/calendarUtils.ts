@@ -177,20 +177,6 @@ export function useCalendarEvents(start: string, end: string) {
   })
 }
 
-// ── Perfiles ──────────────────────────────────────────────────────────────────
-
-export interface Profile { id: string; name: string; email: string; position: string }
-
-export const EMPTY_PROFILES: Profile[] = []
-
-export function useProfiles() {
-  return useQuery<Profile[]>({
-    queryKey: ['profiles'],
-    queryFn: () => api.get('/profiles').then(r => r.data),
-    staleTime: 5 * 60 * 1000,
-  })
-}
-
 // ── Google Calendar URL builder (all-day) ─────────────────────────────────────
 
 export function buildGCalUrl(opts: {
