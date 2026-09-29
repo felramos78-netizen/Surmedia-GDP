@@ -1,7 +1,7 @@
 {
   "name": "gdp-desktop",
   "productName": "GDP Surmedia",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Gestión de Personas Surmedia — aplicación de escritorio",
   "private": true,
   "main": "main.js",
