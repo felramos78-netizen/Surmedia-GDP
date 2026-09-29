@@ -12,7 +12,8 @@ export default function SyncStatus() {
     <div className="flex items-center gap-2 text-xs text-gray-400">
       {syncing ? (
         <span className="flex items-center gap-2 text-gray-600">
-          Sincronizando con BUK… {syncing.total ? `${syncing.done}/${syncing.total} fichas` : 'preparando'}
+          {syncing.phase === 'firmas' ? 'Revisando firmas en BUK…' : 'Sincronizando con BUK…'}{' '}
+          {syncing.total ? `${syncing.done}/${syncing.total} ${syncing.phase === 'firmas' ? 'documentos' : 'fichas'}` : 'preparando'}
           <span className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden" aria-hidden>
             <span
               className="block h-full bg-brand-600 rounded-full transition-all"

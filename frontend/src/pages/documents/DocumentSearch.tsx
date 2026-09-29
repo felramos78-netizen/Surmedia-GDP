@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronRight, Search, UserCircle2 } from 'lucide-react'
-import { useBukDocSearch, useDocSummary, type BukDocSearchPerson } from '@/hooks/useBukDocuments'
-import { FileRow, ENTITY_LABEL, ENTITY_COLOR } from './EmployeeDocuments'
+import { useBukDocSearch, useDocSummary, type BukDocSearchPerson, type SignatureStatus } from '@/hooks/useBukDocuments'
+import { FileRow, FileListHeader, ENTITY_LABEL, ENTITY_COLOR, SIGN_META } from './EmployeeDocuments'
 import SyncStatus from './SyncStatus'
 
 const ENTITY_FILTERS = [
@@ -50,6 +50,7 @@ function PersonRow({ person, onOpenEmployee }: { person: BukDocSearchPerson; onO
       </div>
       {open && (
         <ul className="ml-9 mr-3 mb-2 border-l border-gray-100 pl-2">
+          <FileListHeader />
           {person.files.map(f => (
             <FileRow key={f.fileId} file={f} entity={person.legalEntity} bukEmployeeId={person.bukEmployeeId} />
           ))}
@@ -69,6 +70,8 @@ export default function DocumentSearch({ categoryId, onCategoryChange, onOpenEmp
   const [q,      setQ]      = useState('')
   const [entity, setEntity] = useState('')
   const [status, setStatus] = useState('')
+  const [employeeSign, setEmployeeSign] = useState('')
+  const [companySign,  setCompanySign]  = useState('')
 
   // Debounce de la búsqueda
   useEffect(() => {
@@ -76,14 +79,14 @@ export default function DocumentSearch({ categoryId, onCategoryChange, onOpenEmp
     return () => clearTimeout(t)
   }, [input])
 
-  const { data, isLoading, isError, isFetching } = useBukDocSearch({ q, categoryId, legalEntity: entity, status })
+  const { data, isLoading, isError, isFetching } = useBukDocSearch({ q, categoryId, legalEntity: entity, status, employeeSign, companySign })
   const { data: summary } = useDocSummary()
 
   // Categorías agrupadas para el selector
   const groups = new Map<string, { id: string; name: string }[]>()
   for (const c of summary?.categories ?? []) groups.set(c.group, [...(groups.get(c.group) ?? []), c])
 
-  const searching = q.length >= 2 || !!categoryId
+  const searching = q.length >= 2 || !!categoryId || !!employeeSign || !!companySign
 
   return (
     <div className="space-y-4">
@@ -135,6 +138,18 @@ export default function DocumentSearch({ categoryId, onCategoryChange, onOpenEmp
           <option value="">Todos los estados BUK</option>
           {(data?.statuses ?? []).map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
         </select>
+        {([['Firma trabajador', employeeSign, setEmployeeSign], ['Firma empresa', companySign, setCompanySign]] as const).map(([label, value, set]) => (
+          <select
+            key={label}
+            value={value}
+            onChange={e => set(e.target.value)}
+            aria-label={label}
+            className="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">{label}: todas</option>
+            {(Object.keys(SIGN_META) as SignatureStatus[]).map(st => <option key={st} value={st}>{label}: {SIGN_META[st].label.toLowerCase()}</option>)}
+          </select>
+        ))}
         <div className="ml-auto"><SyncStatus /></div>
       </div>
 

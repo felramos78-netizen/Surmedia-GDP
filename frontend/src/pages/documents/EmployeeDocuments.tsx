@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronRight, Download, ExternalLink, FileText, Folder, RefreshCw, Search } from 'lucide-react'
 import {
   useBukDocuments, useSyncEmployeeDocuments, openBukFile, downloadBukFile,
-  type BukEntityDocs, type BukFile,
+  type BukEntityDocs, type BukFile, type SignatureStatus,
 } from '@/hooks/useBukDocuments'
 import { formatDate } from '@/lib/utils'
 import type { LegalEntity } from '@/types'
@@ -45,6 +45,27 @@ export function CategoryChip({ category }: { category: BukFile['category'] }) {
     : <span className="text-[11px] px-1.5 py-0.5 rounded border border-dashed border-gray-200 text-gray-400 whitespace-nowrap">Sin clasificar</span>
 }
 
+export const SIGN_META: Record<SignatureStatus, { label: string; cls: string }> = {
+  FIRMADA:       { label: 'Firmado',       cls: 'bg-emerald-50 text-emerald-700' },
+  PENDIENTE:     { label: 'Pendiente',     cls: 'bg-amber-50 text-amber-700' },
+  SIN_SOLICITAR: { label: 'Sin solicitar', cls: 'border border-dashed border-gray-200 text-gray-400' },
+  RECHAZADA:     { label: 'Rechazado',     cls: 'bg-red-50 text-red-600' },
+  NO_REQUERIDA:  { label: 'No requiere',   cls: 'text-gray-300' },
+}
+
+/** Estado de firma de un firmante (trabajador o empresa) */
+export function SignatureBadge({ status, signedAt, who }: { status: SignatureStatus | null; signedAt: string | null; who: string }) {
+  if (!status) return (
+    <span className="text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap text-gray-400 bg-gray-50"
+      title="La firma aún no se consulta en BUK. Usa «Actualizar desde BUK» para revisarla ahora.">Sin revisar</span>
+  )
+  const m = SIGN_META[status]
+  const title = status === 'FIRMADA' && signedAt ? `${who}: firmado el ${formatDate(signedAt)}`
+    : status === 'SIN_SOLICITAR' ? `${who}: el documento pide su firma, pero no se envió la solicitud`
+    : `${who}: ${m.label.toLowerCase()}`
+  return <span className={`text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap ${m.cls}`} title={title}>{m.label}</span>
+}
+
 export function FileRow({ file, entity, bukEmployeeId }: { file: BukFile; entity: LegalEntity; bukEmployeeId: number }) {
   const [busy,  setBusy]  = useState<'open' | 'download' | null>(null)
   const [error, setError] = useState(false)
@@ -66,6 +87,13 @@ export function FileRow({ file, entity, bukEmployeeId }: { file: BukFile; entity
       <FileText size={15} className="text-gray-400 flex-shrink-0" />
       <span className="flex-1 min-w-0 text-sm text-gray-700 truncate" title={file.filename}>{file.filename}</span>
       {error && <span className="text-xs text-red-500">Error al obtener el archivo</span>}
+      <span className="w-24 flex-shrink-0 text-center">
+        <SignatureBadge status={file.employeeSign} signedAt={file.employeeSignedAt} who="Trabajador" />
+      </span>
+      <span className="w-24 flex-shrink-0 text-center">
+        <SignatureBadge status={file.companySign} signedAt={file.companySignedAt}
+          who={file.companySignerType === 'other' ? 'Otro firmante de la empresa' : 'Representante de la empresa'} />
+      </span>
       <CategoryChip category={file.category} />
       <span className="text-xs text-gray-400 w-20 text-right flex-shrink-0">
         {file.createdAt ? formatDate(file.createdAt) : '—'}
@@ -92,6 +120,21 @@ export function FileRow({ file, entity, bukEmployeeId }: { file: BukFile; entity
   )
 }
 
+/** Encabezado de las columnas de la lista de archivos */
+export function FileListHeader() {
+  return (
+    <li className="flex items-center gap-3 px-3 pt-1 pb-0.5 text-[10px] font-medium text-gray-400 uppercase tracking-wide" aria-hidden>
+      <span className="w-[15px]" />
+      <span className="flex-1">Documento</span>
+      <span className="w-24 text-center">Firma trabajador</span>
+      <span className="w-24 text-center">Firma empresa</span>
+      <span className="w-[92px]" />
+      <span className="w-20 text-right">Fecha</span>
+      <span className="w-[62px]" />
+    </li>
+  )
+}
+
 function FolderGroup({ name, files, entity, bukEmployeeId, forceOpen }: {
   name: string; files: BukFile[]; entity: LegalEntity; bukEmployeeId: number; forceOpen: boolean
 }) {
@@ -111,6 +154,7 @@ function FolderGroup({ name, files, entity, bukEmployeeId, forceOpen }: {
       </button>
       {expanded && (
         <ul className="ml-6 border-l border-gray-100 pl-2">
+          <FileListHeader />
           {files.map(f => <FileRow key={f.fileId} file={f} entity={entity} bukEmployeeId={bukEmployeeId} />)}
         </ul>
       )}

@@ -7,12 +7,20 @@ import type { LegalEntity } from '@/types'
 
 export interface DocCategoryRef { id: string; name: string }
 
+export type SignatureStatus = 'NO_REQUERIDA' | 'SIN_SOLICITAR' | 'PENDIENTE' | 'FIRMADA' | 'RECHAZADA'
+
 export interface BukFile {
   fileId:    number
   filename:  string
   folder:    string
   createdAt: string | null
   category:  DocCategoryRef | null
+  // Firmas (null = aún no consultadas en BUK)
+  employeeSign:      SignatureStatus | null
+  employeeSignedAt:  string | null
+  companySign:       SignatureStatus | null
+  companySignedAt:   string | null
+  companySignerType: 'legal_agent' | 'other' | null
 }
 
 export interface BukEntityDocs {
@@ -28,7 +36,7 @@ export interface BukDocumentsResponse {
   entities: BukEntityDocs[]
 }
 
-export interface SyncProgress { scope: string; done: number; total: number }
+export interface SyncProgress { scope: string; done: number; total: number; phase?: 'fichas' | 'firmas' }
 
 // ── Por colaborador ───────────────────────────────────────────────────────────
 
@@ -80,7 +88,7 @@ export interface BukDocSearchResponse {
   people:      BukDocSearchPerson[]
 }
 
-export interface DocSearchFilters { q: string; categoryId?: string; legalEntity?: string; status?: string }
+export interface DocSearchFilters { q: string; categoryId?: string; legalEntity?: string; status?: string; employeeSign?: string; companySign?: string }
 
 export function useBukDocSearch(filters: DocSearchFilters) {
   return useQuery({
@@ -90,6 +98,8 @@ export function useBukDocSearch(filters: DocSearchFilters) {
       if (filters.categoryId)  params.set('categoryId', filters.categoryId)
       if (filters.legalEntity) params.set('legalEntity', filters.legalEntity)
       if (filters.status)      params.set('status', filters.status)
+      if (filters.employeeSign) params.set('employeeSign', filters.employeeSign)
+      if (filters.companySign)  params.set('companySign', filters.companySign)
       const { data } = await api.get<BukDocSearchResponse>(`/documents/search?${params}`)
       return data
     },

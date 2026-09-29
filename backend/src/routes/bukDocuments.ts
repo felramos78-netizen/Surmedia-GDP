@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { Readable } from 'stream'
-import type { LegalEntity, Prisma } from '@prisma/client'
+import type { LegalEntity, Prisma, SignatureStatus } from '@prisma/client'
 import { requireRole } from '../middleware/requireRole'
 import { BUK_ENTITIES, fetchEmployeeFile } from '../services/bukApi.service'
 import {
@@ -32,6 +32,7 @@ function filenameStem(filename: string, personName: string) {
 const docSelect = {
   bukFileId: true, filename: true, folder: true, bukCreatedAt: true,
   category: { select: { id: true, name: true } },
+  employeeSign: true, employeeSignedAt: true, companySign: true, companySignedAt: true, companySignerType: true,
 } satisfies Prisma.BukDocumentSelect
 
 type DocRow = Prisma.BukDocumentGetPayload<{ select: typeof docSelect }>
@@ -42,6 +43,12 @@ const toFile = (d: DocRow) => ({
   folder:    d.folder,
   createdAt: d.bukCreatedAt?.toISOString() ?? null,
   category:  d.category,
+  // Firmas: null = aún no consultadas en BUK
+  employeeSign:      d.employeeSign,
+  employeeSignedAt:  d.employeeSignedAt?.toISOString() ?? null,
+  companySign:       d.companySign,
+  companySignedAt:   d.companySignedAt?.toISOString() ?? null,
+  companySignerType: d.companySignerType,
 })
 
 interface CategoryBody { name?: string; group?: string; keywords?: string[]; required?: boolean; sortOrder?: number }
@@ -130,9 +137,12 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
 
   // GET /api/documents/search?q=&categoryId=&legalEntity=&status= — cuántos
   // documentos coinciden y quiénes los tienen. categoryId=none → sin clasificar.
-  fastify.get<{ Querystring: { q?: string; categoryId?: string; legalEntity?: string; status?: string } }>('/search', async (req) => {
+  fastify.get<{ Querystring: { q?: string; categoryId?: string; legalEntity?: string; status?: string; employeeSign?: string; companySign?: string } }>('/search', async (req) => {
     void autoSyncIfStale(prisma, logErr)
     const { categoryId, legalEntity, status } = req.query
+    const SIGN = ['NO_REQUERIDA', 'SIN_SOLICITAR', 'PENDIENTE', 'FIRMADA', 'RECHAZADA']
+    const employeeSign = SIGN.includes(req.query.employeeSign ?? '') ? req.query.employeeSign as SignatureStatus : undefined
+    const companySign  = SIGN.includes(req.query.companySign ?? '') ? req.query.companySign as SignatureStatus : undefined
     const q = fold(req.query.q)
 
     const scopeWhere: Prisma.BukDocumentWhereInput = {
@@ -151,13 +161,15 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
       statuses:    statuses.map(s => s.bukStatus).filter(Boolean).sort(),
       scopePeople: scopeFichas.length,
     }
-    if (q.length < 2 && !categoryId) return { ...base, totalPeople: 0, totalFiles: 0, people: [] }
+    if (q.length < 2 && !categoryId && !employeeSign && !companySign) return { ...base, totalPeople: 0, totalFiles: 0, people: [] }
 
     const rows = await prisma.bukDocument.findMany({
       where: {
         ...scopeWhere,
         ...(q.length >= 2 ? { searchText: { contains: q } } : {}),
         ...(categoryId ? { categoryId: categoryId === 'none' ? null : categoryId } : {}),
+        ...(employeeSign ? { employeeSign } : {}),
+        ...(companySign ? { companySign } : {}),
       },
       select:  { ...docSelect, legalEntity: true, bukEmployeeId: true, rut: true, personName: true, bukStatus: true, employeeId: true },
       orderBy: { bukCreatedAt: 'desc' },

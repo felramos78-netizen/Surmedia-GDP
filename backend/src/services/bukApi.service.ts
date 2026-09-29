@@ -175,3 +175,48 @@ export async function fetchEmployeeFile(entity: LegalEntity, bukEmployeeId: numb
   if (!file.ok || !file.body) throw new Error(`Descarga del archivo ${fileId} falló (status ${file.status})`)
   return file
 }
+
+// ── Firmas de un documento ────────────────────────────────────────────────────
+
+export type SignState = 'NO_REQUERIDA' | 'SIN_SOLICITAR' | 'PENDIENTE' | 'FIRMADA' | 'RECHAZADA'
+
+export interface FileSignatures {
+  employee:    { status: SignState; signedAt: string | null }
+  company:     { status: SignState; signedAt: string | null; signerType: 'legal_agent' | 'other' | null }
+}
+
+interface BukSignature { signature_type: string; status: string; signed_at: string | null; rejected_at: string | null }
+
+/** Estado de un firmante según sus solicitudes: todas firmadas → FIRMADA; alguna rechazada → RECHAZADA; si no, PENDIENTE. */
+function partyState(sigs: BukSignature[], required: boolean): { status: SignState; signedAt: string | null } {
+  if (!sigs.length) return { status: required ? 'SIN_SOLICITAR' : 'NO_REQUERIDA', signedAt: null }
+  if (sigs.some(s => s.status === 'rejected' || s.rejected_at)) return { status: 'RECHAZADA', signedAt: null }
+  if (sigs.every(s => s.status === 'signed')) {
+    const last = sigs.map(s => s.signed_at).filter(Boolean).sort().pop() ?? null
+    return { status: 'FIRMADA', signedAt: last }
+  }
+  return { status: 'PENDIENTE', signedAt: null }
+}
+
+/**
+ * GET /docs/{fileId}: `settings` dice qué firmas pide el documento y `signatures` el estado de cada solicitud
+ * (signature_type: employee / legal_agent / second_legal_agent / other / second_other; status: created, requested, signed…).
+ * Empresa = representante legal; si el documento no lo usa, "otro firmante" (ej. relator en Capacitaciones).
+ */
+export async function fetchFileSignatures(entity: LegalEntity, fileId: number): Promise<FileSignatures> {
+  const body = await bukGetJson<{ employee_file: { settings?: Record<string, boolean>; signatures?: BukSignature[] } }>(entity, `/docs/${fileId}`)
+  const f = body.employee_file
+  const sigs = f.signatures ?? []
+  const of = (re: RegExp) => sigs.filter(s => re.test(s.signature_type))
+  const legal = of(/legal_agent/)
+  const other = of(/other/)
+  const legalRequired = !!(f.settings?.legal_agent_sign || f.settings?.second_legal_agent_sign)
+  const useLegal = legal.length > 0 || legalRequired || other.length === 0
+  return {
+    employee: partyState(of(/^employee/), !!f.settings?.employee_sign),
+    company: {
+      ...partyState(useLegal ? legal : other, useLegal ? legalRequired : true),
+      signerType: useLegal ? (legal.length || legalRequired ? 'legal_agent' : null) : 'other',
+    },
+  }
+}

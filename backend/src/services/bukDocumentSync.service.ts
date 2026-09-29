@@ -1,5 +1,5 @@
 import type { LegalEntity, Prisma, PrismaClient } from '@prisma/client'
-import { BUK_ENTITIES, listBukEmployees, findBukEmployees, listEmployeeFiles, type BukEmployeeRef, type BukFile } from './bukApi.service'
+import { BUK_ENTITIES, listBukEmployees, findBukEmployees, listEmployeeFiles, fetchFileSignatures, type BukEmployeeRef, type BukFile } from './bukApi.service'
 import { normalizeRut } from '../utils/rut'
 import { fold } from '../utils/text'
 
@@ -96,14 +96,14 @@ export async function recategorizeAll(prisma: PrismaClient) {
 
 interface Ficha { legalEntity: LegalEntity; ref: BukEmployeeRef }
 
-export interface SyncProgress { scope: string; done: number; total: number }
+export interface SyncProgress { scope: string; done: number; total: number; phase?: 'fichas' | 'firmas' }
 let running: SyncProgress | null = null
 export const syncProgress = () => running
 
 async function syncFichas(prisma: PrismaClient, fichas: Ficha[], scope: string, opts: { markMissingFichas: boolean }) {
   const log = await prisma.bukDocumentSync.create({ data: { scope, status: 'RUNNING', fichas: fichas.length } })
   // Solo la sincronización total expone su progreso (la de un RUT es breve)
-  const progress: SyncProgress = { scope, done: 0, total: fichas.length }
+  const progress: SyncProgress = { scope, done: 0, total: fichas.length, phase: 'fichas' }
   if (scope === 'ALL') running = progress
   try {
     // 1. Leer los archivos de cada ficha en BUK
@@ -199,6 +199,9 @@ async function syncFichas(prisma: PrismaClient, fichas: Ficha[], scope: string, 
       removed += r.count
     }
 
+    // 4. Firmas: documentos nuevos y los que tienen firmas pendientes
+    await refreshSignatures(prisma, { OR: readFichas }, progress)
+
     const filesSeen = read.reduce((n, r) => n + r.files.length, 0)
     return await prisma.bukDocumentSync.update({
       where: { id: log.id },
@@ -213,6 +216,53 @@ async function syncFichas(prisma: PrismaClient, fichas: Ficha[], scope: string, 
   } finally {
     if (scope === 'ALL') running = null
   }
+}
+
+// ── Firmas ────────────────────────────────────────────────────────────────────
+
+// "Sin solicitar" se revisa solo en documentos recientes (una solicitud antigua ya no se envía)
+const RECHECK_UNREQUESTED_DAYS = 60
+
+/**
+ * Consulta en BUK el estado de firma de los documentos que lo necesitan: nunca consultados,
+ * con firmas pendientes, o recientes sin solicitud. Una consulta por documento (~0,25 s).
+ */
+export async function refreshSignatures(prisma: PrismaClient, where: Prisma.BukDocumentWhereInput, progress?: SyncProgress) {
+  const recent = new Date(Date.now() - RECHECK_UNREQUESTED_DAYS * 86_400_000)
+  const docs = await prisma.bukDocument.findMany({
+    where: {
+      AND: [where, { removedAt: null }, {
+        OR: [
+          { signaturesCheckedAt: null },
+          { employeeSign: 'PENDIENTE' }, { companySign: 'PENDIENTE' },
+          { employeeSign: 'SIN_SOLICITAR', firstSeenAt: { gte: recent } },
+          { companySign: 'SIN_SOLICITAR', firstSeenAt: { gte: recent } },
+        ],
+      }],
+    },
+    select: { id: true, legalEntity: true, bukFileId: true },
+  })
+  if (progress) { progress.phase = 'firmas'; progress.done = 0; progress.total = docs.length }
+  let next = 0, failed = 0
+  const worker = async () => {
+    while (next < docs.length) {
+      const d = docs[next++]
+      try {
+        const s = await fetchFileSignatures(d.legalEntity, d.bukFileId)
+        await prisma.bukDocument.update({
+          where: { id: d.id },
+          data: {
+            employeeSign: s.employee.status, employeeSignedAt: s.employee.signedAt ? new Date(s.employee.signedAt) : null,
+            companySign: s.company.status, companySignedAt: s.company.signedAt ? new Date(s.company.signedAt) : null,
+            companySignerType: s.company.signerType, signaturesCheckedAt: new Date(),
+          },
+        })
+      } catch { failed++ }
+      if (progress) progress.done++
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker))
+  return { checked: docs.length - failed, failed }
 }
 
 // Sincroniza todas las fichas BUK de ambas razones sociales (~280 fichas, ~40 s)

@@ -16,6 +16,7 @@ import ProveedoresPage from '@/pages/proveedores/ProveedoresPage'
 import PresupuestoPage from '@/pages/budget/PresupuestoPage'
 import ReportesPage from '@/pages/reportes/ReportesPage'
 import DocumentsPage from '@/pages/documents/DocumentsPage'
+import RecruitmentPage from '@/pages/recruitment/RecruitmentPage'
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
               <Route path="/presupuesto"         element={<PresupuestoPage />} />
               <Route path="/reportes"            element={<ReportesPage />} />
               <Route path="/documents"           element={<DocumentsPage />} />
+              <Route path="/recruitment"         element={<RecruitmentPage />} />
               <Route path="/" element={<Navigate to="/centros-trabajo" replace />} />
             </Route>
           </Route>

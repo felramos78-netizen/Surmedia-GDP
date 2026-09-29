@@ -74,6 +74,7 @@ surmedia-gdp/
   /api/work-centers  → src/routes/workCenters.ts
   /api/buk           → src/routes/buk.ts        (sincronización BUK: API o Excel)
   /api/documents     → src/routes/bukDocuments.ts (documentos BUK vía API, solo lectura, solo ADMIN)
+  /api/recruitment   → src/routes/recruitment.ts  (base de CVs; solo roles RRHH)
   /api/health        → health check
   ```
 - **Servicios:**
@@ -98,7 +99,7 @@ surmedia-gdp/
   - `/calendario` — Vista de fechas relevantes de la organización
   - `/onboarding` — Procesos de onboarding
   - `/buk` — Sincronización con BUK (API por defecto, Excel como respaldo)
-  - `/recruitment` — Reclutamiento (en sidebar; página no implementada aún)
+  - `/recruitment` — Reclutamiento: base de CVs por vacante, importada desde la carpeta de Drive
   - `/documents` — Documentos de cada colaborador leídos en vivo desde la API de BUK (solo ADMIN)
 - **Despliegue:** Vercel (configurado en `frontend/vercel.json`).
 
@@ -134,6 +135,7 @@ El esquema vive en `backend/prisma/schema.prisma`. Entidades núcleo:
 - `PayrollEntry` — Liquidaciones mensuales (importadas desde Excel BUK). Unique por `(employeeId, legalEntity, year, month)`.
 - `Leave` — Vacaciones y permisos (tipos: `VACACIONES`, `LICENCIA_MEDICA`, etc.).
 - `VacationBalance` — Saldo de vacaciones por colaborador × razón social × mes. Campos: `saldoLegal`, `saldoProgresivas`, `saldoAdministrativos`, `diasLicencias`, `vacacionesTomadas`. Importado desde Excel "Vacaciones y licencia". Unique por `(employeeId, legalEntity, year, month)`.
+- `JobOpening` + `Candidate` + `CandidateApplication` + `CandidateFile` — Base de CVs de Reclutamiento (ver módulo Reclutamiento).
 - `BukDocument` + `DocumentCategory` + `BukDocumentSync` — Metadata de los documentos BUK de cada colaborador, clasificada por palabras clave (ver módulo Documentos).
 - `OnboardingProcess` + `OnboardingTask` — Proceso de onboarding con hitos por período (`PRE_INGRESO`, `DIA_1`, `SEMANA_1`, `MES_1`, `EVALUACION`) y automatizaciones.
 
@@ -546,4 +548,34 @@ Documentos de cada colaborador (liquidaciones, contratos, anexos, S.S.O, RIOHS, 
   - `GET /api/documents/file/:legalEntity/:bukEmployeeId/:fileId` — proxy del archivo (BUK redirige a una URL S3 prefirmada; el cliente nunca la ve).
 - **Frontend:** `pages/documents/DocumentsPage.tsx` con tres pestañas: **Resumen** (`DocumentDashboard.tsx` + `CategoryModal.tsx`), **Por colaborador** (`EmployeePicker.tsx` + `EmployeeDocuments.tsx`) y **Buscar documento** (`DocumentSearch.tsx`). La ficha `/colaboradores/:id` tiene además el tab "Documentos". Hook: `useBukDocuments.ts`.
 - **Cobertura de obligatorios: por persona (RUT), no por ficha.** Una persona activa está cubierta si tiene el documento en cualquiera de sus fichas BUK (la otra razón social o una ficha anterior por recontratación). "Activa" = tiene al menos una ficha BUK activa **con documentos** (una ficha sin documentos no queda registrada).
+- **Firmas:** cada documento guarda el estado de firma del trabajador (`employeeSign`) y de la empresa (`companySign`: representante legal, o "otro firmante" si el documento no lo usa, ej. relator en Capacitaciones) — `NO_REQUERIDA` / `SIN_SOLICITAR` (el documento pide la firma pero no se envió la solicitud; típico en liquidaciones) / `PENDIENTE` / `FIRMADA` / `RECHAZADA`. Se leen con `GET /docs/{fileId}` (`settings` + `signatures`), **una consulta por documento**: `refreshSignatures()` corre al final de cada sincronización solo para los nunca consultados, los pendientes y los "sin solicitar" recientes (60 días). Carga inicial: `prisma/backfill-signatures.ts` (~35 min para ~12.000). Se ven como dos columnas en las listas de archivos y como filtros en "Buscar documento".
 - **ODI e IRL son equivalentes:** desde 2025 (DS 44) la IRL reemplazó a la ODI; cada persona suele tener una u otra, así que la cobertura por separado de cada una se ve baja.
+
+---
+
+### Reclutamiento (`/recruitment`)
+
+Base de CVs por vacante. Acceso: `ADMIN`, `RRHH_MANAGER`, `RRHH_ANALYST` (datos personales de postulantes).
+
+Los archivos **no se copian**: viven en la unidad compartida `G:\Unidades compartidas\GDP\Surmedia RRHH\Reclutamiento` (sincronizada con Google Drive para escritorio; ruta configurable con `RECRUITMENT_DRIVE_PATH`). GDP guarda los datos del candidato y la ruta relativa + hash sha1 de cada archivo, y los sirve desde disco (`GET /api/recruitment/files/:id`). Por eso solo funciona en el equipo que tiene Drive montado.
+
+**Modelos** (migración `20260928_add_recruitment`, con RLS): `JobOpening` (una por carpeta de primer nivel, `driveFolder`), `Candidate` (email y RUT únicos, `linkedinUrl`, `source`, `referredBy`, `searchText` con `fold()`), `CandidateApplication` (candidato × vacante, `stage`, `isArchived`) y `CandidateFile` (`drivePath` único, `contentHash`, `removedAt`).
+
+**Importación desde Drive** (`services/recruitmentDriveImport.service.ts`, pestaña "Importar desde Drive"): preview → revisión/edición → apply, como en `/buk`. Reglas de carpeta:
+- Carpeta de primer nivel = vacante; los archivos sueltos en la raíz (cartas oferta, planillas, claves) se ignoran.
+- Subcarpeta más profunda que indique etapa: "No aplica"/"Descartados" → `DESCARTADO`; "Aplica"/"Idóneos"/"Preseleccionados"/"Selección"/"terna"/"top" → `PRESELECCIONADO`; "Dudas" → `EN_REVISION`; resto → `RECIBIDO`. "old" en la ruta → `isArchived` (histórico).
+- Nombre `1234567_cv_nombre_1234567890.pdf` o `applicant_…` → origen `PORTAL` (descargas de portales de empleo); carpeta "Hunting" → `HUNTING`.
+- Un archivo ya importado que aparece en otra ruta (mismo hash) se trata como **movido**: se actualiza la ruta y la etapa según la nueva carpeta. Los que desaparecen se marcan `removedAt`.
+- Mismo candidato en varios archivos: se une por email → RUT → LinkedIn (**no por nombre**: con nombres mal extraídos, como "Sobre Mí", juntaba a personas distintas); solo se completan datos vacíos.
+
+**Extracción de datos** (`services/cvParser.service.ts`, PDF con `unpdf`, Word con `mammoth`): nombre (texto del CV cruzado con el nombre del archivo), email, teléfono (+56 9), RUT (valida DV) y LinkedIn (también desde los hipervínculos del PDF). Es heurística: se revisa antes de importar. El texto de los PDF sale a veces sin separadores: `cleanEmail()` / `cleanLinkedinUrl()` quitan lo que queda pegado ("...@gmail.comcontacto"). `prisma/fix-recruitment-candidates.ts` corrigió los datos importados con la primera versión.
+
+**Perfil y preselección:** `Candidate` tiene campos de perfil (`professionalTitle`, `institution`, `city`, `yearsExperience`, `lastEmployer`, `lastPosition`, `sector`, `skills`, `tools`, `certifications`, `availability`). `prisma/import-preseleccion.ts` los cargó desde las planillas "Preselección*.xlsx" de Drive (solo campos vacíos; también corrige el nombre si el del CV venía mal) junto con sus columnas de puntos como criterios MANUAL. Pestaña **Preselección** (`PreselectionView.tsx`): tabla por vacante con Total + una columna por criterio + perfil completo; etapa, puntajes manuales y comentario se editan en la tabla.
+
+**Criterios de puntaje** (`ScoringCriterion`, por vacante, `CriteriaModal.tsx`): `RULE` = campo + condición (contiene / no contiene / igual / ≥ / ≤ / tiene dato; varias alternativas separadas por coma) → `pointsIfTrue`, si no `pointsIfFalse`; `MANUAL` = puntaje a mano guardado en `CandidateApplication.manualScores` (`{criterionId: puntos}`). Las reglas se evalúan en el frontend (`scoreCriterion()` en `useRecruitment.ts`); el total es la suma.
+
+**Tablas:** todas usan `components/ui/DataTable.tsx` (orden por columna + fila de filtros: texto, lista o rango numérico). Regla de GDP: toda tabla nueva debe ser ordenable y filtrable.
+
+**Perfil con IA** (`services/cvAi.service.ts`, **Gemini, plan gratuito**, `GEMINI_API_KEY` y opcional `GEMINI_MODEL` en `.env`, por defecto `gemini-3.5-flash-lite`; los modelos 2.5 ya no están disponibles para cuentas nuevas): **solo a pedido** — barra "Completar perfiles con IA" en Candidatos (candidatos visibles con perfil incompleto y sin leer) o botón en la ficha. Gemini recibe el PDF tal cual (también CVs escaneados). Lote en segundo plano, uno a la vez con pausa (`GEMINI_PAUSE_MS`, 4,5 s) por los límites del plan gratuito; si se agota la cuota diaria se detiene. El resultado queda en `Candidate.aiSuggestion` y se revisa en la pestaña **Revisión IA** (campo actual vs. leído, marcados por defecto los vacíos y los nombres mal extraídos). El usuario no quiere consumo autónomo de tokens de Claude en GDP: no usar Claude para esto ni activar la IA en segundo plano.
+
+Pendiente: importación desde Gmail (búsqueda automática de correos con CV adjunto; el adjunto se guardaría en la carpeta de Drive). Publicación en LinkedIn/Chiletrabajos descartada por ahora (sin API accesible y GDP no se publica en internet).

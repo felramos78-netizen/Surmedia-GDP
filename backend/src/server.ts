@@ -21,6 +21,7 @@ import budgetRoutes from './routes/budget'
 import documentsRoutes from './routes/documents'
 import reportsRoutes from './routes/reports'
 import bukDocumentsRoutes from './routes/bukDocuments'
+import recruitmentRoutes from './routes/recruitment'
 
 if (!process.env.JWT_SECRET) {
   throw new Error('JWT_SECRET no está definido. Revisa backend/.env')
@@ -60,6 +61,7 @@ async function bootstrap() {
   await app.register(documentsRoutes, { prefix: '/api/onboarding' })
   await app.register(reportsRoutes,   { prefix: '/api/reports' })
   await app.register(bukDocumentsRoutes, { prefix: '/api/documents' })
+  await app.register(recruitmentRoutes,  { prefix: '/api/recruitment' })
 
   app.get('/api/health', async () => ({ status: 'ok', env: process.env.NODE_ENV }))
 

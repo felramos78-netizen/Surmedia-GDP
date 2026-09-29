@@ -381,6 +381,13 @@ model BukDocument {
   firstSeenAt   DateTime          @default(now())
   lastSeenAt    DateTime          @default(now())
   removedAt     DateTime? // ya no aparece en BUK
+  // Firmas (GET /docs/{fileId}); null = aún no consultado
+  employeeSign        SignatureStatus?
+  employeeSignedAt    DateTime?
+  companySign         SignatureStatus? // representante legal; si no hay, "otro firmante"
+  companySignedAt     DateTime?
+  companySignerType   String? // legal_agent | other
+  signaturesCheckedAt DateTime?
 
   @@unique([legalEntity, bukFileId])
   @@index([employeeId])
@@ -388,6 +395,14 @@ model BukDocument {
   @@index([categoryId])
   @@index([legalEntity, bukEmployeeId])
   @@map("buk_documents")
+}
+
+enum SignatureStatus {
+  NO_REQUERIDA
+  SIN_SOLICITAR // El documento pide la firma, pero no se envió la solicitud
+  PENDIENTE
+  FIRMADA
+  RECHAZADA
 }
 
 // Categorías de documentos: agrupan nombres distintos pero similares por palabras clave
@@ -903,4 +918,147 @@ model SmartDocument {
 
   @@index([budgetItemId])
   @@map("smart_documents")
+}
+
+// ─────────────────────────────────────────────
+// Reclutamiento: base de CVs
+// ─────────────────────────────────────────────
+// Los archivos viven en la unidad compartida de Drive (RECRUITMENT_DRIVE_PATH);
+// GDP guarda solo los datos del candidato y la ruta relativa de cada archivo.
+
+enum RecruitmentStage {
+  RECIBIDO
+  EN_REVISION
+  PRESELECCIONADO
+  ENTREVISTA
+  OFERTA
+  CONTRATADO
+  DESCARTADO
+}
+
+enum CandidateSource {
+  PORTAL // Descargado de un portal de empleo (Chiletrabajos, Laborum…)
+  DRIVE
+  GMAIL
+  REFERIDO
+  HUNTING
+  MANUAL
+}
+
+enum ScoringCriterionType {
+  MANUAL // El puntaje se ingresa a mano en la tabla de preselección
+  RULE // Se calcula con los datos del candidato
+}
+
+enum JobOpeningStatus {
+  ABIERTA
+  CERRADA
+}
+
+model JobOpening {
+  id           String                 @id @default(uuid())
+  name         String
+  driveFolder  String?                @unique // Carpeta de primer nivel en Drive
+  city         String?
+  status       JobOpeningStatus       @default(ABIERTA)
+  notes        String?
+  criteria     ScoringCriterion[]
+  applications CandidateApplication[]
+  files        CandidateFile[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@map("job_openings")
+}
+
+model Candidate {
+  id           String                 @id @default(uuid())
+  fullName     String
+  email        String?                @unique
+  phone        String?
+  rut          String?                @unique
+  linkedinUrl  String?
+  source       CandidateSource        @default(DRIVE)
+  referredBy   String?
+  notes        String?
+  // Perfil (planillas de preselección / CV)
+  professionalTitle String?
+  institution       String? // Universidad / instituto
+  city              String?
+  yearsExperience   Float?
+  lastEmployer      String?
+  lastPosition      String?
+  sector            String? // Sector / rubro
+  skills            String? // Principales competencias
+  tools             String? // Herramientas técnicas y digitales
+  certifications    String?
+  availability      String?
+  aiSuggestion      Json? // Perfil propuesto por IA (Gemini), pendiente de revisión
+  aiSuggestedAt     DateTime?
+  searchText   String                 @default("") // Normalizado con fold() para búsqueda
+  applications CandidateApplication[]
+  files        CandidateFile[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@map("candidates")
+}
+
+model CandidateApplication {
+  id           String           @id @default(uuid())
+  candidate    Candidate        @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  candidateId  String
+  jobOpening   JobOpening       @relation(fields: [jobOpeningId], references: [id], onDelete: Cascade)
+  jobOpeningId String
+  stage        RecruitmentStage @default(RECIBIDO)
+  isArchived   Boolean          @default(false) // Carpeta "old": postulación de una convocatoria anterior
+  notes        String? // Comentario de la preselección
+  manualScores Json             @default("{}") // { [criterionId]: puntos } de los criterios MANUAL
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([candidateId, jobOpeningId])
+  @@index([jobOpeningId])
+  @@map("candidate_applications")
+}
+
+model CandidateFile {
+  id           String      @id @default(uuid())
+  candidate    Candidate   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  candidateId  String
+  jobOpening   JobOpening? @relation(fields: [jobOpeningId], references: [id], onDelete: SetNull)
+  jobOpeningId String?
+  fileName     String
+  drivePath    String      @unique // Ruta relativa a RECRUITMENT_DRIVE_PATH, con "/"
+  contentHash  String // sha1: detecta el mismo archivo movido de carpeta
+  sizeBytes    Int
+  modifiedAt   DateTime?
+  removedAt    DateTime? // Ya no está en Drive
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([candidateId])
+  @@index([contentHash])
+  @@map("candidate_files")
+}
+
+// Criterio de puntaje de una vacante. RULE: si `field` cumple `operator value` suma pointsIfTrue,
+// si no pointsIfFalse (se evalúa en el frontend). MANUAL: puntaje en CandidateApplication.manualScores.
+model ScoringCriterion {
+  id            String               @id @default(uuid())
+  jobOpening    JobOpening           @relation(fields: [jobOpeningId], references: [id], onDelete: Cascade)
+  jobOpeningId  String
+  name          String
+  type          ScoringCriterionType @default(MANUAL)
+  field         String? // Campo del candidato (city, yearsExperience, tools…)
+  operator      String? // CONTAINS | NOT_CONTAINS | EQUALS | GTE | LTE | NOT_EMPTY
+  value         String?
+  pointsIfTrue  Float                @default(1)
+  pointsIfFalse Float                @default(0)
+  sortOrder     Int                  @default(0)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([jobOpeningId])
+  @@map("scoring_criteria")
 }

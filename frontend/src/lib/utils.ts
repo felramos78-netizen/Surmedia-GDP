@@ -30,3 +30,8 @@ export function formatDate(date: string | Date): string {
     timeZone: 'UTC',
   }).format(new Date(date))
 }
+
+/** Texto normalizado para búsquedas: minúsculas y sin tildes (igual que `fold()` del backend). */
+export function fold(s: string | null | undefined): string {
+  return (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim()
+}
