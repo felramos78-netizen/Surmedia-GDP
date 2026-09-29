@@ -1,15 +1,25 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuthStore } from '@/store/auth'
 import api from '@/lib/api'
+
+// Códigos que devuelve /api/auth/google/callback en ?error=
+const GOOGLE_ERRORS: Record<string, string> = {
+  oauth_denied:          'Se canceló el inicio de sesión con Google.',
+  wrong_domain:          'Solo cuentas @surmedia.cl pueden acceder.',
+  token_exchange_failed: 'Google no entregó la autorización. Intenta de nuevo.',
+  token_verify_failed:   'No se pudo verificar la cuenta de Google.',
+}
 
 export default function LoginPage() {
   const { isAuthenticated, token, setAuth } = useAuthStore()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const googleError = searchParams.get('error')
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(googleError ? (GOOGLE_ERRORS[googleError] ?? 'No se pudo iniciar sesión con Google.') : '')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -93,7 +103,7 @@ export default function LoginPage() {
         </div>
 
         <a
-          href={`${import.meta.env.VITE_API_URL ?? 'http://localhost:4000'}/api/auth/google`}
+          href={`${import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:4000' : '')}/api/auth/google`}
           className="flex items-center justify-center gap-3 w-full py-2.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
         >
           <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">

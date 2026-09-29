@@ -1,5 +1,7 @@
 import { execSync } from 'child_process'
+import path from 'path'
 import Fastify from 'fastify'
+import fastifyStatic from '@fastify/static'
 import cors from '@fastify/cors'
 import jwt from '@fastify/jwt'
 import cookie from '@fastify/cookie'
@@ -65,10 +67,22 @@ async function bootstrap() {
 
   app.get('/api/health', async () => ({ status: 'ok', env: process.env.NODE_ENV }))
 
+  // App de escritorio (desktop/): el backend sirve también el frontend compilado.
+  // Las rutas que no son /api devuelven index.html para que React Router las resuelva.
+  const staticDir = process.env.GDP_STATIC_DIR
+  if (staticDir) {
+    await app.register(fastifyStatic, { root: path.resolve(staticDir), wildcard: false })
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method === 'GET' && !req.url.startsWith('/api/')) return reply.sendFile('index.html')
+      reply.code(404).send({ error: 'Not Found', message: `Route ${req.method}:${req.url} not found` })
+    })
+  }
+
   startCalendarEmailScheduler(app.prisma)
 
   const port = Number(process.env.PORT ?? 4000)
-  await app.listen({ port, host: '0.0.0.0' })
+  // La app de escritorio pasa HOST=127.0.0.1 para no exponer GDP en la red local
+  await app.listen({ port, host: process.env.HOST ?? '0.0.0.0' })
   app.log.info(`GDP API corriendo en http://localhost:${port}`)
 }
 

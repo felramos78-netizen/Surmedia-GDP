@@ -10,6 +10,21 @@ const TEMP_USER = {
   password: '1234',
 }
 
+// App de escritorio (desktop/): el login con Google se hace en el navegador del
+// sistema, así que el token no puede volver por redirección a la ventana de GDP.
+// El backend corre como proceso hijo de Electron y se lo entrega por IPC.
+function desktopHandoff(message: Record<string, string>): boolean {
+  if (process.env.GDP_DESKTOP !== '1' || !process.send) return false
+  process.send(message)
+  return true
+}
+
+function desktopPage(title: string, text: string): string {
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>GDP Surmedia</title></head>
+<body style="font-family:'Segoe UI',Arial,sans-serif;background:#016D8C;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="text-align:center"><h1 style="font-weight:600">${title}</h1><p>${text}</p></div></body></html>`
+}
+
 const authRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Body: { email: string; password: string } }>(
     '/login',
@@ -42,6 +57,9 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       const { code, error } = req.query
 
       if (error || !code) {
+        if (desktopHandoff({ type: 'google-auth-error', code: 'oauth_denied' })) {
+          return reply.type('text/html').send(desktopPage('Inicio de sesión cancelado', 'Vuelve a GDP para intentarlo de nuevo.'))
+        }
         return reply.redirect(`${process.env.APP_URL}/login?error=oauth_denied`)
       }
 
@@ -54,10 +72,16 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
           role: user.role,
           avatarUrl: user.avatarUrl,
         })).toString('base64')
+        if (desktopHandoff({ type: 'google-auth', token, user: userEncoded })) {
+          return reply.type('text/html').send(desktopPage('Sesión iniciada', 'Ya puedes cerrar esta pestaña y volver a GDP.'))
+        }
         reply.redirect(`${process.env.APP_URL}/auth/callback?token=${token}&user=${userEncoded}`)
       } catch (err) {
         fastify.log.error(err)
         const errorCode = err instanceof AuthError ? err.code : 'auth_failed'
+        if (desktopHandoff({ type: 'google-auth-error', code: errorCode })) {
+          return reply.type('text/html').send(desktopPage('No se pudo iniciar sesión', 'Vuelve a GDP para ver el detalle.'))
+        }
         reply.redirect(`${process.env.APP_URL}/login?error=${errorCode}`)
       }
     },

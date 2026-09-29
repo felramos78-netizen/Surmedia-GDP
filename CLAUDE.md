@@ -188,6 +188,24 @@ Las migraciones existentes en `backend/prisma/migrations/` solo **documentan** l
 
 El proyecto corre solo en entorno local. No hay configuración de despliegue activa.
 
+### App de escritorio (`desktop/`, Electron)
+
+Forma de usar GDP para Felipe y Paula (reemplaza a `gdp-arrancar.bat` y al `git pull` manual). No es un workspace del monorepo: tiene su propio `node_modules`.
+
+```bash
+cd desktop && npm install     # una vez
+npm start                     # probar los cambios del repo (modo desarrollo, puerto 4781)
+npm run publicar              # publicar una versión nueva para las apps instaladas
+npm run dist                  # solo generar el instalador local, sin publicar
+```
+
+- **Instalador autónomo:** `scripts/stage.js` arma `desktop/stage/` (backend compilado + `node_modules` de producción + cliente Prisma, y el build de Vite), que va dentro del instalador como `resources/backend` y `resources/frontend`. La app instalada no usa el repo, git ni Node. Compila con `vite build` + `tsc` directos (el `tsc -b` del frontend tiene errores de tipos antiguos).
+- **Configuración:** el `.env` se lee desde `G:\Unidades compartidas\GDP\env de GDP\.env` (carpeta de Drive que solo tienen Felipe y Paula; ruta alternativa elegible en la app, guardada en `%APPDATA%\GDP Surmedia\config.json`). Al cambiar una variable, editar **ese** archivo además de `backend/.env`.
+- `main.js` levanta el backend como proceso hijo con el Node de Electron (`ELECTRON_RUN_AS_NODE`), en `127.0.0.1:4780`, con `cwd` en `%APPDATA%\GDP Surmedia\data` (ahí quedan los `uploads/`). El backend sirve también el frontend (`GDP_STATIC_DIR` en `server.ts`). El respaldo Excel de `/buk` no está disponible en la app instalada (no tiene `reportes/`).
+- **Publicar y actualizar:** `npm run publicar` sube la versión (1.0.N+1), arma el paquete, corre la **prueba de humo** (`scripts/smoke.js`: servidor empaquetado responde, sirve la interfaz y Prisma consulta la base; si falla no publica), genera el instalador y lo deja en `G:\…\env de GDP\versiones\` con `latest.json` (versión, sha256, commits desde la anterior como novedades). Al abrir, la app (`updater.js`) compara versiones, ofrece actualizar, copia el instalador a `%TEMP%`, verifica el hash y lo ejecuta en silencio (`/S --force-run`). Commitear `desktop/package.json` después de publicar.
+- **Registros:** `%APPDATA%\GDP Surmedia\logs\gdp.log` (sesión actual; `gdp.anterior.log` la previa) y `actualizaciones.log` (local). En Drive, `versiones\historial-publicaciones.log` (quién publicó qué) y `versiones\registro\<usuario>.log` (actualizaciones de cada equipo).
+- **Login con Google:** se abre en el navegador del sistema; Google vuelve a `http://localhost:4780/api/auth/google/callback` (debe estar registrada en el cliente OAuth de Google Cloud) y el backend entrega el token a la ventana por IPC (`GDP_DESKTOP=1`, `desktopHandoff()` en `routes/auth.ts`). Si el puerto 4780 está ocupado la app usa otro y el login con Google no funciona.
+
 ---
 
 ## Módulos del Sistema

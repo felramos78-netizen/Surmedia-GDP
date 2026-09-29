@@ -1,0 +1,56 @@
+{
+  "name": "gdp-desktop",
+  "productName": "GDP Surmedia",
+  "version": "1.0.2",
+  "description": "Gestión de Personas Surmedia — aplicación de escritorio",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "icon": "electron scripts/make-icon.js",
+    "stage": "node scripts/stage.js",
+    "smoke": "node scripts/smoke.js",
+    "dist": "node scripts/stage.js && electron-builder --win nsis --publish never",
+    "publicar": "node scripts/publish.js"
+  },
+  "build": {
+    "appId": "cl.surmedia.gdp",
+    "productName": "GDP Surmedia",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "updater.js",
+      "splash.html",
+      "build/icon.png"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GDP Surmedia"
+    },
+    "extraResources": [
+      {
+        "from": "stage/backend",
+        "to": "backend"
+      },
+      {
+        "from": "stage/frontend",
+        "to": "frontend"
+      }
+    ],
+    "afterPack": "scripts/after-pack.js"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  }
+}
