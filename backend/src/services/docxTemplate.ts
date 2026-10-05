@@ -108,7 +108,9 @@ export function extractParagraphs(docxBuffer: Buffer): string[] {
   const re = /<w:p\b[\s\S]*?<\/w:p>/g
   let m: RegExpExecArray | null
   while ((m = re.exec(parsed.body)) !== null) {
-    const texts = [...m[0].matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)].map(x => xmlUnescape(x[1]))
+    // `<w:t .../>` autocerrado (variable vacía) no tiene texto: sin esto la regex
+    // se come el XML hasta el siguiente </w:t>
+    const texts = [...m[0].matchAll(/<w:t\b[^>]*?(?:\/>|>([\s\S]*?)<\/w:t>)/g)].map(x => xmlUnescape(x[1] ?? ''))
     paras.push(texts.join(''))
   }
   return paras
@@ -128,7 +130,7 @@ export function applyParagraphEdits(docxBuffer: Buffer, edits: Record<number, st
     const newText = edits[idx]
     if (newText === undefined) return p
     let first = true
-    return p.replace(/<w:t\b([^>]*)>([\s\S]*?)<\/w:t>/g, (_m, attrs) => {
+    return p.replace(/<w:t\b([^>]*?)(?:\/>|>[\s\S]*?<\/w:t>)/g, (_m, attrs) => {
       if (first) {
         first = false
         const a = /xml:space="preserve"/.test(attrs) ? attrs : `${attrs} xml:space="preserve"`

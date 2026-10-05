@@ -8,6 +8,7 @@ import { normalizeRut } from '../utils/rut'
 
 function resolveReportesDir(): string {
   const candidates = [
+    ...(process.env.GDP_REPORTES_DIR ? [process.env.GDP_REPORTES_DIR] : []),  // app de escritorio (Drive)
     path.join(process.cwd(), '..', 'reportes'),
     path.join(process.cwd(), 'reportes'),
   ]

@@ -8,6 +8,7 @@ import * as path from 'path'
 
 function resolveReportesDir(): string {
   const candidates = [
+    ...(process.env.GDP_REPORTES_DIR ? [process.env.GDP_REPORTES_DIR] : []),  // app de escritorio (Drive)
     path.join(process.cwd(), '..', 'reportes'),        // cwd = backend → ../reportes
     path.join(process.cwd(), 'reportes'),              // cwd = project root
     path.resolve(__dirname, '../../../reportes'),

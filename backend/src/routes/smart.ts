@@ -5,6 +5,8 @@ import * as path from 'path'
 
 function resolveSmartDir(): string {
   const candidates = [
+    // App de escritorio: carpeta de reportes en Drive (la define desktop/main.js)
+    ...(process.env.GDP_REPORTES_DIR ? [path.join(process.env.GDP_REPORTES_DIR, 'Smart')] : []),
     path.join(process.cwd(), '..', 'reportes', 'Smart'),
     path.join(process.cwd(), 'reportes', 'Smart'),
     path.resolve(__dirname, '../../../reportes/Smart'),

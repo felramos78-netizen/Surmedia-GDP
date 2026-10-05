@@ -193,9 +193,15 @@ async function startBackend() {
   backendPort = (await portIsFree(PREFERRED_PORT)) ? PREFERRED_PORT : await randomFreePort()
   const url = `http://127.0.0.1:${backendPort}`
 
+  // Reportes Excel (Smart, BUK de respaldo): en la app instalada no hay carpeta reportes/
+  // del repo; se leen de Drive, junto al .env (…\env de GDP\Desarrollo\datos\reportes).
+  const driveReportes = path.join(path.dirname(envFile()), 'Desarrollo', 'datos', 'reportes')
+  const reportesEnv = app.isPackaged && fs.existsSync(driveReportes) ? { GDP_REPORTES_DIR: driveReportes } : {}
+
   const env = {
     ...process.env,
     ...fileEnv,
+    ...reportesEnv,
     ELECTRON_RUN_AS_NODE: '1',
     NODE_ENV: 'production',
     PORT: String(backendPort),
