@@ -10,11 +10,13 @@ export interface DocCategoryRef { id: string; name: string }
 export type SignatureStatus = 'NO_REQUERIDA' | 'SIN_SOLICITAR' | 'PENDIENTE' | 'FIRMADA' | 'RECHAZADA'
 
 export interface BukFile {
+  id:        string   // id en buk_documents (para editar categoría y descargas masivas)
   fileId:    number
   filename:  string
   folder:    string
   createdAt: string | null
   category:  DocCategoryRef | null
+  categoryManual: boolean  // categoría fijada a mano: las reglas no la cambian
   // Firmas (null = aún no consultadas en BUK)
   employeeSign:      SignatureStatus | null
   employeeSignedAt:  string | null
@@ -129,6 +131,7 @@ export interface DocSummary {
   totalFichas:       number
   activePeople:      number  // personas (RUT) con al menos una ficha BUK activa
   uncategorizedDocs: number
+  fallbackCategory:  DocCategoryRef | null  // «Otros»: categoría por defecto, no editable
   categories:        DocCategorySummary[]
   topUncategorized:  { stem: string; docs: number; fichas: number; example: string }[]
 }
@@ -213,6 +216,32 @@ export function useDeleteDocCategory() {
     mutationFn: async (id: string) => { await api.delete(`/documents/categories/${id}`) },
     onSuccess: invalidate,
   })
+}
+
+// ── Categoría por documento (edición manual) ─────────────────────────────────
+
+/** categoryId = null → vuelve a la clasificación automática */
+export function useSetFilesCategory() {
+  const invalidate = useInvalidateDocs()
+  return useMutation({
+    mutationFn: async ({ ids, categoryId }: { ids: string[]; categoryId: string | null }) => {
+      if (ids.length === 1) await api.patch(`/documents/files/${ids[0]}/category`, { categoryId })
+      else await api.post('/documents/files/bulk-category', { ids, categoryId })
+    },
+    onSuccess: invalidate,
+  })
+}
+
+/** ZIP con los archivos elegidos (carpetas por categoría); el backend lo arma desde BUK */
+export async function downloadFilesZip(ids: string[]) {
+  const res = await api.post<Blob>('/documents/download-zip', { ids }, { responseType: 'blob', timeout: 10 * 60_000 })
+  const url = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `documentos-gdp-${new Date().toISOString().slice(0, 10)}.zip`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  return Number(res.headers['x-files-failed'] ?? 0)
 }
 
 // ── Archivos ──────────────────────────────────────────────────────────────────

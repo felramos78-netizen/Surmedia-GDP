@@ -5,7 +5,7 @@ import { requireRole } from '../middleware/requireRole'
 import { BUK_ENTITIES, fetchEmployeeFile } from '../services/bukApi.service'
 import {
   syncAll, syncRut, syncProgress, lastFullSync, autoSyncIfStale,
-  recategorizeAll, ensureDefaultCategories,
+  recategorizeAll, ensureDefaultCategories, loadRules, categorize, FALLBACK_CATEGORY,
 } from '../services/bukDocumentSync.service'
 import { fold } from '../utils/text'
 
@@ -30,15 +30,17 @@ function filenameStem(filename: string, personName: string) {
 }
 
 const docSelect = {
-  bukFileId: true, filename: true, folder: true, bukCreatedAt: true,
-  category: { select: { id: true, name: true } },
+  id: true, bukFileId: true, filename: true, folder: true, bukCreatedAt: true,
+  category: { select: { id: true, name: true } }, categoryManual: true,
   employeeSign: true, employeeSignedAt: true, companySign: true, companySignedAt: true, companySignerType: true,
 } satisfies Prisma.BukDocumentSelect
 
 type DocRow = Prisma.BukDocumentGetPayload<{ select: typeof docSelect }>
 
 const toFile = (d: DocRow) => ({
+  id:        d.id,
   fileId:    d.bukFileId,
+  categoryManual: d.categoryManual,
   filename:  d.filename,
   folder:    d.folder,
   createdAt: d.bukCreatedAt?.toISOString() ?? null,
@@ -105,6 +107,9 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
     return { rut, syncedAt: await syncedAtFor(rut), entities: [...entities.values()] }
   }
 
+  const isFallback = async (id: string) =>
+    !!(await prisma.documentCategory.findFirst({ where: { id, name: FALLBACK_CATEGORY }, select: { id: true } }))
+
   // ── Por colaborador ─────────────────────────────────────────────────────────
 
   // GET /api/documents/employee/:employeeId — documentos registrados en GDP. Si
@@ -167,7 +172,9 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
       where: {
         ...scopeWhere,
         ...(q.length >= 2 ? { searchText: { contains: q } } : {}),
-        ...(categoryId ? { categoryId: categoryId === 'none' ? null : categoryId } : {}),
+        ...(categoryId ? (categoryId === 'none'
+          ? { OR: [{ categoryId: null }, { category: { name: FALLBACK_CATEGORY } }] }
+          : { categoryId }) : {}),
         ...(employeeSign ? { employeeSign } : {}),
         ...(companySign ? { companySign } : {}),
       },
@@ -202,14 +209,14 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
     await ensureDefaultCategories(prisma)
     void autoSyncIfStale(prisma, logErr)
     const live = { removedAt: null }
-    const [categories, byCategory, catFichas, allFichas, activeRuts, catRuts, uncategorized, last] = await Promise.all([
+    const [allCategories, byCategory, catFichas, allFichas, activeRuts, catRuts, uncategorized, last] = await Promise.all([
       prisma.documentCategory.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] }),
       prisma.bukDocument.groupBy({ by: ['categoryId'], where: live, _count: { _all: true } }),
       prisma.bukDocument.groupBy({ by: ['categoryId', 'legalEntity', 'bukEmployeeId'], where: live }),
       prisma.bukDocument.groupBy({ by: ['legalEntity', 'bukEmployeeId'], where: live }),
       prisma.bukDocument.groupBy({ by: ['rut'], where: { ...live, bukStatus: ACTIVE } }),
       prisma.bukDocument.groupBy({ by: ['categoryId', 'rut'], where: live }),
-      prisma.bukDocument.findMany({ where: { ...live, categoryId: null }, select: { filename: true, personName: true, legalEntity: true, bukEmployeeId: true } }),
+      prisma.bukDocument.findMany({ where: { ...live, OR: [{ categoryId: null }, { category: { name: FALLBACK_CATEGORY } }] }, select: { filename: true, personName: true, legalEntity: true, bukEmployeeId: true } }),
       lastFullSync(prisma),
     ])
 
@@ -218,6 +225,8 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
       for (const r of rows) m.set(r.categoryId, (m.get(r.categoryId) ?? 0) + 1)
       return m
     }
+    const fallback   = allCategories.find(c => c.name === FALLBACK_CATEGORY) ?? null
+    const categories = allCategories.filter(c => c !== fallback)
     const docs = new Map(byCategory.map(r => [r.categoryId, r._count._all]))
     const fichas = countBy(catFichas)
     const active = new Set(activeRuts.map(r => r.rut))
@@ -238,7 +247,8 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
       totalDocs:    [...docs.values()].reduce((a, b) => a + b, 0),
       totalFichas:  allFichas.length,
       activePeople: active.size,
-      uncategorizedDocs: docs.get(null) ?? 0,
+      uncategorizedDocs: (docs.get(null) ?? 0) + (fallback ? docs.get(fallback.id) ?? 0 : 0),
+      fallbackCategory:  fallback ? { id: fallback.id, name: fallback.name } : null,
       categories: categories.map(c => ({
         id: c.id, name: c.name, group: c.group, keywords: c.keywords, required: c.required, sortOrder: c.sortOrder,
         docs:       docs.get(c.id) ?? 0,
@@ -288,6 +298,7 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch<{ Params: { id: string }; Body: CategoryBody }>('/categories/:id', async (req, reply) => {
     const data = parseCategory(req.body ?? {}, true)
     if (typeof data === 'string') return reply.status(400).send({ message: data })
+    if (await isFallback(req.params.id)) return reply.status(400).send({ message: `"${FALLBACK_CATEGORY}" es la categoría por defecto y no se edita` })
     if (data.name) {
       const clash = await prisma.documentCategory.findFirst({ where: { name: data.name as string, NOT: { id: req.params.id } } })
       if (clash) return reply.status(409).send({ message: 'Ya existe una categoría con ese nombre' })
@@ -297,10 +308,99 @@ const bukDocumentsRoutes: FastifyPluginAsync = async (fastify) => {
     return { category: cat, reclassified }
   })
 
-  fastify.delete<{ Params: { id: string } }>('/categories/:id', async (req) => {
+  fastify.delete<{ Params: { id: string } }>('/categories/:id', async (req, reply) => {
+    if (await isFallback(req.params.id)) return reply.status(400).send({ message: `"${FALLBACK_CATEGORY}" es la categoría por defecto y no se borra` })
+    // Los documentos fijados a mano en esta categoría vuelven a automático
+    await prisma.bukDocument.updateMany({ where: { categoryId: req.params.id }, data: { categoryManual: false } })
     await prisma.documentCategory.delete({ where: { id: req.params.id } })
     const reclassified = await recategorizeAll(prisma)
     return { ok: true, reclassified }
+  })
+
+  // ── Categoría por documento (edición manual) ────────────────────────────────
+
+  // Fija la categoría de uno o varios documentos (ids = id de buk_documents).
+  // categoryId = null → vuelve a la clasificación automática.
+  async function setCategory(ids: string[], categoryId: string | null) {
+    if (categoryId) {
+      await prisma.bukDocument.updateMany({ where: { id: { in: ids } }, data: { categoryId, categoryManual: true } })
+      return
+    }
+    await ensureDefaultCategories(prisma)
+    const rules = await loadRules(prisma)
+    const docs = await prisma.bukDocument.findMany({ where: { id: { in: ids } }, select: { id: true, filename: true, folder: true } })
+    for (const d of docs) {
+      await prisma.bukDocument.update({ where: { id: d.id }, data: { categoryManual: false, categoryId: categorize(rules, d.filename, d.folder) } })
+    }
+  }
+
+  fastify.patch<{ Params: { id: string }; Body: { categoryId?: string | null } }>('/files/:id/category', async (req, reply) => {
+    const categoryId = req.body?.categoryId ?? null
+    if (categoryId && !(await prisma.documentCategory.findUnique({ where: { id: categoryId } }))) {
+      return reply.status(404).send({ message: 'Categoría no encontrada' })
+    }
+    await setCategory([req.params.id], categoryId)
+    return { ok: true }
+  })
+
+  fastify.post<{ Body: { ids?: string[]; categoryId?: string | null } }>('/files/bulk-category', async (req, reply) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : []
+    if (!ids.length) return reply.status(400).send({ message: 'Selecciona al menos un documento' })
+    const categoryId = req.body?.categoryId ?? null
+    if (categoryId && !(await prisma.documentCategory.findUnique({ where: { id: categoryId } }))) {
+      return reply.status(404).send({ message: 'Categoría no encontrada' })
+    }
+    for (let i = 0; i < ids.length; i += 1000) await setCategory(ids.slice(i, i + 1000), categoryId)
+    return { ok: true, updated: ids.length }
+  })
+
+  // ── Descarga masiva ─────────────────────────────────────────────────────────
+
+  const ZIP_MAX_FILES = 300
+  const ZIP_MAX_BYTES = 500 * 1024 * 1024
+  const safeName = (s: string) => s.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
+
+  // POST /api/documents/download-zip { ids } — ZIP con los archivos, en carpetas por categoría
+  fastify.post<{ Body: { ids?: string[] } }>('/download-zip', async (req, reply) => {
+    const ids = [...new Set(Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [])]
+    if (!ids.length) return reply.status(400).send({ message: 'Selecciona al menos un documento' })
+    if (ids.length > ZIP_MAX_FILES) return reply.status(400).send({ message: `Máximo ${ZIP_MAX_FILES} archivos por descarga; filtra más o descarga por partes` })
+
+    const docs = await prisma.bukDocument.findMany({
+      where:  { id: { in: ids }, removedAt: null },
+      select: { legalEntity: true, bukEmployeeId: true, bukFileId: true, filename: true, rut: true, personName: true, category: { select: { name: true } } },
+    })
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const PizZip = require('pizzip')
+    const zip = new PizZip()
+    const used = new Set<string>()
+    let bytes = 0, next = 0, failed = 0
+    const worker = async () => {
+      while (next < docs.length) {
+        const d = docs[next++]
+        try {
+          const res = await fetchEmployeeFile(d.legalEntity, d.bukEmployeeId, d.bukFileId)
+          const buf = Buffer.from(await res.arrayBuffer())
+          bytes += buf.length
+          if (bytes > ZIP_MAX_BYTES) throw new Error('límite de tamaño')
+          let path = `${safeName(d.category?.name ?? FALLBACK_CATEGORY)}/${safeName(`${d.rut} - ${d.personName} - ${d.filename}`)}`
+          for (let n = 2; used.has(path); n++) path = path.replace(/(\.[^./]*)?$/, ` (${n})$1`)
+          used.add(path)
+          zip.file(path, buf)
+        } catch { failed++ }
+      }
+    }
+    await Promise.all(Array.from({ length: 4 }, worker))
+    if (bytes > ZIP_MAX_BYTES) return reply.status(413).send({ message: 'La descarga supera 500 MB; filtra más o descarga por partes' })
+    if (!used.size) return reply.status(502).send({ message: 'No se pudo obtener ningún archivo desde BUK' })
+
+    const out: Buffer = zip.generate({ type: 'nodebuffer', compression: 'STORE' })
+    return reply
+      .header('Content-Type', 'application/zip')
+      .header('Content-Disposition', `attachment; filename="documentos-gdp.zip"`)
+      .header('X-Files-Failed', String(failed))
+      .header('Cache-Control', 'private, no-store')
+      .send(out)
   })
 
   // ── Sincronización total ────────────────────────────────────────────────────

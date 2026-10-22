@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronRight, Download, ExternalLink, FileText, Folder, RefreshCw, Search } from 'lucide-react'
 import {
-  useBukDocuments, useSyncEmployeeDocuments, openBukFile, downloadBukFile,
+  useBukDocuments, useSyncEmployeeDocuments, openBukFile, downloadBukFile, useDocSummary, useSetFilesCategory,
   type BukEntityDocs, type BukFile, type SignatureStatus,
 } from '@/hooks/useBukDocuments'
 import { formatDate } from '@/lib/utils'
@@ -16,7 +16,6 @@ export const ENTITY_COLOR: Record<LegalEntity, string> = {
   SURMEDIA_CONSULTORIA:    'bg-violet-100 text-violet-700',
 }
 const NO_FOLDER = 'Sin carpeta'
-const UNCATEGORIZED = 'none'
 
 export function timeAgo(iso: string) {
   const min = Math.round((Date.now() - new Date(iso).getTime()) / 60_000)
@@ -39,10 +38,39 @@ function groupByFolder(files: BukFile[]) {
   return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, 'es'))
 }
 
-export function CategoryChip({ category }: { category: BukFile['category'] }) {
-  return category
-    ? <span className="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 whitespace-nowrap">{category.name}</span>
-    : <span className="text-[11px] px-1.5 py-0.5 rounded border border-dashed border-gray-200 text-gray-400 whitespace-nowrap">Sin clasificar</span>
+const AUTO = '__auto'
+
+/** Categoría del documento, editable: fijarla a mano o volver a la clasificación automática */
+export function CategorySelect({ file }: { file: BukFile }) {
+  const { data: summary } = useDocSummary()
+  const setCategory = useSetFilesCategory()
+  const fallback = summary?.fallbackCategory ?? null
+  const current  = file.category?.id ?? fallback?.id ?? ''
+
+  const groups = new Map<string, { id: string; name: string }[]>()
+  for (const c of summary?.categories ?? []) groups.set(c.group, [...(groups.get(c.group) ?? []), c])
+  const isOther = !!fallback && current === fallback.id
+
+  return (
+    <select
+      value={current}
+      disabled={setCategory.isPending || !summary}
+      onChange={e => setCategory.mutate({ ids: [file.id], categoryId: e.target.value === AUTO ? null : e.target.value })}
+      aria-label={`Categoría de ${file.filename}`}
+      title={file.categoryManual ? 'Categoría fijada a mano' : 'Categoría automática (según reglas); cámbiala si no es correcta'}
+      className={`w-44 flex-shrink-0 text-[11px] px-1.5 py-1 rounded border bg-white truncate focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-50 ${
+        file.categoryManual ? 'border-amber-300 bg-amber-50 text-amber-800'
+        : isOther ? 'border-dashed border-gray-300 text-gray-400' : 'border-gray-200 text-gray-600'}`}
+    >
+      {file.categoryManual && <option value={AUTO}>↺ Volver a automática</option>}
+      {[...groups.entries()].map(([group, cats]) => (
+        <optgroup key={group} label={group}>
+          {cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </optgroup>
+      ))}
+      {fallback && <option value={fallback.id}>{fallback.name}</option>}
+    </select>
+  )
 }
 
 export const SIGN_META: Record<SignatureStatus, { label: string; cls: string }> = {
@@ -66,7 +94,10 @@ export function SignatureBadge({ status, signedAt, who }: { status: SignatureSta
   return <span className={`text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap ${m.cls}`} title={title}>{m.label}</span>
 }
 
-export function FileRow({ file, entity, bukEmployeeId }: { file: BukFile; entity: LegalEntity; bukEmployeeId: number }) {
+export function FileRow({ file, entity, bukEmployeeId, selected, onToggle }: {
+  file: BukFile; entity: LegalEntity; bukEmployeeId: number
+  selected?: boolean; onToggle?: () => void   // solo en el buscador (selección para acciones masivas)
+}) {
   const [busy,  setBusy]  = useState<'open' | 'download' | null>(null)
   const [error, setError] = useState(false)
 
@@ -83,7 +114,11 @@ export function FileRow({ file, entity, bukEmployeeId }: { file: BukFile; entity
   }
 
   return (
-    <li className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded-lg group">
+    <li className={`flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded-lg group ${selected ? 'bg-brand-50/60' : ''}`}>
+      {onToggle && (
+        <input type="checkbox" checked={!!selected} onChange={onToggle} aria-label={`Seleccionar ${file.filename}`}
+          className="w-4 h-4 flex-shrink-0 accent-brand-600" />
+      )}
       <FileText size={15} className="text-gray-400 flex-shrink-0" />
       <span className="flex-1 min-w-0 text-sm text-gray-700 truncate" title={file.filename}>{file.filename}</span>
       {error && <span className="text-xs text-red-500">Error al obtener el archivo</span>}
@@ -94,7 +129,7 @@ export function FileRow({ file, entity, bukEmployeeId }: { file: BukFile; entity
         <SignatureBadge status={file.companySign} signedAt={file.companySignedAt}
           who={file.companySignerType === 'other' ? 'Otro firmante de la empresa' : 'Representante de la empresa'} />
       </span>
-      <CategoryChip category={file.category} />
+      <CategorySelect file={file} />
       <span className="text-xs text-gray-400 w-20 text-right flex-shrink-0">
         {file.createdAt ? formatDate(file.createdAt) : '—'}
       </span>
@@ -121,14 +156,15 @@ export function FileRow({ file, entity, bukEmployeeId }: { file: BukFile; entity
 }
 
 /** Encabezado de las columnas de la lista de archivos */
-export function FileListHeader() {
+export function FileListHeader({ selectable }: { selectable?: boolean }) {
   return (
     <li className="flex items-center gap-3 px-3 pt-1 pb-0.5 text-[10px] font-medium text-gray-400 uppercase tracking-wide" aria-hidden>
+      {selectable && <span className="w-4" />}
       <span className="w-[15px]" />
       <span className="flex-1">Documento</span>
       <span className="w-24 text-center">Firma trabajador</span>
       <span className="w-24 text-center">Firma empresa</span>
-      <span className="w-[92px]" />
+      <span className="w-44">Categoría</span>
       <span className="w-20 text-right">Fecha</span>
       <span className="w-[62px]" />
     </li>
@@ -167,7 +203,7 @@ function EntitySection({ docs, query, categoryId }: { docs: BukEntityDocs; query
   const filtering = !!q || !!categoryId
   const files = docs.files.filter(f =>
     (!q || f.filename.toLowerCase().includes(q) || f.folder.toLowerCase().includes(q)) &&
-    (!categoryId || (categoryId === UNCATEGORIZED ? !f.category : f.category?.id === categoryId)))
+    (!categoryId || f.category?.id === categoryId))
   const groups = groupByFolder(files)
 
   return (
@@ -225,9 +261,9 @@ export default function EmployeeDocuments({ employeeId }: { employeeId: string }
 
   // Categorías presentes en los documentos del colaborador, para el filtro
   const categories = new Map<string, { name: string; count: number }>()
-  let uncategorized = 0
+  // Todo documento tiene categoría («Otros» si ninguna regla coincide)
   for (const f of data.entities.flatMap(e => e.files)) {
-    if (!f.category) { uncategorized++; continue }
+    if (!f.category) continue
     const c = categories.get(f.category.id) ?? { name: f.category.name, count: 0 }
     c.count++
     categories.set(f.category.id, c)
@@ -254,9 +290,7 @@ export default function EmployeeDocuments({ employeeId }: { employeeId: string }
           className="px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
         >
           <option value="">Todas las categorías</option>
-          {categoryOptions.map(([id, c]) => <option key={id} value={id}>{c.name} ({c.count})</option>)}
-          {uncategorized > 0 && <option value={UNCATEGORIZED}>Sin clasificar ({uncategorized})</option>}
-        </select>
+          {categoryOptions.map(([id, c]) => <option key={id} value={id}>{c.name} ({c.count})</option>)}        </select>
 
         <div className="ml-auto flex items-center gap-2 text-xs text-gray-400">
           {sync.isError && <span className="text-red-500">No se pudo consultar BUK</span>}

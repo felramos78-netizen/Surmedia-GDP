@@ -47,37 +47,67 @@ const DEFAULT_CATEGORIES: { name: string; group: string; keywords: string[]; req
   { name: 'Finiquito',                      group: 'Desvinculación',       keywords: ['finiquito'] },
 ]
 
+// Categoría comodín: todo documento que no coincide con ninguna regla cae aquí,
+// así ningún archivo queda sin categoría. No tiene palabras clave ni se edita.
+export const FALLBACK_CATEGORY = 'Otros'
+
 export async function ensureDefaultCategories(prisma: PrismaClient) {
-  if (await prisma.documentCategory.count()) return
-  await prisma.documentCategory.createMany({
-    data: DEFAULT_CATEGORIES.map((c, i) => ({ ...c, required: c.required ?? false, sortOrder: (i + 1) * 10 })),
+  if (!(await prisma.documentCategory.count())) {
+    await prisma.documentCategory.createMany({
+      data: DEFAULT_CATEGORIES.map((c, i) => ({ ...c, required: c.required ?? false, sortOrder: (i + 1) * 10 })),
+    })
+  }
+  await prisma.documentCategory.upsert({
+    where:  { name: FALLBACK_CATEGORY },
+    update: {},
+    create: { name: FALLBACK_CATEGORY, group: 'Sin clasificar', keywords: [], required: false, sortOrder: 9999 },
   })
 }
 
-interface CategoryRule { id: string; keywords: string[] }
+interface CategoryRules { rules: { id: string; keywords: string[] }[]; fallbackId: string | null }
 
-async function loadRules(prisma: PrismaClient): Promise<CategoryRule[]> {
+export async function loadRules(prisma: PrismaClient): Promise<CategoryRules> {
   const cats = await prisma.documentCategory.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] })
-  return cats.map(c => ({ id: c.id, keywords: c.keywords.map(fold).filter(Boolean) }))
-}
-
-// Coincidencia por inicio de palabra: "odi" encuentra "ODI Surmedia" pero no "periodo"
-const matches = (text: string, kw: string) => ` ${text}`.includes(` ${kw}`)
-
-// Primero se busca en el nombre del archivo; solo si nada coincide, en la carpeta
-export function categorize(rules: CategoryRule[], filename: string, folder: string): string | null {
-  const name = fold(filename), dir = fold(folder)
-  for (const text of [name, dir]) {
-    const rule = rules.find(r => r.keywords.some(kw => matches(text, kw)))
-    if (rule) return rule.id
+  const fallback = cats.find(c => c.name === FALLBACK_CATEGORY)
+  return {
+    fallbackId: fallback?.id ?? null,
+    rules: cats.filter(c => c !== fallback).map(c => ({ id: c.id, keywords: c.keywords.map(fold).filter(Boolean) })),
   }
-  return null
 }
 
-// Recalcula la categoría de todos los documentos (tras editar categorías)
+// Coincidencia por inicio de palabra: "pacto" encuentra "Pactos HHEE" pero no "impacto".
+// Las claves cortas (≤4 letras: cv, odi, irl, epp, afp) deben ser la palabra completa:
+// "odi" no debe encontrar "Odiseo".
+const matches = (text: string, kw: string) =>
+  kw.length <= 4 ? ` ${text} `.includes(` ${kw} `) : ` ${text}`.includes(` ${kw}`)
+
+// Gana la frase clave con más palabras (la más específica: "anexo teletrabajo" o
+// "ley karin" antes que "anexo"); si empatan, la categoría con menor orden
+// (sortOrder). Primero se busca en el nombre del archivo; solo si nada coincide,
+// en la carpeta. Sin coincidencia: "Otros".
+export function categorize({ rules, fallbackId }: CategoryRules, filename: string, folder: string): string | null {
+  for (const text of [fold(filename), fold(folder)]) {
+    let best: { id: string; words: number } | null = null
+    for (const r of rules) {
+      for (const kw of r.keywords) {
+        const words = kw.split(' ').length
+        if (words > (best?.words ?? 0) && matches(text, kw)) best = { id: r.id, words }
+      }
+    }
+    if (best) return best.id
+  }
+  return fallbackId
+}
+
+// Recalcula la categoría de los documentos automáticos (tras editar categorías).
+// Los fijados a mano (categoryManual) no se tocan.
 export async function recategorizeAll(prisma: PrismaClient) {
+  await ensureDefaultCategories(prisma)
   const rules = await loadRules(prisma)
-  const docs = await prisma.bukDocument.findMany({ select: { id: true, filename: true, folder: true, categoryId: true } })
+  const docs = await prisma.bukDocument.findMany({
+    where:  { categoryManual: false },
+    select: { id: true, filename: true, folder: true, categoryId: true },
+  })
   const changes = new Map<string | null, string[]>()
   for (const d of docs) {
     const cat = categorize(rules, d.filename, d.folder)
@@ -130,7 +160,7 @@ async function syncFichas(prisma: PrismaClient, fichas: Ficha[], scope: string, 
           where: { OR: readFichas },
           select: {
             id: true, legalEntity: true, bukEmployeeId: true, bukFileId: true, filename: true, folder: true, removedAt: true,
-            personName: true, bukStatus: true, employeeId: true, rut: true,
+            categoryManual: true, personName: true, bukStatus: true, employeeId: true, rut: true,
           },
         })
       : []
@@ -173,7 +203,7 @@ async function syncFichas(prisma: PrismaClient, fichas: Ficha[], scope: string, 
             where: { id: prev.id },
             data:  {
               filename: f.filename, folder: f.folder, searchText: fold(`${f.folder} ${f.filename}`),
-              categoryId: categorize(rules, f.filename, f.folder),
+              ...(prev.categoryManual ? {} : { categoryId: categorize(rules, f.filename, f.folder) }),
             },
           })
         }

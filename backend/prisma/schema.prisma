@@ -378,6 +378,7 @@ model BukDocument {
   bukCreatedAt  DateTime?
   category      DocumentCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   categoryId    String?
+  categoryManual Boolean          @default(false) // categoría fijada a mano: la reclasificación automática no la toca
   firstSeenAt   DateTime          @default(now())
   lastSeenAt    DateTime          @default(now())
   removedAt     DateTime? // ya no aparece en BUK
