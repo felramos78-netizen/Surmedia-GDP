@@ -463,7 +463,7 @@ export function EditProcessModal({ process, onClose }: { process: OnboardingProc
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">Modalidad de trabajo</label>
                 <div className="border border-gray-200 rounded-lg p-3 bg-gray-50/50 space-y-2">
-                  {(['Presencial inplant', 'Presencial oficina Surmedia', 'Terreno', 'Teletrabajo'] as const).map(opt => (
+                  {(['Presencial inplant', 'Presencial oficina Surmedia', 'Terreno', 'En faena', 'Teletrabajo'] as const).map(opt => (
                     <label key={opt} className="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" checked={modalidades.includes(opt)}
                         onChange={e => setModalidades(prev => e.target.checked ? [...prev, opt] : prev.filter(x => x !== opt))}
