@@ -564,6 +564,22 @@ export interface BudgetRendicion {
   item:        { id: string; name: string; category: { name: string } }
 }
 
+// Documento o rendición que compone el gasto de una partida (detalle del reporte Excel)
+export interface BudgetMovement {
+  itemId:      string
+  tipo:        string
+  fecha:       string | null
+  periodo:     string | null
+  quarter:     number
+  proveedor:   string
+  rut:         string
+  folio:       string | null
+  legalEntity: string | null
+  monto:       number
+  pagado:      boolean | null
+  glosa:       string
+}
+
 export interface BudgetCategory {
   id:        string
   section:   'PARTIDAS' | 'BENEFICIOS'

@@ -3,9 +3,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import axios from '@/lib/api'
 import { useBudget } from '@/hooks/useBudget'
 import RendicionesTab from './RendicionesTab'
+import BudgetExportModal from './BudgetExportModal'
 import type { BudgetCategory, BudgetItem } from '@/types'
 import { formatCLP } from '@/lib/utils'
-import { Loader2, Pencil, Check, X, AlertTriangle, Trash2, Plus, GripVertical, Columns3, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Loader2, Pencil, Check, X, AlertTriangle, Trash2, Plus, GripVertical, Columns3, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 
 // Mueve un elemento (por id) delante de otro dentro de un arreglo.
 function moveBefore<T>(arr: T[], fromId: string, toId: string, idOf: (x: T) => string): T[] {
@@ -600,6 +601,7 @@ export default function PresupuestoPage() {
   const { data: categories, isLoading, isError } = useBudget()
   const [expanded, setExpanded] = useState(false)
   const [tab, setTab] = useState<'partidas' | 'rendiciones'>('partidas')
+  const [exporting, setExporting] = useState(false)
 
   if (isLoading) {
     return (
@@ -627,15 +629,28 @@ export default function PresupuestoPage() {
           <h1 className="text-2xl font-bold text-gray-900">Presupuesto DPDO</h1>
           <p className="text-sm text-gray-500 mt-0.5">Gestión de partidas y gastos anuales</p>
         </div>
-        {tab === 'partidas' && <button
-          onClick={() => setExpanded(v => !v)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 hover:text-brand-700 transition-colors whitespace-nowrap"
-        >
-          <Columns3 size={15} />
-          {expanded ? 'Ocultar trimestres' : 'Ver trimestres'}
-          {expanded ? <ChevronLeft size={15} /> : <ChevronRight size={15} />}
-        </button>}
+        {tab === 'partidas' && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setExporting(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 hover:text-brand-700 transition-colors whitespace-nowrap"
+            >
+              <Download size={15} />
+              Descargar Excel
+            </button>
+            <button
+              onClick={() => setExpanded(v => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 hover:text-brand-700 transition-colors whitespace-nowrap"
+            >
+              <Columns3 size={15} />
+              {expanded ? 'Ocultar trimestres' : 'Ver trimestres'}
+              {expanded ? <ChevronLeft size={15} /> : <ChevronRight size={15} />}
+            </button>
+          </div>
+        )}
       </div>
+
+      {exporting && <BudgetExportModal categories={partidas} onClose={() => setExporting(false)} />}
 
       <div className="flex gap-1 border-b border-gray-200">
         {([['partidas', 'Partidas'], ['rendiciones', 'Rendiciones']] as const).map(([value, label]) => (

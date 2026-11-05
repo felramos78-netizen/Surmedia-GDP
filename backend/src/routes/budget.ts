@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify'
+import { normalizeRut } from '../utils/rut'
 
 // Fuentes de gasto imputadas al Presupuesto DPDO:
 //  - BH y facturas de Smart con partida (`SmartDocument.budgetItemId`). Al importar, un documento
@@ -25,6 +26,34 @@ function docYearQuarter(periodo: string | null, fecha: Date | null): { year: num
   return null
 }
 
+// Documentos de Smart que cuentan como gasto de una partida (ver reglas al inicio del archivo).
+async function countedBudgetDocs(app: FastifyInstance) {
+  const docs = await app.prisma.smartDocument.findMany({
+    where: { budgetItemId: { not: null }, vigente: true },
+    select: {
+      budgetItemId: true, montoTotal: true, periodoTributario: true, fechaEmision: true,
+      codigoTributario: true, folioReferencia: true, proveedorId: true, legalEntity: true,
+      category: true, folio: true, pagado: true, glosa: true,
+      proveedor: { select: { razonSocial: true, rut: true } },
+    },
+  })
+
+  // Notas de crédito cuya factura de referencia no existe en GDP → se ignoran.
+  const docKey = (proveedorId: string, legalEntity: string, folio: string) => `${proveedorId}|${legalEntity}|${folio}`
+  const notas = docs.filter(d => d.codigoTributario === NOTA_CREDITO)
+  const referenced = notas.length
+    ? await app.prisma.smartDocument.findMany({
+        where: { proveedorId: { in: [...new Set(notas.map(n => n.proveedorId))] }, codigoTributario: { not: NOTA_CREDITO } },
+        select: { proveedorId: true, legalEntity: true, folio: true },
+      })
+    : []
+  const existingDocs = new Set(referenced.map(r => docKey(r.proveedorId, r.legalEntity, r.folio ?? '')))
+  return docs.filter(d =>
+    d.codigoTributario !== NOTA_CREDITO ||
+    (!!d.folioReferencia && existingDocs.has(docKey(d.proveedorId, d.legalEntity, d.folioReferencia))),
+  )
+}
+
 export default async function budgetRoutes(app: FastifyInstance) {
   app.addHook('preHandler', app.authenticate)
 
@@ -34,27 +63,7 @@ export default async function budgetRoutes(app: FastifyInstance) {
       include: { items: { orderBy: { sortOrder: 'asc' } } },
     })
 
-    const docs = await app.prisma.smartDocument.findMany({
-      where: { budgetItemId: { not: null }, vigente: true },
-      select: {
-        budgetItemId: true, montoTotal: true, periodoTributario: true, fechaEmision: true,
-        codigoTributario: true, folioReferencia: true, proveedorId: true, legalEntity: true,
-      },
-    })
-
-    // Notas de crédito cuya factura de referencia no existe en GDP → se ignoran.
-    const docKey = (proveedorId: string, legalEntity: string, folio: string) => `${proveedorId}|${legalEntity}|${folio}`
-    const notas = docs.filter(d => d.codigoTributario === NOTA_CREDITO)
-    const referenced = notas.length
-      ? await app.prisma.smartDocument.findMany({
-          where: { proveedorId: { in: [...new Set(notas.map(n => n.proveedorId))] }, codigoTributario: { not: NOTA_CREDITO } },
-          select: { proveedorId: true, legalEntity: true, folio: true },
-        })
-      : []
-    const existingDocs = new Set(referenced.map(r => docKey(r.proveedorId, r.legalEntity, r.folio ?? '')))
-    const counts = (d: (typeof docs)[number]) =>
-      d.codigoTributario !== NOTA_CREDITO ||
-      (!!d.folioReferencia && existingDocs.has(docKey(d.proveedorId, d.legalEntity, d.folioReferencia)))
+    const docs = await countedBudgetDocs(app)
 
     // Gasto acotado al año presupuestario en curso, desglosado por trimestre.
     const budgetYear = new Date().getFullYear()
@@ -66,7 +75,7 @@ export default async function budgetRoutes(app: FastifyInstance) {
       cur.quarters[yq.q] += amount
       spendByItem.set(itemId, cur)
     }
-    for (const d of docs.filter(counts)) addToItem(d.budgetItemId!, docYearQuarter(d.periodoTributario, d.fechaEmision), d.montoTotal)
+    for (const d of docs) addToItem(d.budgetItemId!, docYearQuarter(d.periodoTributario, d.fechaEmision), d.montoTotal)
 
     const rendiciones = await app.prisma.budgetRendicion.findMany({ select: { itemId: true, amount: true, date: true } })
     for (const r of rendiciones) addToItem(r.itemId, docYearQuarter(null, r.date), r.amount)
@@ -85,6 +94,52 @@ export default async function budgetRoutes(app: FastifyInstance) {
     }))
 
     return reply.send({ data: withSpent })
+  })
+
+  // Movimientos del año en curso que componen el gasto de cada partida (para el reporte Excel).
+  app.get('/movements', async (_req, reply) => {
+    const budgetYear = new Date().getFullYear()
+    const docs = await countedBudgetDocs(app)
+    const rendiciones = await app.prisma.budgetRendicion.findMany()
+
+    const fromDocs = docs.flatMap(d => {
+      const yq = docYearQuarter(d.periodoTributario, d.fechaEmision)
+      if (!yq || yq.year !== budgetYear) return []
+      return [{
+        itemId:      d.budgetItemId!,
+        tipo:        d.category === 'HONORARIO' ? 'BH' : d.codigoTributario === NOTA_CREDITO ? 'Nota de crédito' : 'Factura',
+        fecha:       d.fechaEmision?.toISOString() ?? null,
+        periodo:     d.periodoTributario,
+        quarter:     yq.q + 1,
+        proveedor:   d.proveedor.razonSocial.trim(),
+        rut:         normalizeRut(d.proveedor.rut),
+        folio:       d.folio,
+        legalEntity: d.legalEntity as string | null,
+        monto:       d.montoTotal,
+        pagado:      d.pagado as boolean | null,
+        glosa:       (d.glosa ?? '').trim(),
+      }]
+    })
+    const fromRendiciones = rendiciones.flatMap(r => {
+      const yq = docYearQuarter(null, r.date)
+      if (!yq || yq.year !== budgetYear) return []
+      return [{
+        itemId:      r.itemId,
+        tipo:        'Rendición',
+        fecha:       r.date.toISOString(),
+        periodo:     null,
+        quarter:     yq.q + 1,
+        proveedor:   '',
+        rut:         '',
+        folio:       null,
+        legalEntity: null,
+        monto:       r.amount,
+        pagado:      null,
+        glosa:       [r.description, r.notes].filter(Boolean).join(' — '),
+      }]
+    })
+
+    return reply.send({ data: { year: budgetYear, movements: [...fromDocs, ...fromRendiciones] } })
   })
 
   // ── Rendiciones ───────────────────────────────────────────────────────────

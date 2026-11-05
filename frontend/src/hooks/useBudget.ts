@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
-import type { BudgetCategory, BudgetRendicion, ApiResponse } from '@/types'
+import type { BudgetCategory, BudgetMovement, BudgetRendicion, ApiResponse } from '@/types'
 
 export function useBudget() {
   return useQuery<BudgetCategory[]>({
@@ -28,6 +28,12 @@ export function useBudgetSegments(): BudgetCategory[] {
 export function useBudgetItemNameById(): Map<string, string> {
   const segments = useBudgetSegments()
   return useMemo(() => new Map(segments.flatMap(c => c.items.map(i => [i.id, i.name] as const))), [segments])
+}
+
+// Movimientos del año para el reporte Excel: se piden al descargar, para que salgan al día.
+export async function fetchBudgetMovements() {
+  const { data } = await api.get<ApiResponse<{ year: number; movements: BudgetMovement[] }>>('/budget/movements')
+  return data.data
 }
 
 // ── Rendiciones ──────────────────────────────────────────────────────────────
